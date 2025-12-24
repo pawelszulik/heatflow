@@ -1,0 +1,194 @@
+# Faza 2 - Arbitraż i priorytetyzacja pokoi
+# Wybiera maksymalnie 5 pokoi do grzania na podstawie score
+
+heating_phase2_arbitrate:
+  alias: "FAZA 2: Arbitraż i Priorytetyzacja"
+  sequence:
+    - variables:
+        rooms: "{{ states('input_text.heating_rooms_list').split(',') }}"
+        min_valves: "{{ states('input_number.min_valves_open') | int }}"
+        max_valves: 5
+        current_hour: "{{ now().hour }}"
+        current_minute: "{{ now().minute }}"
+        current_time_minutes: "{{ current_hour * 60 + current_minute }}"
+        is_weekend: "{{ now().weekday() >= 6 }}"
+        
+    # Zbierz pokoje HIGH i MEDIUM oraz oblicz score dla każdego
+    - variables:
+        rooms_data: >
+          {% set data = [] %}
+          {% for room in rooms %}
+            {% set is_high = is_state('input_boolean.' + room + '_needs_heating_high', 'on') %}
+            {% set is_medium = is_state('input_boolean.' + room + '_needs_heating_medium', 'on') %}
+            {% if is_high or is_medium %}
+              {% set priority = states('input_number.' + room + '_priority') | int %}
+              {% set deficit = states('input_number.' + room + '_temp_deficit') | float %}
+              {% set sensitive = is_state('input_boolean.' + room + '_sensitive', 'on') %}
+              {% set schedule = states('input_select.' + room + '_usage_schedule') %}
+              
+              {# Sprawdź czy pokój będzie używany wkrótce #}
+              {% set usage_soon = false %}
+              {% if schedule != 'Brak' %}
+                {% set parts = schedule.split('|') %}
+                {% set weekday_schedule = parts[0] if parts|length > 0 else '' %}
+                {% set weekend_schedule = parts[1] if parts|length > 1 else parts[0] %}
+                {% set active_schedule = weekend_schedule if is_weekend else weekday_schedule %}
+                {% if active_schedule != 'Brak' %}
+                  {% set time_ranges = active_schedule.split(',') %}
+                  {% for range_str in time_ranges %}
+                    {% set range_parts = range_str.strip().split('-') %}
+                    {% if range_parts|length == 2 %}
+                      {% set start_str = range_parts[0].strip() %}
+                      {% set end_str = range_parts[1].strip() %}
+                      {% set start_parts = start_str.split(':') %}
+                      {% set end_parts = end_str.split(':') %}
+                      {% set start_min = start_parts[0]|int * 60 + start_parts[1]|int %}
+                      {% set end_min = end_parts[0]|int * 60 + end_parts[1]|int %}
+                      {% set future_time = current_time_minutes + 30 %}
+                      {% if future_time >= start_min and future_time <= end_min %}
+                        {% set usage_soon = true %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+              {% endif %}
+              
+              {# Oblicz score #}
+              {% set score_base = priority * 100 %}
+              {% set score_deficit = deficit * 10 %}
+              {% set score_sensitive = 50 if sensitive else 0 %}
+              {% set score_usage = 20 if usage_soon else 0 %}
+              {% set score_penalty = 0 %}
+              {% set score_total = score_base + score_deficit + score_sensitive + score_usage - score_penalty %}
+              
+              {{ data.append({
+                'room': room,
+                'priority': priority,
+                'deficit': deficit,
+                'is_high': is_high,
+                'is_medium': is_medium,
+                'score': score_total
+              }) }}
+            {% endif %}
+          {% endfor %}
+          {{ data }}
+          
+        high_medium_count: "{{ rooms_data | length }}"
+        
+    # Jeśli ≤4 pokoi HIGH+MEDIUM, wybierz wszystkie + 1 bezpieczeństwa
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ high_medium_count <= 4 }}"
+          sequence:
+            # Wybierz wszystkie HIGH+MEDIUM
+            - repeat:
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: "input_boolean.{{ repeat.item.room }}_heating_enabled"
+                for_each: "{{ rooms_data }}"
+                
+            # Dodaj 1 pokój bezpieczeństwa (najniższy priorytet, który nie jest już wybrany)
+            - variables:
+                safety_room: >
+                  {% set selected_rooms = rooms_data | map(attribute='room') | list %}
+                  {% set available_rooms = [] %}
+                  {% for room in rooms %}
+                    {% if room not in selected_rooms %}
+                      {% set priority = states('input_number.' + room + '_priority') | int %}
+                      {{ available_rooms.append({'room': room, 'priority': priority}) }}
+                    {% endif %}
+                  {% endfor %}
+                  {% if available_rooms | length > 0 %}
+                    {% set sorted = available_rooms | sort(attribute='priority', reverse=true) %}
+                    {{ sorted[0].room }}
+                  {% else %}
+                    {{ rooms[-1] }}
+                  {% endif %}
+            - service: input_boolean.turn_on
+              target:
+                entity_id: "input_boolean.{{ safety_room }}_heating_enabled"
+              
+            # Wyłącz pozostałe pokoje
+            - repeat:
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "input_boolean.{{ repeat.item }}_heating_enabled"
+                for_each: >
+                  {% set selected_rooms = rooms_data | map(attribute='room') | list %}
+                  {% set selected_rooms = selected_rooms + [safety_room] %}
+                  {% set remaining = [] %}
+                  {% for room in rooms %}
+                    {% if room not in selected_rooms %}
+                      {{ remaining.append(room) }}
+                    {% endif %}
+                  {% endfor %}
+                  {{ remaining }}
+                  
+        # Jeśli >4 pokoi, wybierz TOP 4 po score + 1 bezpieczeństwa
+        - conditions:
+            - condition: template
+              value_template: "{{ high_medium_count > 4 }}"
+          sequence:
+            # Sortuj po score (malejąco)
+            - variables:
+                sorted_rooms: >
+                  {% set sorted = rooms_data | sort(attribute='score', reverse=true) %}
+                  {{ sorted[:4] }}
+                top_4_rooms: "{{ sorted_rooms | map(attribute='room') | list }}"
+                
+            # Włącz TOP 4
+            - repeat:
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: "input_boolean.{{ repeat.item.room }}_heating_enabled"
+                  - service: input_number.set_value
+                    target:
+                      entity_id: "input_number.{{ repeat.item.room }}_score"
+                    data:
+                      value: "{{ repeat.item.score | int }}"
+                for_each: "{{ sorted_rooms }}"
+                
+            # Dodaj 1 pokój bezpieczeństwa
+            - variables:
+                safety_room: >
+                  {% set available_rooms = [] %}
+                  {% for room in rooms %}
+                    {% if room not in top_4_rooms %}
+                      {% set priority = states('input_number.' + room + '_priority') | int %}
+                      {{ available_rooms.append({'room': room, 'priority': priority}) }}
+                    {% endif %}
+                  {% endfor %}
+                  {% if available_rooms | length > 0 %}
+                    {% set sorted = available_rooms | sort(attribute='priority', reverse=true) %}
+                    {{ sorted[0].room }}
+                  {% else %}
+                    {{ rooms[-1] }}
+                  {% endif %}
+            - service: input_boolean.turn_on
+              target:
+                entity_id: "input_boolean.{{ safety_room }}_heating_enabled"
+                
+            # Wyłącz pozostałe pokoje
+            - repeat:
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "input_boolean.{{ repeat.item }}_heating_enabled"
+                  - service: input_number.set_value
+                    target:
+                      entity_id: "input_number.{{ repeat.item }}_score"
+                    data:
+                      value: 0
+                for_each: >
+                  {% set selected_rooms = top_4_rooms + [safety_room] %}
+                  {% set remaining = [] %}
+                  {% for room in rooms %}
+                    {% if room not in selected_rooms %}
+                      {{ remaining.append(room) }}
+                    {% endif %}
+                  {% endfor %}
+                  {{ remaining }}

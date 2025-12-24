@@ -1,0 +1,59 @@
+# Konfiguracja integracji z prognozą pogody
+# Dodaj to do swojego configuration.yaml lub użyj jako osobnego pliku
+
+# ============================================================================
+# OPCJA 1: OpenWeatherMap (REKOMENDOWANE - darmowy plan)
+# ============================================================================
+# Darmowy plan: 1000 zapytań/dzień (wystarczy dla systemu grzania)
+# Rejestracja: https://openweathermap.org/api
+# Konfiguracja przez UI: Settings > Devices & Services > Add Integration > OpenWeatherMap
+
+weather:
+  - platform: openweathermap
+    api_key: "YOUR_API_KEY_HERE"
+    name: "home"
+    mode: "hourly"
+
+# ============================================================================
+# OPCJA 2: AccuWeather (alternatywa)
+# ============================================================================
+# Darmowy plan: 50 zapytań/dzień
+# Rejestracja: https://developer.accuweather.com/
+# Konfiguracja przez UI: Settings > Devices & Services > Add Integration > AccuWeather
+
+# weather:
+#   - platform: accuweather
+#     api_key: "YOUR_API_KEY_HERE"
+#     name: "home"
+#     latitude: YOUR_LATITUDE
+#     longitude: YOUR_LONGITUDE
+
+# ============================================================================
+# OPCJA 3: Weather Underground (tylko dla właścicieli stacji pogodowych)
+# ============================================================================
+# UWAGA: Weather Underground API jest dostępne TYLKO dla właścicieli
+# osobistych stacji pogodowych (PWS), które przesyłają dane do WU.
+# Jeśli nie masz własnej stacji, użyj OpenWeatherMap lub AccuWeather.
+#
+# Jeśli masz stację PWS:
+# 1. Zarejestruj stację na https://www.wunderground.com/
+# 2. Uzyskaj klucz API: https://www.wunderground.com/member/api-keys
+# 3. Użyj integracji: wundergroundpws (custom component)
+
+# ============================================================================
+# OPCJA 4: Met.no (darmowe, bez API key)
+# ============================================================================
+# Bezpłatne, bez rejestracji, ale tylko dla lokalizacji w Europie
+# Konfiguracja przez UI: Settings > Devices & Services > Add Integration > Met.no
+
+# weather:
+#   - platform: met
+#     name: "home"
+#     latitude: YOUR_LATITUDE
+#     longitude: YOUR_LONGITUDE
+
+# ============================================================================
+# UWAGA: Skrypty automatycznie wykrywają dostępną encję weather.*
+# Wystarczy mieć jedną skonfigurowaną encję weather w systemie
+# ============================================================================
+

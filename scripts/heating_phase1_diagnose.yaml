@@ -1,0 +1,138 @@
+# Faza 1 - Diagnoza zapotrzebowania grzewczego
+# Oblicza deficyty temperatur i klasyfikuje pokoje na HIGH/MEDIUM/LOW
+
+heating_phase1_diagnose:
+  alias: "FAZA 1: Diagnoza Zapotrzebowania"
+  sequence:
+    - variables:
+        # Lista wszystkich pokoi (pobrana z helpera - łatwa do modyfikacji)
+        rooms: "{{ states('input_text.heating_rooms_list').split(',') }}"
+        buffer_prep: "{{ states('input_number.buffer_preparation') | float }}"
+        buffer_time: "{{ states('input_number.buffer_heating_time') | int }}"
+        current_hour: "{{ now().hour }}"
+        current_minute: "{{ now().minute }}"
+        current_time_minutes: "{{ current_hour * 60 + current_minute }}"
+        is_weekend: "{{ now().weekday() >= 6 }}"
+        
+    # Dla każdego pokoju oblicz deficyt i klasyfikuj
+    - repeat:
+        sequence:
+          - variables:
+              room: "{{ repeat.item }}"
+              temp_target: "{{ states('input_number.' + room + '_temp_target') | float }}"
+              # Próba odczytu temperatury z różnych możliwych encji
+              temp_actual: >
+                {% set sensor_name = 'sensor.' + room + '_temperature' %}
+                {% set climate_name = 'climate.' + room %}
+                {% if states(sensor_name) != 'unknown' %}
+                  {{ states(sensor_name) | float }}
+                {% elif state_attr(climate_name, 'current_temperature') %}
+                  {{ state_attr(climate_name, 'current_temperature') | float }}
+                {% else %}
+                  {{ temp_target }}
+                {% endif %}
+              priority: "{{ states('input_number.' + room + '_priority') | int }}"
+              schedule: "{{ states('input_select.' + room + '_usage_schedule') }}"
+              sensitive: "{{ is_state('input_boolean.' + room + '_sensitive', 'on') }}"
+              
+              # Sprawdź czy pokój będzie używany w ciągu buffer_time minut
+              usage_soon: >
+                {% if schedule == 'Brak' %}
+                  false
+                {% else %}
+                  {% set parts = schedule.split('|') %}
+                  {% set weekday_schedule = parts[0] if parts|length > 0 else '' %}
+                  {% set weekend_schedule = parts[1] if parts|length > 1 else parts[0] %}
+                  {% set active_schedule = weekend_schedule if is_weekend else weekday_schedule %}
+                  {% if active_schedule == 'Brak' %}
+                    false
+                  {% else %}
+                    {% set time_ranges = active_schedule.split(',') %}
+                    {% set found = false %}
+                    {% for range_str in time_ranges %}
+                      {% set range_parts = range_str.strip().split('-') %}
+                      {% if range_parts|length == 2 %}
+                        {% set start_str = range_parts[0].strip() %}
+                        {% set end_str = range_parts[1].strip() %}
+                        {% set start_parts = start_str.split(':') %}
+                        {% set end_parts = end_str.split(':') %}
+                        {% set start_min = start_parts[0]|int * 60 + start_parts[1]|int %}
+                        {% set end_min = end_parts[0]|int * 60 + end_parts[1]|int %}
+                        {% set future_time = current_time_minutes + buffer_time %}
+                        {% if future_time >= start_min and future_time <= end_min %}
+                          {{ found := true }}
+                        {% endif %}
+                      {% endif %}
+                    {% endfor %}
+                    {{ found }}
+                  {% endif %}
+                {% endif %}
+              
+              # Oblicz deficyt
+              deficit_base: "{{ temp_target - temp_actual }}"
+              deficit_final: >
+                {% if usage_soon %}
+                  {{ (deficit_base + buffer_prep) | round(1) }}
+                {% else %}
+                  {{ deficit_base | round(1) }}
+                {% endif %}
+              
+              # Pobierz progi deficytów dla danego priorytetu
+              deficit_high: >
+                {% if priority == 1 %}
+                  {{ states('input_number.deficit_high_p1') | float }}
+                {% elif priority == 2 %}
+                  {{ states('input_number.deficit_high_p2') | float }}
+                {% else %}
+                  {{ states('input_number.deficit_high_p3') | float }}
+                {% endif %}
+              deficit_medium: >
+                {% if priority == 1 %}
+                  {{ states('input_number.deficit_medium_p1') | float }}
+                {% elif priority == 2 %}
+                  {{ states('input_number.deficit_medium_p2') | float }}
+                {% else %}
+                  {{ states('input_number.deficit_medium_p3') | float }}
+                {% endif %}
+              
+              # Klasyfikacja
+              is_high: "{{ deficit_final >= deficit_high }}"
+              is_medium: "{{ deficit_final >= deficit_medium and deficit_final < deficit_high }}"
+              is_low: "{{ deficit_final > 0 and deficit_final < deficit_medium }}"
+              is_disabled: "{{ deficit_final <= 0 }}"
+              
+          # Zapisz deficyt
+          - service: input_number.set_value
+            target:
+              entity_id: "input_number.{{ room }}_temp_deficit"
+            data:
+              value: "{{ deficit_final }}"
+              
+          # Ustaw flagi klasyfikacji
+          - service: input_boolean.turn_on
+            target:
+              entity_id: "input_boolean.{{ room }}_needs_heating_high"
+            condition:
+              - condition: template
+                value_template: "{{ is_high }}"
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "input_boolean.{{ room }}_needs_heating_high"
+            condition:
+              - condition: template
+                value_template: "{{ not is_high }}"
+                
+          - service: input_boolean.turn_on
+            target:
+              entity_id: "input_boolean.{{ room }}_needs_heating_medium"
+            condition:
+              - condition: template
+                value_template: "{{ is_medium }}"
+          - service: input_boolean.turn_off
+            target:
+              entity_id: "input_boolean.{{ room }}_needs_heating_medium"
+            condition:
+              - condition: template
+                value_template: "{{ not is_medium }}"
+                
+        for_each: "{{ rooms }}"

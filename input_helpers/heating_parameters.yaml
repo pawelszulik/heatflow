@@ -1,0 +1,181 @@
+# Parametry algorytmu sterowania grzaniem
+
+input_number:
+  # Progi deficytów temperatur dla każdego priorytetu
+  deficit_high_p1:
+    name: "Deficyt HIGH - Priorytet 1"
+    min: 0.5
+    max: 2.0
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-alert
+    initial: 1.0
+    
+  deficit_high_p2:
+    name: "Deficyt HIGH - Priorytet 2"
+    min: 1.0
+    max: 3.0
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-alert
+    initial: 2.0
+    
+  deficit_high_p3:
+    name: "Deficyt HIGH - Priorytet 3"
+    min: 2.0
+    max: 4.0
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-alert
+    initial: 3.0
+    
+  deficit_medium_p1:
+    name: "Deficyt MEDIUM - Priorytet 1"
+    min: 0.3
+    max: 1.5
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-low
+    initial: 0.5
+    
+  deficit_medium_p2:
+    name: "Deficyt MEDIUM - Priorytet 2"
+    min: 0.8
+    max: 2.5
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-low
+    initial: 1.0
+    
+  deficit_medium_p3:
+    name: "Deficyt MEDIUM - Priorytet 3"
+    min: 1.5
+    max: 3.5
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-low
+    initial: 2.0
+
+  # Bufor przygotowania (bonus deficytu gdy pokój będzie używany wkrótce)
+  buffer_preparation:
+    name: "Bufor przygotowania"
+    min: 0.0
+    max: 2.0
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:clock-fast
+    initial: 0.8
+
+  # Histereza termiczna
+  hysteresis:
+    name: "Histereza termiczna"
+    min: 0.1
+    max: 2.0
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 0.5
+
+  # Parametry bezpieczeństwa
+  min_return_temp:
+    name: "Minimalna temperatura powrotu"
+    min: 40
+    max: 60
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-water
+    initial: 50
+    
+  min_temp_diff:
+    name: "Minimalna różnica temp zadana-powrót"
+    min: 10
+    max: 25
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 15
+    
+  min_valves_open:
+    name: "Minimalna liczba zaworów otwartych"
+    min: 1
+    max: 5
+    step: 1
+    icon: mdi:valve
+    initial: 1
+    
+  min_mixer_4d:
+    name: "Minimalne otwarcie zaworu 4D"
+    min: 0
+    max: 50
+    step: 1
+    unit_of_measurement: "%"
+    icon: mdi:valve
+    initial: 20
+
+  # Czas buforowego ogrzewania (wyprzedzenie przed użyciem pokoju)
+  buffer_heating_time:
+    name: "Czas buforowego ogrzewania"
+    min: 30
+    max: 90
+    step: 5
+    unit_of_measurement: "min"
+    icon: mdi:clock-fast
+    initial: 60
+
+  # Parametry predykcji pogody
+  forecast_temp_drop_threshold:
+    name: "Próg spadku temp dla PRE-HEATING"
+    min: 3
+    max: 10
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-down
+    initial: 5
+    
+  forecast_temp_rise_threshold:
+    name: "Próg wzrostu temp dla REDUCTION"
+    min: 2
+    max: 8
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+    initial: 3
+
+  # Tryb prognozy (ustawiany przez Fazę 0)
+  forecast_mode:
+    name: "Tryb prognozy"
+    min: 0
+    max: 2
+    step: 1
+    icon: mdi:weather-cloudy
+    initial: 0
+    # 0 = normal, 1 = pre_heating, 2 = reduction
+
+  # Kompensacja mrozu (mnożnik dla temperatury pieca)
+  frost_compensation_factor:
+    name: "Współczynnik kompensacji mrozu"
+    min: 0.3
+    max: 1.0
+    step: 0.1
+    icon: mdi:snowflake
+    initial: 0.5
+
+  # Temperatura nominalna pieca
+  boiler_nominal_temp:
+    name: "Temperatura nominalna pieca"
+    min: 60
+    max: 85
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:fire
+    initial: 70
+
+  # Ostatnia aktualizacja prognozy (timestamp)
+  last_forecast_update:
+    name: "Ostatnia aktualizacja prognozy"
+    min: 0
+    max: 23
+    step: 1
+    unit_of_measurement: "h"
+    icon: mdi:clock-outline
+    initial: 0

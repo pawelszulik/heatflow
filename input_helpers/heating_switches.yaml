@@ -1,0 +1,33 @@
+# Przełączniki systemu sterowania grzaniem
+
+input_text:
+  # Lista wszystkich pokoi (oddzielone przecinkami, łatwe do modyfikacji)
+  heating_rooms_list:
+    name: "Lista pokoi systemu grzania"
+    initial: "sypialnia,lazienka,pokoj_dzieci,salon,kuchnia,pokoj_gościnny,biuro,pokoj_1,pokoj_2,pokoj_3,pokoj_4,pokoj_5,pokoj_6,schowek"
+    icon: mdi:home-group
+
+input_boolean:
+  # Główny przełącznik systemu
+  heating_system_enabled:
+    name: "System grzania - Włączony"
+    icon: mdi:radiator
+    initial: true
+
+  # Tryb debugowania (dodatkowe logi)
+  heating_debug_mode:
+    name: "Tryb debugowania"
+    icon: mdi:bug
+    initial: false
+
+  # Wymuszenie trybu PRE-HEATING (do testów)
+  heating_force_pre_heating:
+    name: "Wymuś PRE-HEATING"
+    icon: mdi:fire-alert
+    initial: false
+
+  # Wymuszenie trybu REDUCTION (do testów)
+  heating_force_reduction:
+    name: "Wymuś REDUCTION"
+    icon: mdi:snowflake-melt
+    initial: false

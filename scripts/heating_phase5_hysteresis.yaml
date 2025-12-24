@@ -1,0 +1,173 @@
+# Faza 5 - Histereza i bezpieczeństwo
+# Monitoruje warunki bezpieczeństwa i stosuje histerezę
+
+heating_phase5_hysteresis:
+  alias: "FAZA 5: Histereza i Bezpieczeństwo"
+  sequence:
+    - variables:
+        rooms: "{{ states('input_text.heating_rooms_list').split(',') }}"
+        hysteresis: "{{ states('input_number.hysteresis') | float }}"
+        min_return_temp: "{{ states('input_number.min_return_temp') | float }}"
+        min_temp_diff: "{{ states('input_number.min_temp_diff') | float }}"
+        min_valves: "{{ states('input_number.min_valves_open') | int }}"
+        min_mixer_4d: "{{ states('input_number.min_mixer_4d') | float }}"
+        
+        # Odczyt temperatury powrotu
+        temp_return: >
+          {% set return_sensor = 'sensor.temp_return' %}
+          {% set ekopiec_return = 'sensor.ekopiec_temp_return' %}
+          {% if states(return_sensor) != 'unknown' %}
+            {{ states(return_sensor) | float }}
+          {% elif states(ekopiec_return) != 'unknown' %}
+            {{ states(ekopiec_return) | float }}
+          {% else %}
+            {{ min_return_temp }}
+          {% endif %}
+          
+        # Odczyt pozycji zaworu 4D
+        mixer_4d_position: >
+          {% set mixer_sensor = 'sensor.mixer_4d_position' %}
+          {% set mixer_number = 'number.mixer_4d_position' %}
+          {% if states(mixer_sensor) != 'unknown' %}
+            {{ states(mixer_sensor) | float }}
+          {% elif states(mixer_number) != 'unknown' %}
+            {{ states(mixer_number) | float }}
+          {% else %}
+            50
+          {% endif %}
+          
+        # Liczba otwartych zaworów
+        open_valves_count: >
+          {% set count = 0 %}
+          {% for room in rooms %}
+            {% if is_state('input_boolean.' + room + '_heating_enabled', 'on') %}
+              {% set count = count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ count }}
+          
+    # HYSTEREZA - dla każdego pokoju sprawdź przegrzanie
+    - repeat:
+        sequence:
+          - variables:
+              room: "{{ repeat.item }}"
+              heating_enabled: "{{ is_state('input_boolean.' + room + '_heating_enabled', 'on') }}"
+              temp_target: "{{ states('input_number.' + room + '_temp_target') | float }}"
+              temp_actual: >
+                {% set sensor_name = 'sensor.' + room + '_temperature' %}
+                {% set climate_name = 'climate.' + room %}
+                {% if states(sensor_name) != 'unknown' %}
+                  {{ states(sensor_name) | float }}
+                {% elif state_attr(climate_name, 'current_temperature') %}
+                  {{ state_attr(climate_name, 'current_temperature') | float }}
+                {% else %}
+                  {{ temp_target }}
+                {% endif %}
+              temp_diff: "{{ temp_actual - temp_target }}"
+              
+          # Jeśli przegrzanie > histereza, wyłącz grzanie
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ heating_enabled and temp_diff > hysteresis }}"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "input_boolean.{{ room }}_heating_enabled"
+                  - condition: template
+                    value_template: "{{ states('input_boolean.heating_debug_mode') == 'on' }}"
+                  - service: notify.persistent_notification
+                    data:
+                      title: "Histereza: {{ room }}"
+                      message: "Temp: {{ temp_actual | round(1) }}°C > {{ temp_target | round(1) }}°C + {{ hysteresis }}°C. Wyłączono grzanie."
+                      
+              # Jeśli przegrzanie > 2°C, wyłącz natychmiast (bezpieczeństwo)
+              - conditions:
+                  - condition: template
+                    value_template: "{{ heating_enabled and temp_diff > 2.0 }}"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "input_boolean.{{ room }}_heating_enabled"
+                  - service: notify.persistent_notification
+                    data:
+                      title: "⚠️ ALARM: Przegrzanie {{ room }}!"
+                      message: "Temp: {{ temp_actual | round(1) }}°C (docelowa: {{ temp_target | round(1) }}°C). Wyłączono grzanie ze względów bezpieczeństwa."
+                      
+        for_each: "{{ rooms }}"
+        
+    # MONITORING BEZPIECZEŃSTWA
+    
+    # 1. Temperatura powrotu < min_return_temp
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ temp_return < min_return_temp }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "🔴 ALARM: Temperatura powrotu za niska!"
+                message: >
+                  Temp powrotu: {{ temp_return | round(1) }}°C (min: {{ min_return_temp }}°C).
+                  Grozi kondensacją i korozją pieca!
+                  
+    # 2. Różnica temp zadana-powrót < min_temp_diff
+    - variables:
+        boiler_target: >
+          {% set ekopiec_sn = 'YOUR_DEVICE_SN' %}
+          {% set boiler_entity = 'number.ekopiec_' + ekopiec_sn + '_kot_tzad' %}
+          {% if states(boiler_entity) != 'unknown' %}
+            {{ states(boiler_entity) | float }}
+          {% else %}
+            {{ states('input_number.boiler_nominal_temp') | float }}
+          {% endif %}
+        temp_diff_boiler: "{{ boiler_target - temp_return }}"
+        
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ temp_diff_boiler < min_temp_diff }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "⚠️ ALERT: Niska różnica temperatur"
+                message: >
+                  Różnica temp: {{ temp_diff_boiler | round(1) }}°C (min: {{ min_temp_diff }}°C).
+                  Piec: {{ boiler_target | round(1) }}°C, Powrót: {{ temp_return | round(1) }}°C.
+                  
+    # 3. Zawór 4D < min_mixer_4d
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ mixer_4d_position < min_mixer_4d }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "⚠️ ALERT: Zawór 4D za zamknięty"
+                message: >
+                  Pozycja zaworu: {{ mixer_4d_position | round(0) }}% (min: {{ min_mixer_4d }}%).
+                  Zwiększ ilość grzanych pokoi lub sprawdź system.
+                  
+    # 4. Liczba otwartych zaworów < min_valves
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ open_valves_count < min_valves }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "⚠️ ALERT: Za mało zaworów otwartych"
+                message: >
+                  Otwartych zaworów: {{ open_valves_count }} (min: {{ min_valves }}).
+                  System wymusi otwarcie dodatkowych zaworów.
+                  
+    # 5. Sprawdź czy wszystkie warunki bezpieczeństwa są spełnione
+    - variables:
+        safety_ok: >
+          {% set checks = [
+            temp_return >= min_return_temp,
+            temp_diff_boiler >= min_temp_diff,
+            mixer_4d_position >= min_mixer_4d,
+            open_valves_count >= min_valves
+          ] %}
+          {{ checks | select('equalto', true) | list | length == checks | length }}

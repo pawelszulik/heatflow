@@ -1,0 +1,17 @@
+# Faza 0 - Predykcja pogody
+# Automatyzacja uruchamiana co godzinę
+
+- id: heating_phase0_forecast
+  alias: "FAZA 0 - Predykcja Pogody"
+  description: "Analizuje prognozę pogody na 24h i dostosowuje parametry systemu"
+  trigger:
+    - platform: time_pattern
+      hours: "/1"
+      minutes: 0
+  condition:
+    - condition: state
+      entity_id: input_boolean.heating_system_enabled
+      state: "on"
+  action:
+    - service: script.heating_phase0_forecast
+  mode: single

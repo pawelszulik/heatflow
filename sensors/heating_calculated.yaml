@@ -1,0 +1,110 @@
+# Sensory obliczeniowe dla systemu sterowania grzaniem
+
+- platform: template
+  sensors:
+    # Liczba pokoi z klasyfikacją HIGH
+    heating_rooms_high_count:
+      friendly_name: "Liczba pokoi HIGH"
+      unit_of_measurement: "szt"
+      icon: mdi:fire
+      value_template: >
+        {% set rooms = states('input_text.heating_rooms_list').split(',') %}
+        {% set count = 0 %}
+        {% for room in rooms %}
+          {% if is_state('input_boolean.' + room + '_needs_heating_high', 'on') %}
+            {% set count = count + 1 %}
+          {% endif %}
+        {% endfor %}
+        {{ count }}
+        
+    # Liczba pokoi z klasyfikacją MEDIUM
+    heating_rooms_medium_count:
+      friendly_name: "Liczba pokoi MEDIUM"
+      unit_of_measurement: "szt"
+      icon: mdi:fire-alert
+      value_template: >
+        {% set rooms = states('input_text.heating_rooms_list').split(',') %}
+        {% set count = 0 %}
+        {% for room in rooms %}
+          {% if is_state('input_boolean.' + room + '_needs_heating_medium', 'on') %}
+            {% set count = count + 1 %}
+          {% endif %}
+        {% endfor %}
+        {{ count }}
+        
+    # Liczba otwartych zaworów
+    heating_valves_open_count:
+      friendly_name: "Liczba otwartych zaworów"
+      unit_of_measurement: "szt"
+      icon: mdi:valve-open
+      value_template: >
+        {% set rooms = states('input_text.heating_rooms_list').split(',') %}
+        {% set count = 0 %}
+        {% for room in rooms %}
+          {% if is_state('input_boolean.' + room + '_heating_enabled', 'on') %}
+            {% set count = count + 1 %}
+          {% endif %}
+        {% endfor %}
+        {{ count }}
+        
+    # Status systemu (ok/warning/alarm)
+    heating_system_status:
+      friendly_name: "Status systemu grzania"
+      icon: mdi:radiator
+      value_template: >
+        {% set temp_return = states('sensor.temp_return') | default(states('sensor.ekopiec_temp_return'), default=50) | float %}
+        {% set min_return_temp = states('input_number.min_return_temp') | float %}
+        {% set mixer_4d = states('sensor.mixer_4d_position') | default(states('number.mixer_4d_position'), default=50) | float %}
+        {% set min_mixer_4d = states('input_number.min_mixer_4d') | float %}
+        {% set open_valves = states('sensor.heating_valves_open_count') | int %}
+        {% set min_valves = states('input_number.min_valves_open') | int %}
+        
+        {% if temp_return < min_return_temp or mixer_4d < min_mixer_4d %}
+          alarm
+        {% elif open_valves < min_valves %}
+          warning
+        {% else %}
+          ok
+        {% endif %}
+        
+    # Średni deficyt temperatury w grzanych pokojach
+    heating_avg_deficit:
+      friendly_name: "Średni deficyt temperatury"
+      unit_of_measurement: "°C"
+      icon: mdi:thermometer-minus
+      value_template: >
+        {% set rooms = states('input_text.heating_rooms_list').split(',') %}
+        {% set deficits = [] %}
+        {% for room in rooms %}
+          {% if is_state('input_boolean.' + room + '_heating_enabled', 'on') %}
+            {% set deficit = states('input_number.' + room + '_temp_deficit') | float %}
+            {% if deficit > 0 %}
+              {{ deficits.append(deficit) }}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {% if deficits | length > 0 %}
+          {{ (deficits | sum / deficits | length) | round(1) }}
+        {% else %}
+          0
+        {% endif %}
+        
+    # Maksymalny score pokoi
+    heating_max_score:
+      friendly_name: "Maksymalny score pokoi"
+      unit_of_measurement: "pkt"
+      icon: mdi:chart-line-variant
+      value_template: >
+        {% set rooms = states('input_text.heating_rooms_list').split(',') %}
+        {% set scores = [] %}
+        {% for room in rooms %}
+          {% set score = states('input_number.' + room + '_score') | float %}
+          {% if score > 0 %}
+            {{ scores.append(score) }}
+          {% endif %}
+        {% endfor %}
+        {% if scores | length > 0 %}
+          {{ scores | max | int }}
+        {% else %}
+          0
+        {% endif %}

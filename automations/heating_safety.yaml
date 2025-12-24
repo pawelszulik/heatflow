@@ -1,0 +1,15 @@
+# Monitoring bezpieczeństwa co 10 minut
+
+- id: heating_safety_monitoring
+  alias: "Monitoring bezpieczeństwa systemu grzania"
+  description: "Sprawdza warunki krytyczne co 10 minut"
+  trigger:
+    - platform: time_pattern
+      minutes: "/10"
+  condition:
+    - condition: state
+      entity_id: input_boolean.heating_system_enabled
+      state: "on"
+  action:
+    - service: script.heating_phase5_hysteresis
+  mode: single

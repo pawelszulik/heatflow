@@ -1,0 +1,168 @@
+# Faza 0 - Analiza prognozy pogody i przygotowanie systemu
+# Skrypt uruchamiany co godzinę przez automatyzację
+
+heating_phase0_forecast:
+  alias: "FAZA 0: Analiza Prognozy Pogody"
+  sequence:
+    # Pobierz aktualną temperaturę zewnętrzną
+    - variables:
+        current_temp: "{{ state_attr('weather.home', 'temperature') | default(state_attr('weather.openweathermap', 'temperature'), default=0) | float }}"
+        # Próba pobrania prognozy - sprawdź różne możliwe encje weather
+        forecast_data: >
+          {% set weather_entity = states.weather | selectattr('state', 'ne', 'unknown') | map(attribute='entity_id') | list | first %}
+          {% if weather_entity %}
+            {{ state_attr(weather_entity, 'forecast') | default([]) }}
+          {% else %}
+            []
+          {% endif %}
+        forecast_mode_force: "{{ states('input_boolean.heating_force_pre_heating') }}"
+        forecast_reduction_force: "{{ states('input_boolean.heating_force_reduction') }}"
+        temp_drop_threshold: "{{ states('input_number.forecast_temp_drop_threshold') | float }}"
+        temp_rise_threshold: "{{ states('input_number.forecast_temp_rise_threshold') | float }}"
+        
+    # Oblicz minimalną temperaturę w ciągu najbliższych 24h
+    - variables:
+        next_24h_temps: >
+          {% if forecast_data is iterable and forecast_data | length > 0 %}
+            {% set temps = [] %}
+            {% for item in forecast_data[:8] %}
+              {% if item.temperature is defined %}
+                {{ temps.append(item.temperature) }}
+              {% endif %}
+            {% endfor %}
+            {{ temps | min if temps | length > 0 else current_temp }}
+          {% else %}
+            {{ current_temp }}
+          {% endif %}
+        next_24h_min: "{{ next_24h_temps | float }}"
+        temp_diff: "{{ next_24h_min - current_temp }}"
+        
+    # Określ tryb na podstawie prognozy
+    - choose:
+        # Tryb PRE-HEATING - spadek temperatury ≥ próg
+        - conditions:
+            - condition: or
+              conditions:
+                - condition: template
+                  value_template: "{{ temp_diff <= -temp_drop_threshold }}"
+                - condition: state
+                  entity_id: input_boolean.heating_force_pre_heating
+                  state: "on"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.forecast_mode
+              data:
+                value: 1
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.deficit_high_p1
+              data:
+                value: "{{ (states('input_number.deficit_high_p1') | float * 0.8) | round(1) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.deficit_high_p2
+              data:
+                value: "{{ (states('input_number.deficit_high_p2') | float * 0.9) | round(1) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.deficit_high_p3
+              data:
+                value: "{{ (states('input_number.deficit_high_p3') | float * 0.9) | round(1) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.buffer_preparation
+              data:
+                value: "{{ (states('input_number.buffer_preparation') | float * 1.2) | round(1) }}"
+            - condition: template
+              value_template: "{{ states('input_boolean.heating_debug_mode') == 'on' }}"
+            - service: notify.persistent_notification
+              data:
+                title: "FAZA 0: PRE-HEATING Aktywowana"
+                message: >
+                  Prognoza: spadek temp z {{ current_temp | round(1) }}°C do {{ next_24h_min | round(1) }}°C
+                  (różnica: {{ temp_diff | round(1) }}°C).
+                  System zwiększa deficyty i przygotowuje grzanie.
+                  
+        # Tryb REDUCTION - wzrost temperatury ≥ próg
+        - conditions:
+            - condition: or
+              conditions:
+                - condition: template
+                  value_template: "{{ temp_diff >= temp_rise_threshold }}"
+                - condition: state
+                  entity_id: input_boolean.heating_force_reduction
+                  state: "on"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.forecast_mode
+              data:
+                value: 2
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.deficit_high_p1
+              data:
+                value: "{{ (states('input_number.deficit_high_p1') | float * 1.2) | round(1) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.deficit_high_p2
+              data:
+                value: "{{ (states('input_number.deficit_high_p2') | float * 1.2) | round(1) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.deficit_high_p3
+              data:
+                value: "{{ (states('input_number.deficit_high_p3') | float * 1.2) | round(1) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.buffer_preparation
+              data:
+                value: "{{ (states('input_number.buffer_preparation') | float * 0.8) | round(1) }}"
+            - condition: template
+              value_template: "{{ states('input_boolean.heating_debug_mode') == 'on' }}"
+            - service: notify.persistent_notification
+              data:
+                title: "FAZA 0: REDUCTION Aktywowana"
+                message: >
+                  Prognoza: wzrost temp z {{ current_temp | round(1) }}°C do {{ next_24h_min | round(1) }}°C
+                  (różnica: {{ temp_diff | round(1) }}°C).
+                  System zmniejsza deficyty i redukuje grzanie.
+                  
+        # Tryb NORMAL - brak znaczących zmian
+        - conditions:
+            - condition: template
+              value_template: "{{ temp_diff > -temp_drop_threshold and temp_diff < temp_rise_threshold }}"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.forecast_mode
+              data:
+                value: 0
+                
+    # Zaktualizuj timestamp ostatniej aktualizacji
+    - service: input_number.set_value
+      target:
+        entity_id: input_number.last_forecast_update
+      data:
+        value: "{{ now().hour }}"
+        
+    # Wyślij alert jeśli ekstremalne warunki
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ next_24h_min < -10 }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "⚠️ ALERT: Ekstremalny mróz za 24h!"
+                message: "Prognoza: {{ next_24h_min | round(1) }}°C. System przygotowuje intensywne grzanie."
+        - conditions:
+            - condition: template
+              value_template: "{{ next_24h_min > 15 }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "ℹ️ Informacja: Ciepła pogoda"
+                message: "Prognoza: {{ next_24h_min | round(1) }}°C. System redukuje grzanie."
+

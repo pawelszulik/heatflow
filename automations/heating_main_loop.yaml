@@ -1,0 +1,27 @@
+# Główna pętla wykonująca fazy 1-5 co 5 minut
+
+- id: heating_main_loop
+  alias: "Główna pętla sterowania grzaniem"
+  description: "Wykonuje fazy 1-5 algorytmu sterowania grzaniem co 5 minut"
+  trigger:
+    - platform: time_pattern
+      minutes: "/5"
+  condition:
+    - condition: state
+      entity_id: input_boolean.heating_system_enabled
+      state: "on"
+  action:
+    - service: script.heating_phase1_diagnose
+    - delay:
+        seconds: 2
+    - service: script.heating_phase2_arbitrate
+    - delay:
+        seconds: 2
+    - service: script.heating_phase3_valves
+    - delay:
+        seconds: 2
+    - service: script.heating_phase4_boiler_mixer
+    - delay:
+        seconds: 2
+    - service: script.heating_phase5_hysteresis
+  mode: single

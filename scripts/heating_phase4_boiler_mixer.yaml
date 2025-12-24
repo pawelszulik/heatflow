@@ -1,0 +1,144 @@
+# Faza 4 - Sterowanie piecem ekopiec
+# Moduluje moc pieca (zawór 4D jest sterowany automatycznie przez piec)
+
+heating_phase4_boiler_mixer:
+  alias: "FAZA 4: Zawór 4D i Piec"
+  sequence:
+    - variables:
+        # Parametry bezpieczeństwa
+        min_return_temp: "{{ states('input_number.min_return_temp') | float }}"
+        boiler_nominal: "{{ states('input_number.boiler_nominal_temp') | float }}"
+        frost_compensation: "{{ states('input_number.frost_compensation_factor') | float }}"
+        
+        # Odczyt temperatury powrotu (dostosuj nazwę encji) - tylko do monitoringu
+        temp_return: >
+          {% set return_sensor = 'sensor.temp_return' %}
+          {% set ekopiec_return = 'sensor.ekopiec_temp_return' %}
+          {% if states(return_sensor) != 'unknown' %}
+            {{ states(return_sensor) | float }}
+          {% elif states(ekopiec_return) != 'unknown' %}
+            {{ states(ekopiec_return) | float }}
+          {% else %}
+            {{ min_return_temp }}
+          {% endif %}
+          
+        # Odczyt pozycji zaworu 4D (tylko do monitoringu - piec steruje automatycznie)
+        mixer_4d_position: >
+          {% set mixer_sensor = 'sensor.mixer_4d_position' %}
+          {% set mixer_number = 'number.mixer_4d_position' %}
+          {% if states(mixer_sensor) != 'unknown' %}
+            {{ states(mixer_sensor) | float }}
+          {% elif states(mixer_number) != 'unknown' %}
+            {{ states(mixer_number) | float }}
+          {% else %}
+            50
+          {% endif %}
+          
+        # Temperatura zewnętrzna
+        temp_external: >
+          {% set weather_entity = states.weather | selectattr('state', 'ne', 'unknown') | map(attribute='entity_id') | list | first %}
+          {% if weather_entity %}
+            {{ state_attr(weather_entity, 'temperature') | default(0) | float }}
+          {% else %}
+            0
+          {% endif %}
+          
+        # Liczba grzanych pokoi
+        rooms_heated_count: >
+          {% set rooms = states('input_text.heating_rooms_list').split(',') %}
+          {% set count = 0 %}
+          {% for room in rooms %}
+            {% if is_state('input_boolean.' + room + '_heating_enabled', 'on') %}
+              {% set count = count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ count }}
+          
+        # Tryb prognozy
+        forecast_mode: "{{ states('input_number.forecast_mode') | int }}"
+        
+    # MONITORING zaworu 4D (piec steruje automatycznie, tylko monitorujemy)
+    # ALARM jeśli temp powrotu za niska
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ temp_return < min_return_temp }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "🔴 ALARM: Temperatura powrotu za niska!"
+                message: >
+                  Temp powrotu: {{ temp_return | round(1) }}°C (min: {{ min_return_temp }}°C).
+                  Piec powinien automatycznie dostosować zawór 4D. Sprawdź system.
+                  
+    # STEROWANIE PIECEM EKOPIEC
+    - variables:
+        # Oblicz docelową temperaturę pieca z kompensacją mrozu
+        temp_external_abs: "{{ temp_external | abs }}"
+        frost_compensation_value: >
+          {% if temp_external < 0 %}
+            {{ (temp_external_abs * frost_compensation) | round(1) }}
+          {% else %}
+            0
+          {% endif %}
+        boiler_target_temp: "{{ (boiler_nominal + frost_compensation_value) | round(0) }}"
+        
+        # Modulacja mocy podajnika w zależności od liczby grzanych pokoi
+        # 5 pokoi = boost, ≤2 pokoje = ekonomia
+        feeder_base_time: >
+          {% set ekopiec_sn = 'YOUR_DEVICE_SN' %}
+          {% set feeder_entity = 'number.ekopiec_' + ekopiec_sn + '_p_pod_on' %}
+          {% if states(feeder_entity) != 'unknown' %}
+            {{ states(feeder_entity) | float }}
+          {% else %}
+            30
+          {% endif %}
+        feeder_modulation: >
+          {% if rooms_heated_count >= 5 %}
+            {# Boost - zwiększ moc #}
+            1.2
+          {% elif rooms_heated_count <= 2 %}
+            {# Ekonomia - zmniejsz moc #}
+            0.8
+          {% else %}
+            1.0
+          {% endif %}
+        feeder_target_time: "{{ (feeder_base_time * feeder_modulation) | round(0) }}"
+        
+        # Encje pieca ekopiec (dostosuj device_sn)
+        ekopiec_sn: "YOUR_DEVICE_SN"
+        boiler_temp_entity: "number.ekopiec_{{ ekopiec_sn }}_kot_tzad"
+        feeder_time_entity: "number.ekopiec_{{ ekopiec_sn }}_p_pod_on"
+        
+    # Ustaw temperaturę zadana pieca
+    - service: number.set_value
+      target:
+        entity_id: "{{ boiler_temp_entity }}"
+      data:
+        value: "{{ boiler_target_temp }}"
+      condition:
+        - condition: template
+          value_template: "{{ states(boiler_temp_entity) != 'unknown' }}"
+          
+    # Moduluj moc podajnika
+    - service: number.set_value
+      target:
+        entity_id: "{{ feeder_time_entity }}"
+      data:
+        value: "{{ feeder_target_time }}"
+      condition:
+        - condition: template
+          value_template: "{{ states(feeder_time_entity) != 'unknown' }}"
+          
+    # Debug info
+    - condition: template
+      value_template: "{{ states('input_boolean.heating_debug_mode') == 'on' }}"
+    - service: notify.persistent_notification
+      data:
+        title: "FAZA 4: Status"
+        message: >
+          Zawór 4D (monitoring): {{ mixer_4d_position | round(0) }}%
+          Temp powrotu: {{ temp_return | round(1) }}°C
+          Piec: {{ boiler_target_temp }}°C
+          Podajnik: {{ feeder_target_time }}s
+          Grzanych pokoi: {{ rooms_heated_count }}

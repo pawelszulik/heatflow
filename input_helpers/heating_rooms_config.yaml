@@ -1,0 +1,781 @@
+# Konfiguracja 14 pokoi - Helpery dla każdego pokoju
+# UWAGA: Dostosuj nazwy pokoi i encje zgodnie z Twoim systemem
+
+input_number:
+  # Temperatury docelowe dla każdego pokoju
+  sypialnia_temp_target:
+    name: "Sypialnia - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 21
+    
+  lazienka_temp_target:
+    name: "Łazienka - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 24
+    
+  pokoj_dzieci_temp_target:
+    name: "Pokój dzieci - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 22
+    
+  salon_temp_target:
+    name: "Salon - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 21
+    
+  kuchnia_temp_target:
+    name: "Kuchnia - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 20
+    
+  pokoj_gościnny_temp_target:
+    name: "Pokój gościnny - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 19
+    
+  biuro_temp_target:
+    name: "Biuro - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 20
+    
+  pokoj_1_temp_target:
+    name: "Pokój 1 - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 20
+    
+  pokoj_2_temp_target:
+    name: "Pokój 2 - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 19
+    
+  pokoj_3_temp_target:
+    name: "Pokój 3 - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 18
+    
+  pokoj_4_temp_target:
+    name: "Pokój 4 - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 18
+    
+  pokoj_5_temp_target:
+    name: "Pokój 5 - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 17
+    
+  pokoj_6_temp_target:
+    name: "Pokój 6 - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 16
+    
+  schowek_temp_target:
+    name: "Schowek - Temperatura docelowa"
+    min: 15
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+    initial: 15
+
+  # Priorytety pokoi (1=najważniejszy, 4=najmniej ważny)
+  sypialnia_priority:
+    name: "Sypialnia - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 1
+    
+  lazienka_priority:
+    name: "Łazienka - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 1
+    
+  pokoj_dzieci_priority:
+    name: "Pokój dzieci - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 1
+    
+  salon_priority:
+    name: "Salon - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 2
+    
+  kuchnia_priority:
+    name: "Kuchnia - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 2
+    
+  pokoj_gościnny_priority:
+    name: "Pokój gościnny - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 3
+    
+  biuro_priority:
+    name: "Biuro - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 3
+    
+  pokoj_1_priority:
+    name: "Pokój 1 - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 3
+    
+  pokoj_2_priority:
+    name: "Pokój 2 - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 3
+    
+  pokoj_3_priority:
+    name: "Pokój 3 - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 4
+    
+  pokoj_4_priority:
+    name: "Pokój 4 - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 4
+    
+  pokoj_5_priority:
+    name: "Pokój 5 - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 4
+    
+  pokoj_6_priority:
+    name: "Pokój 6 - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 4
+    
+  schowek_priority:
+    name: "Schowek - Priorytet"
+    min: 1
+    max: 4
+    step: 1
+    icon: mdi:star
+    initial: 4
+
+  # Obliczone deficyty temperatur (aktualizowane przez Fazę 1)
+  sypialnia_temp_deficit:
+    name: "Sypialnia - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  lazienka_temp_deficit:
+    name: "Łazienka - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_dzieci_temp_deficit:
+    name: "Pokój dzieci - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  salon_temp_deficit:
+    name: "Salon - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  kuchnia_temp_deficit:
+    name: "Kuchnia - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_gościnny_temp_deficit:
+    name: "Pokój gościnny - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  biuro_temp_deficit:
+    name: "Biuro - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_1_temp_deficit:
+    name: "Pokój 1 - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_2_temp_deficit:
+    name: "Pokój 2 - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_3_temp_deficit:
+    name: "Pokój 3 - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_4_temp_deficit:
+    name: "Pokój 4 - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_5_temp_deficit:
+    name: "Pokój 5 - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  pokoj_6_temp_deficit:
+    name: "Pokój 6 - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+    
+  schowek_temp_deficit:
+    name: "Schowek - Deficyt temperatury"
+    min: -10
+    max: 10
+    step: 0.1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
+    initial: 0
+
+  # Obliczone score dla arbitrażu (aktualizowane przez Fazę 2)
+  sypialnia_score:
+    name: "Sypialnia - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  lazienka_score:
+    name: "Łazienka - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_dzieci_score:
+    name: "Pokój dzieci - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  salon_score:
+    name: "Salon - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  kuchnia_score:
+    name: "Kuchnia - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_gościnny_score:
+    name: "Pokój gościnny - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  biuro_score:
+    name: "Biuro - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_1_score:
+    name: "Pokój 1 - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_2_score:
+    name: "Pokój 2 - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_3_score:
+    name: "Pokój 3 - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_4_score:
+    name: "Pokój 4 - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_5_score:
+    name: "Pokój 5 - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  pokoj_6_score:
+    name: "Pokój 6 - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+    
+  schowek_score:
+    name: "Schowek - Score"
+    min: 0
+    max: 500
+    step: 1
+    icon: mdi:chart-line
+    initial: 0
+
+input_boolean:
+  # Flagi czy pokój jest grzany (ustawiane przez Fazę 2)
+  sypialnia_heating_enabled:
+    name: "Sypialnia - Grzanie włączone"
+    icon: mdi:radiator
+    
+  lazienka_heating_enabled:
+    name: "Łazienka - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_dzieci_heating_enabled:
+    name: "Pokój dzieci - Grzanie włączone"
+    icon: mdi:radiator
+    
+  salon_heating_enabled:
+    name: "Salon - Grzanie włączone"
+    icon: mdi:radiator
+    
+  kuchnia_heating_enabled:
+    name: "Kuchnia - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_gościnny_heating_enabled:
+    name: "Pokój gościnny - Grzanie włączone"
+    icon: mdi:radiator
+    
+  biuro_heating_enabled:
+    name: "Biuro - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_1_heating_enabled:
+    name: "Pokój 1 - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_2_heating_enabled:
+    name: "Pokój 2 - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_3_heating_enabled:
+    name: "Pokój 3 - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_4_heating_enabled:
+    name: "Pokój 4 - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_5_heating_enabled:
+    name: "Pokój 5 - Grzanie włączone"
+    icon: mdi:radiator
+    
+  pokoj_6_heating_enabled:
+    name: "Pokój 6 - Grzanie włączone"
+    icon: mdi:radiator
+    
+  schowek_heating_enabled:
+    name: "Schowek - Grzanie włączone"
+    icon: mdi:radiator
+
+  # Flagi klasyfikacji zapotrzebowania (ustawiane przez Fazę 1)
+  sypialnia_needs_heating_high:
+    name: "Sypialnia - HIGH"
+    icon: mdi:fire
+    
+  lazienka_needs_heating_high:
+    name: "Łazienka - HIGH"
+    icon: mdi:fire
+    
+  pokoj_dzieci_needs_heating_high:
+    name: "Pokój dzieci - HIGH"
+    icon: mdi:fire
+    
+  salon_needs_heating_high:
+    name: "Salon - HIGH"
+    icon: mdi:fire
+    
+  kuchnia_needs_heating_high:
+    name: "Kuchnia - HIGH"
+    icon: mdi:fire
+    
+  pokoj_gościnny_needs_heating_high:
+    name: "Pokój gościnny - HIGH"
+    icon: mdi:fire
+    
+  biuro_needs_heating_high:
+    name: "Biuro - HIGH"
+    icon: mdi:fire
+    
+  pokoj_1_needs_heating_high:
+    name: "Pokój 1 - HIGH"
+    icon: mdi:fire
+    
+  pokoj_2_needs_heating_high:
+    name: "Pokój 2 - HIGH"
+    icon: mdi:fire
+    
+  pokoj_3_needs_heating_high:
+    name: "Pokój 3 - HIGH"
+    icon: mdi:fire
+    
+  pokoj_4_needs_heating_high:
+    name: "Pokój 4 - HIGH"
+    icon: mdi:fire
+    
+  pokoj_5_needs_heating_high:
+    name: "Pokój 5 - HIGH"
+    icon: mdi:fire
+    
+  pokoj_6_needs_heating_high:
+    name: "Pokój 6 - HIGH"
+    icon: mdi:fire
+    
+  schowek_needs_heating_high:
+    name: "Schowek - HIGH"
+    icon: mdi:fire
+
+  sypialnia_needs_heating_medium:
+    name: "Sypialnia - MEDIUM"
+    icon: mdi:fire-alert
+    
+  lazienka_needs_heating_medium:
+    name: "Łazienka - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_dzieci_needs_heating_medium:
+    name: "Pokój dzieci - MEDIUM"
+    icon: mdi:fire-alert
+    
+  salon_needs_heating_medium:
+    name: "Salon - MEDIUM"
+    icon: mdi:fire-alert
+    
+  kuchnia_needs_heating_medium:
+    name: "Kuchnia - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_gościnny_needs_heating_medium:
+    name: "Pokój gościnny - MEDIUM"
+    icon: mdi:fire-alert
+    
+  biuro_needs_heating_medium:
+    name: "Biuro - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_1_needs_heating_medium:
+    name: "Pokój 1 - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_2_needs_heating_medium:
+    name: "Pokój 2 - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_3_needs_heating_medium:
+    name: "Pokój 3 - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_4_needs_heating_medium:
+    name: "Pokój 4 - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_5_needs_heating_medium:
+    name: "Pokój 5 - MEDIUM"
+    icon: mdi:fire-alert
+    
+  pokoj_6_needs_heating_medium:
+    name: "Pokój 6 - MEDIUM"
+    icon: mdi:fire-alert
+    
+  schowek_needs_heating_medium:
+    name: "Schowek - MEDIUM"
+    icon: mdi:fire-alert
+
+  # Flagi wrażliwości (łazienka, sypialnia, pokój dzieci)
+  sypialnia_sensitive:
+    name: "Sypialnia - Wrażliwa"
+    icon: mdi:heart
+    initial: true
+    
+  lazienka_sensitive:
+    name: "Łazienka - Wrażliwa"
+    icon: mdi:heart
+    initial: true
+    
+  pokoj_dzieci_sensitive:
+    name: "Pokój dzieci - Wrażliwy"
+    icon: mdi:heart
+    initial: true
+
+input_select:
+  # Harmonogramy użytkowania pokoi (do konfiguracji przez użytkownika)
+  # Format: "HH:MM-HH:MM" dla dni roboczych i weekendów
+  # Przykład: "06:00-08:00,18:00-22:00|08:00-22:00"
+  sypialnia_usage_schedule:
+    name: "Sypialnia - Harmonogram"
+    options:
+      - "22:00-07:00|23:00-09:00"
+      - "22:00-08:00|23:00-10:00"
+      - "Brak"
+    initial: "22:00-07:00|23:00-09:00"
+    icon: mdi:clock-outline
+    
+  lazienka_usage_schedule:
+    name: "Łazienka - Harmonogram"
+    options:
+      - "06:30-07:30,18:00-20:00|08:00-09:00,19:00-21:00"
+      - "06:00-08:00,18:00-22:00|08:00-22:00"
+      - "Brak"
+    initial: "06:30-07:30,18:00-20:00|08:00-09:00,19:00-21:00"
+    icon: mdi:clock-outline
+    
+  pokoj_dzieci_usage_schedule:
+    name: "Pokój dzieci - Harmonogram"
+    options:
+      - "06:00-08:00,15:00-20:00|08:00-20:00"
+      - "06:00-22:00|08:00-22:00"
+      - "Brak"
+    initial: "06:00-08:00,15:00-20:00|08:00-20:00"
+    icon: mdi:clock-outline
+    
+  salon_usage_schedule:
+    name: "Salon - Harmonogram"
+    options:
+      - "17:00-23:00|10:00-23:00"
+      - "Brak"
+    initial: "17:00-23:00|10:00-23:00"
+    icon: mdi:clock-outline
+    
+  kuchnia_usage_schedule:
+    name: "Kuchnia - Harmonogram"
+    options:
+      - "06:00-09:00,12:00-14:00,17:00-20:00|08:00-22:00"
+      - "Brak"
+    initial: "06:00-09:00,12:00-14:00,17:00-20:00|08:00-22:00"
+    icon: mdi:clock-outline
+    
+  pokoj_gościnny_usage_schedule:
+    name: "Pokój gościnny - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  biuro_usage_schedule:
+    name: "Biuro - Harmonogram"
+    options:
+      - "08:00-17:00|Brak"
+      - "Brak"
+    initial: "08:00-17:00|Brak"
+    icon: mdi:clock-outline
+    
+  pokoj_1_usage_schedule:
+    name: "Pokój 1 - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  pokoj_2_usage_schedule:
+    name: "Pokój 2 - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  pokoj_3_usage_schedule:
+    name: "Pokój 3 - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  pokoj_4_usage_schedule:
+    name: "Pokój 4 - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  pokoj_5_usage_schedule:
+    name: "Pokój 5 - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  pokoj_6_usage_schedule:
+    name: "Pokój 6 - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline
+    
+  schowek_usage_schedule:
+    name: "Schowek - Harmonogram"
+    options:
+      - "Brak"
+    initial: "Brak"
+    icon: mdi:clock-outline

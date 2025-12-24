@@ -1,0 +1,173 @@
+# Faza 3 - Sterowanie zaworami termostatycznymi (potencjometry)
+# Ustawia temperatury na zaworach zgodnie z decyzjami z Fazę 2
+
+heating_phase3_valves:
+  alias: "FAZA 3: Sterowanie Zaworami"
+  sequence:
+    - variables:
+        rooms: "{{ states('input_text.heating_rooms_list').split(',') }}"
+        min_valves: "{{ states('input_number.min_valves_open') | int }}"
+        
+    # Dla każdego pokoju ustaw zawór zgodnie z flagą heating_enabled
+    - repeat:
+        sequence:
+          - variables:
+              room: "{{ repeat.item }}"
+              heating_enabled: "{{ is_state('input_boolean.' + room + '_heating_enabled', 'on') }}"
+              temp_target: "{{ states('input_number.' + room + '_temp_target') | float }}"
+              
+              # Próba znalezienia encji zaworu (climate.* lub number.*)
+              valve_entity: >
+                {% set climate_name = 'climate.' + room %}
+                {% set number_name = 'number.' + room + '_valve' %}
+                {% if states(climate_name) != 'unknown' %}
+                  {{ climate_name }}
+                {% elif states(number_name) != 'unknown' %}
+                  {{ number_name }}
+                {% else %}
+                  {{ climate_name }}
+                {% endif %}
+              valve_type: >
+                {% set climate_name = 'climate.' + room %}
+                {% set number_name = 'number.' + room + '_valve' %}
+                {% if states(climate_name) != 'unknown' %}
+                  climate
+                {% elif states(number_name) != 'unknown' %}
+                  number
+                {% else %}
+                  climate
+                {% endif %}
+              
+          # Ustaw temperaturę na zaworze
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ heating_enabled }}"
+                sequence:
+                  # Włącz grzanie - ustaw na temperaturę docelową
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ valve_type == 'climate' }}"
+                        sequence:
+                          - service: climate.set_temperature
+                            target:
+                              entity_id: "{{ valve_entity }}"
+                            data:
+                              temperature: "{{ temp_target }}"
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ valve_type == 'number' }}"
+                        sequence:
+                          - service: number.set_value
+                            target:
+                              entity_id: "{{ valve_entity }}"
+                            data:
+                              value: "{{ temp_target }}"
+                              
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not heating_enabled }}"
+                sequence:
+                  # Wyłącz grzanie - ustaw na 0°C (zamknięty)
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ valve_type == 'climate' }}"
+                        sequence:
+                          - service: climate.set_temperature
+                            target:
+                              entity_id: "{{ valve_entity }}"
+                            data:
+                              temperature: 0
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ valve_type == 'number' }}"
+                        sequence:
+                          - service: number.set_value
+                            target:
+                              entity_id: "{{ valve_entity }}"
+                            data:
+                              value: 0
+                              
+        for_each: "{{ rooms }}"
+        
+    # Sprawdź czy minimum zaworów jest otwartych
+    - variables:
+        open_valves_count: >
+          {% set count = 0 %}
+          {% for room in rooms %}
+            {% if is_state('input_boolean.' + room + '_heating_enabled', 'on') %}
+              {% set count = count + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ count }}
+          
+    # Jeśli za mało zaworów otwartych, wymuś otwarcie dodatkowych
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ open_valves_count < min_valves }}"
+          sequence:
+            - variables:
+                needed_count: "{{ min_valves - open_valves_count }}"
+                available_rooms: >
+                  {% set closed_rooms = [] %}
+                  {% for room in rooms %}
+                    {% if not is_state('input_boolean.' + room + '_heating_enabled', 'on') %}
+                      {% set priority = states('input_number.' + room + '_priority') | int %}
+                      {{ closed_rooms.append({'room': room, 'priority': priority}) }}
+                    {% endif %}
+                  {% endfor %}
+                  {% set sorted = closed_rooms | sort(attribute='priority', reverse=true) %}
+                  {{ sorted[:needed_count] }}
+                  
+            # Włącz dodatkowe zawory (najniższe priorytety)
+            - repeat:
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: "input_boolean.{{ repeat.item.room }}_heating_enabled"
+                  - variables:
+                      room: "{{ repeat.item.room }}"
+                      temp_target: "{{ states('input_number.' + room + '_temp_target') | float }}"
+                      valve_entity: >
+                        {% set climate_name = 'climate.' + room %}
+                        {% set number_name = 'number.' + room + '_valve' %}
+                        {% if states(climate_name) != 'unknown' %}
+                          {{ climate_name }}
+                        {% elif states(number_name) != 'unknown' %}
+                          {{ number_name }}
+                        {% else %}
+                          {{ climate_name }}
+                        {% endif %}
+                      valve_type: >
+                        {% set climate_name = 'climate.' + room %}
+                        {% set number_name = 'number.' + room + '_valve' %}
+                        {% if states(climate_name) != 'unknown' %}
+                          climate
+                        {% elif states(number_name) != 'unknown' %}
+                          number
+                        {% else %}
+                          climate
+                        {% endif %}
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ valve_type == 'climate' }}"
+                        sequence:
+                          - service: climate.set_temperature
+                            target:
+                              entity_id: "{{ valve_entity }}"
+                            data:
+                              temperature: "{{ temp_target }}"
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ valve_type == 'number' }}"
+                        sequence:
+                          - service: number.set_value
+                            target:
+                              entity_id: "{{ valve_entity }}"
+                            data:
+                              value: "{{ temp_target }}"
+                for_each: "{{ available_rooms }}"

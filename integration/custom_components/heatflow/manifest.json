@@ -1,0 +1,11 @@
+{
+  "domain": "heatflow",
+  "name": "HeatFlow",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/your-repo/HeatFlow",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.0.0"
+}

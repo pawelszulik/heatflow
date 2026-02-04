@@ -1,0 +1,14 @@
+/.vs/HeatFlow/FileContentIndex
+*.targets
+obj
+bin
+CopilotIndices
+.vs
+
+# Konfiguracja z sekretami (nie commituj)
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.Example.json
+!**/appsettings.Test.Example.json
+**/appsettings.Development.json
+**/secrets.json

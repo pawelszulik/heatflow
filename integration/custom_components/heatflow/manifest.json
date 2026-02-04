@@ -3,8 +3,9 @@
   "name": "HeatFlow",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/your-repo/HeatFlow",
-  "integration_type": "device",
+  "dependencies": [],
+  "documentation": "https://github.com/pawelszulik/heatflow",
+  "integration_type": "hub",
   "iot_class": "local_polling",
   "requirements": ["aiohttp>=3.8.0"],
   "version": "1.0.0"

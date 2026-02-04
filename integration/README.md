@@ -48,7 +48,9 @@ ls -la heatflow/
 
 ## Konfiguracja
 
-1. **Ustawienia** → **Urządzenia i usługi** → **Dodaj integrację**.
+HeatFlow dodajesz jako **integrację**, nie jako dodatek z Add-on Store.
+
+1. **Ustawienia** → **Urządzenia i usługi** → **Dodaj integrację** (przycisk u dołu).
 2. Wyszukaj **HeatFlow**.
 3. Podaj:
    - **URL API** – np. `http://adres-serwera:5000` (gdzie działa HeatFlow.Api).

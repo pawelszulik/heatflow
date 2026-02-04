@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HeatFlow API",
+        "description": "Podaj adres HeatFlow.Api oraz klucz API (ustawiony w konfiguracji serwera).",
+        "data": {
+          "api_url": "URL API",
+          "api_key": "Klucz API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć z API",
+      "invalid_auth": "Nieprawidłowy klucz API"
+    },
+    "abort": {
+      "already_configured": "Ta instancja API jest już skonfigurowana"
+    }
+  }
+}

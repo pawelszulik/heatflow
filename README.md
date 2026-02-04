@@ -26,6 +26,7 @@ Aplikacja konsolowa .NET 10 realizująca 6-fazowy algorytm sterowania grzaniem z
    - Console: skopiuj `src/HeatFlow.Console/appsettings.Example.json` → `appsettings.json`
    - API: skopiuj `src/HeatFlow.Api/appsettings.Example.json` → `appsettings.json`
    - Uzupełnij hasła, klucze API i token HA. Szczegóły: [INSTALACJA.md](INSTALACJA.md)
+   - **Nie commituj** `appsettings.json` – zawiera sekrety (jest w `.gitignore`).
 
 3. **Zbuduj projekt**:
    ```bash

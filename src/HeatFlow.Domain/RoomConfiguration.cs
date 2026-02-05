@@ -65,6 +65,29 @@ public class RoomConfiguration
     public string ValveEntityId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Tworzy kopię konfiguracji (snapshot) do porównań np. w audit logu.
+    /// Zwraca null, gdy wywołane na null.
+    /// </summary>
+    public static RoomConfiguration? CreateSnapshot(RoomConfiguration? source)
+    {
+        if (source == null) return null;
+        return new RoomConfiguration
+        {
+            Name = source.Name,
+            TempTarget = source.TempTarget,
+            TempTargetActive = source.TempTargetActive,
+            TempTargetInactive = source.TempTargetInactive,
+            Priority = source.Priority,
+            Sensitive = source.Sensitive,
+            AutomationDisabled = source.AutomationDisabled,
+            UsageSchedule = source.UsageSchedule,
+            HeatingSchedule = source.HeatingSchedule,
+            SensorTemperatureEntityId = source.SensorTemperatureEntityId,
+            ValveEntityId = source.ValveEntityId
+        };
+    }
+
+    /// <summary>
     /// Konwertuje RoomConfiguration na obiekt Room z harmonogramami.
     /// </summary>
     public Room ToRoom()

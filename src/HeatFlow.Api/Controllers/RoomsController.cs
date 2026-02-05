@@ -42,11 +42,13 @@ public class RoomsController : ControllerBase
         RoomConfiguration? oldRoom = null;
         try { oldRoom = await _config.GetRoomAsync(name, ct); } catch { /* ignore */ }
 
+        var oldSnapshot = RoomConfiguration.CreateSnapshot(oldRoom);
+
         try
         {
             await _config.SaveRoomAsync(body, ct);
             var source = Request.Headers["X-Source"].FirstOrDefault();
-            try { await _audit.LogRoomChangesAsync(name, oldRoom, body, source, ct); }
+            try { await _audit.LogRoomChangesAsync(name, oldSnapshot, body, source, ct); }
             catch (Exception ex)
             {
                 await _errorLogger.LogAsync(ex, null, nameof(RoomsController), new { Action = "Put", Route = "api/rooms", RoomName = name, Audit = true }, "Warning", "Api", ct);

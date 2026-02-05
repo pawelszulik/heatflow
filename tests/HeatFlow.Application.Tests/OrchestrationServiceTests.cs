@@ -63,7 +63,11 @@ public class OrchestrationServiceTests
             phase5Mock.Object
         };
 
-        _service = new OrchestrationService(_haClientMock.Object, _configurationServiceMock.Object, _phaseServices, _loggerMock.Object);
+        var errorLoggerMock = new Mock<IApplicationErrorLogger>();
+        errorLoggerMock.Setup(x => x.LogAsync(It.IsAny<Exception?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<object?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        errorLoggerMock.Setup(x => x.LogAsync(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<object?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        _service = new OrchestrationService(_haClientMock.Object, _configurationServiceMock.Object, _phaseServices, _loggerMock.Object, errorLoggerMock.Object);
     }
 
     [Fact]

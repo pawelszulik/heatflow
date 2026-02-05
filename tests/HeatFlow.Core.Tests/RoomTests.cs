@@ -41,8 +41,7 @@ public class RoomTests
         var result = room.GetTargetTemperature(true);
 
         // Assert
-        // W kodzie jest return TempTarget na początku, więc zawsze zwraca TempTarget
-        Assert.Equal(21.0, result);
+        Assert.Equal(22.0, result); // TempTargetActive gdy isHeatingActive == true i harmonogram != Brak
     }
 
     [Fact]
@@ -61,8 +60,7 @@ public class RoomTests
         var result = room.GetTargetTemperature(false);
 
         // Assert
-        // W kodzie jest return TempTarget na początku, więc zawsze zwraca TempTarget
-        Assert.Equal(21.0, result);
+        Assert.Equal(20.0, result); // TempTargetInactive gdy isHeatingActive == false i harmonogram != Brak
     }
 
     [Fact]

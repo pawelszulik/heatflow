@@ -11,15 +11,18 @@ namespace HeatFlow.Core.Phases;
 public class Phase4BoilerService : IPhaseService
 {
     private readonly IHomeAssistantClient _haClient;
+    private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase4BoilerService> _logger;
 
     public int PhaseNumber => 4;
 
     public Phase4BoilerService(
         IHomeAssistantClient haClient,
+        IApplicationErrorLogger errorLogger,
         ILogger<Phase4BoilerService> logger)
     {
         _haClient = haClient;
+        _errorLogger = errorLogger;
         _logger = logger;
     }
 
@@ -90,6 +93,7 @@ public class Phase4BoilerService : IPhaseService
         {
             var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
             _logger.LogError(ex, "Błąd podczas wykonania Fazę 4");
+            await _errorLogger.LogAsync(ex, PhaseNumber, nameof(Phase4BoilerService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
     }

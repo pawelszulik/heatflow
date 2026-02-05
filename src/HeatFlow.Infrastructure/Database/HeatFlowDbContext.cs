@@ -26,6 +26,7 @@ public class HeatFlowDbContext : DbContext
     public DbSet<HeatingParametersEntity> HeatingParameters { get; set; }
     public DbSet<ForecastDataEntity> ForecastDataCache { get; set; }
     public DbSet<ConfigurationChangeLog> ConfigurationChangeLogs { get; set; }
+    public DbSet<ApplicationErrorLog> ApplicationErrorLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -205,6 +206,27 @@ public class HeatFlowDbContext : DbContext
             entity.HasIndex(e => e.Timestamp);
             entity.HasIndex(e => e.EntityType);
             entity.HasIndex(e => e.EntityId);
+        });
+
+        // ApplicationErrorLog
+        modelBuilder.Entity<ApplicationErrorLog>(entity =>
+        {
+            entity.ToTable("ApplicationErrorLog");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.OccurredAtUtc).HasColumnType("datetime2");
+            entity.Property(e => e.Source).HasMaxLength(200);
+            entity.Property(e => e.Message).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.ExceptionType).HasMaxLength(500);
+            entity.Property(e => e.StackTrace).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.ExceptionJson).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.ContextJson).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.Severity).HasMaxLength(20);
+            entity.Property(e => e.Origin).HasMaxLength(50);
+            entity.HasIndex(e => e.OccurredAtUtc);
+            entity.HasIndex(e => e.Phase);
+            entity.HasIndex(e => e.Source);
+            entity.HasIndex(e => e.Origin);
         });
     }
 }

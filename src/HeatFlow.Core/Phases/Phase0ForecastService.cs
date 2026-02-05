@@ -17,6 +17,7 @@ public class Phase0ForecastService : IPhaseService
     private readonly IOpenWeatherMapClient _openWeatherMapClient;
     private readonly IConfigurationService _configurationService;
     private readonly IHeatFlowRepository _repository;
+    private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase0ForecastService> _logger;
 
     public int PhaseNumber => 0;
@@ -26,12 +27,14 @@ public class Phase0ForecastService : IPhaseService
         IOpenWeatherMapClient openWeatherMapClient,
         IConfigurationService configurationService,
         IHeatFlowRepository repository,
+        IApplicationErrorLogger errorLogger,
         ILogger<Phase0ForecastService> logger)
     {
         _haClient = haClient;
         _openWeatherMapClient = openWeatherMapClient;
         _configurationService = configurationService;
         _repository = repository;
+        _errorLogger = errorLogger;
         _logger = logger;
     }
 
@@ -80,6 +83,7 @@ public class Phase0ForecastService : IPhaseService
         {
             var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
             _logger.LogError(ex, "Błąd podczas wykonania Fazę 0");
+            await _errorLogger.LogAsync(ex, PhaseNumber, nameof(Phase0ForecastService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
     }

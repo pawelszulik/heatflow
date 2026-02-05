@@ -83,4 +83,9 @@ public interface IHeatFlowRepository
     /// Pobiera wpisy z dziennika zmian konfiguracji (audit log).
     /// </summary>
     Task<List<ConfigurationChangeLog>> GetConfigurationChangeLogsAsync(string? entityType = null, string? entityId = null, DateTime? from = null, DateTime? to = null, int limit = 100, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pobiera wpisy z dziennika błędów aplikacji (ApplicationErrorLog).
+    /// </summary>
+    Task<List<ApplicationErrorLog>> GetErrorLogsAsync(DateTime? from = null, DateTime? to = null, int? phase = null, string? source = null, string? origin = null, int limit = 100, CancellationToken cancellationToken = default);
 }

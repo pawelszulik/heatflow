@@ -155,4 +155,16 @@ public class HeatFlowRepository : IHeatFlowRepository
         if (to.HasValue) query = query.Where(x => x.Timestamp <= to.Value);
         return await query.OrderByDescending(x => x.Timestamp).Take(limit).ToListAsync(cancellationToken);
     }
+
+    public async Task<List<ApplicationErrorLog>> GetErrorLogsAsync(DateTime? from = null, DateTime? to = null, int? phase = null, string? source = null, string? origin = null, int limit = 100, CancellationToken cancellationToken = default)
+    {
+        var effectiveLimit = Math.Clamp(limit, 1, 500);
+        IQueryable<ApplicationErrorLog> query = _context.ApplicationErrorLogs.AsNoTracking();
+        if (from.HasValue) query = query.Where(x => x.OccurredAtUtc >= from.Value);
+        if (to.HasValue) query = query.Where(x => x.OccurredAtUtc <= to.Value);
+        if (phase.HasValue) query = query.Where(x => x.Phase == phase.Value);
+        if (!string.IsNullOrEmpty(source)) query = query.Where(x => x.Source == source);
+        if (!string.IsNullOrEmpty(origin)) query = query.Where(x => x.Origin == origin);
+        return await query.OrderByDescending(x => x.OccurredAtUtc).Take(effectiveLimit).ToListAsync(cancellationToken);
+    }
 }

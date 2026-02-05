@@ -16,8 +16,10 @@ public class Phase2ArbitrateServiceTests
     public Phase2ArbitrateServiceTests()
     {
         _haClientMock = new Mock<IHomeAssistantClient>();
+        var errorLoggerMock = new Mock<IApplicationErrorLogger>();
+        errorLoggerMock.Setup(x => x.LogAsync(It.IsAny<Exception?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<object?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _loggerMock = new Mock<ILogger<Phase2ArbitrateService>>();
-        _service = new Phase2ArbitrateService(_haClientMock.Object, _loggerMock.Object);
+        _service = new Phase2ArbitrateService(_haClientMock.Object, errorLoggerMock.Object, _loggerMock.Object);
     }
 
     [Fact]

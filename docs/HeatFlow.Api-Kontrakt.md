@@ -22,6 +22,7 @@ Opcjonalny nagłówek **X-Source** (np. `home_assistant`) – zapisywany w audit
 | GET | `/api/rooms/{name}` | Jeden pokój. 404 gdy brak. |
 | GET | `/api/heating-parameters` | Obiekt parametrów grzania (`HeatingParameters`). |
 | GET | `/api/configuration-changes` | Historia zmian (audit log). Parametry zapytania: `entityType`, `entityId`, `from`, `to`, `limit` (domyślnie 100). |
+| GET | `/api/error-logs` | Dziennik błędów aplikacji (Console i Api). Parametry: `from`, `to`, `phase`, `source`, `origin`, `limit` (1–500, domyślnie 100). |
 | GET | `/api/health` | Health check. Odpowiedź: `{"status":"ok"}`. |
 
 ### Zapis
@@ -75,6 +76,12 @@ Obiekt z wieloma polami liczbowymi (m.in. `deficitHighP1`, `deficitHighP2`, `buf
 }
 ```
 
+### ApplicationErrorLog (odpowiedź GET /api/error-logs)
+
+Dziennik błędów z aplikacji konsolowej i API. Pola: `id`, `occurredAtUtc`, `source` (komponent), `phase` (0–5 lub null), `message`, `exceptionType`, `stackTrace`, `exceptionJson` (pełna serializacja wyjątku), `contextJson`, `severity`, `origin` (`Console` lub `Api`).
+
+Parametry zapytania GET /api/error-logs: `from`, `to` (datetime UTC), `phase` (int?), `source` (string), `origin` (Console/Api), `limit` (domyślnie 100, max 500).
+
 ---
 
 ## Przykłady (curl)
@@ -98,4 +105,10 @@ curl -X PATCH -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" \
 
 # Historia zmian
 curl -H "X-API-Key: YOUR_KEY" "http://localhost:5000/api/configuration-changes?limit=20"
+
+# Dziennik błędów (ostatnie 50 wpisów)
+curl -H "X-API-Key: YOUR_KEY" "http://localhost:5000/api/error-logs?limit=50"
+
+# Błędy z Console, faza 3
+curl -H "X-API-Key: YOUR_KEY" "http://localhost:5000/api/error-logs?origin=Console&phase=3"
 ```

@@ -1,5 +1,6 @@
 using HeatFlow.Application;
 using HeatFlow.Core.Phases;
+using HeatFlow.Domain;
 using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
 using HeatFlow.Infrastructure.HomeAssistant;
@@ -22,6 +23,7 @@ class Program
             .WriteTo.File("logs/heatflow-.log", rollingInterval: RollingInterval.Day)
             .CreateLogger();
 
+        IServiceProvider? serviceProvider = null;
         try
         {
             Log.Information("Uruchamianie aplikacji HeatFlow");
@@ -38,7 +40,7 @@ class Program
             var services = new ServiceCollection();
             ConfigureServices(services, configuration);
 
-            var serviceProvider = services.BuildServiceProvider();
+            serviceProvider = services.BuildServiceProvider();
 
             //// Seed bazy danych (jeśli jest skonfigurowana)
             //var connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -78,6 +80,7 @@ class Program
                 else
                 {
                     logger.LogError("Wykonanie zakończone błędem: {Error}", result.ErrorMessage);
+                    await LogErrorToDbAsync(serviceProvider, result.ErrorMessage ?? "Błąd wykonania", null, "Program");
                     Environment.ExitCode = 1;
                 }
             }
@@ -111,11 +114,13 @@ class Program
                         else
                         {
                             logger.LogError("Wykonanie zakończone błędem: {Error}", result.ErrorMessage);
+                            await LogErrorToDbAsync(serviceProvider, result.ErrorMessage ?? "Błąd wykonania", null, "Program");
                         }
                     }
                     catch (Exception ex)
                     {
                         logger.LogError(ex, "Błąd podczas wykonania pętli");
+                        await LogExceptionToDbAsync(serviceProvider, ex, "Program");
                     }
 
                     // Czekaj 5 minut
@@ -126,6 +131,8 @@ class Program
         catch (Exception ex)
         {
             Log.Fatal(ex, "Aplikacja zakończona błędem");
+            if (serviceProvider != null)
+                await LogExceptionToDbAsync(serviceProvider, ex, "Program");
             Environment.ExitCode = 1;
         }
         finally
@@ -198,6 +205,7 @@ class Program
                 options.UseSqlServer(connectionString, b => b.MigrationsAssembly("HeatFlow.Infrastructure")));
 
             services.AddScoped<IHeatFlowRepository, HeatFlowRepository>();
+            services.AddScoped<IApplicationErrorLogger, ApplicationErrorLogger>();
             services.AddScoped<DataPersistenceService>();
             
             // Configuration Service (wymaga bazy danych)
@@ -210,5 +218,33 @@ class Program
 
         // Orchestration Service
         services.AddScoped<OrchestrationService>();
+    }
+
+    private static async Task LogErrorToDbAsync(IServiceProvider serviceProvider, string message, int? phase, string source)
+    {
+        try
+        {
+            using var scope = serviceProvider.CreateScope();
+            var errorLogger = scope.ServiceProvider.GetRequiredService<IApplicationErrorLogger>();
+            await errorLogger.LogAsync(message, phase, source, null, "Error", "Console");
+        }
+        catch
+        {
+            // Nie rzucamy – log do bazy nie może powalić aplikacji
+        }
+    }
+
+    private static async Task LogExceptionToDbAsync(IServiceProvider serviceProvider, Exception ex, string source)
+    {
+        try
+        {
+            using var scope = serviceProvider.CreateScope();
+            var errorLogger = scope.ServiceProvider.GetRequiredService<IApplicationErrorLogger>();
+            await errorLogger.LogAsync(ex, null, source, null, "Error", "Console");
+        }
+        catch
+        {
+            // Nie rzucamy – log do bazy nie może powalić aplikacji
+        }
     }
 }

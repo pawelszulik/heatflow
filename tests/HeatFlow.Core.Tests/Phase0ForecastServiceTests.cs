@@ -16,6 +16,7 @@ public class Phase0ForecastServiceTests
     private readonly Mock<IOpenWeatherMapClient> _openWeatherMapClientMock;
     private readonly Mock<IConfigurationService> _configurationServiceMock;
     private readonly Mock<IHeatFlowRepository> _repositoryMock;
+    private readonly Mock<IApplicationErrorLogger> _errorLoggerMock;
     private readonly Mock<ILogger<Phase0ForecastService>> _loggerMock;
     private readonly Phase0ForecastService _service;
 
@@ -25,12 +26,15 @@ public class Phase0ForecastServiceTests
         _openWeatherMapClientMock = new Mock<IOpenWeatherMapClient>();
         _configurationServiceMock = new Mock<IConfigurationService>();
         _repositoryMock = new Mock<IHeatFlowRepository>();
+        _errorLoggerMock = new Mock<IApplicationErrorLogger>();
+        _errorLoggerMock.Setup(x => x.LogAsync(It.IsAny<Exception?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<object?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _loggerMock = new Mock<ILogger<Phase0ForecastService>>();
         _service = new Phase0ForecastService(
             _haClientMock.Object,
             _openWeatherMapClientMock.Object,
             _configurationServiceMock.Object,
             _repositoryMock.Object,
+            _errorLoggerMock.Object,
             _loggerMock.Object);
     }
 

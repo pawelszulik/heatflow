@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HeatFlow.Application\HeatFlow.Application.csproj" />
+    <ProjectReference Include="..\HeatFlow.Infrastructure\HeatFlow.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

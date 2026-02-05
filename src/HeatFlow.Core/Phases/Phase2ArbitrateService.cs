@@ -14,15 +14,18 @@ namespace HeatFlow.Core.Phases;
 public class Phase2ArbitrateService : IPhaseService
 {
     private readonly IHomeAssistantClient _haClient;
+    private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase2ArbitrateService> _logger;
 
     public int PhaseNumber => 2;
 
     public Phase2ArbitrateService(
         IHomeAssistantClient haClient,
+        IApplicationErrorLogger errorLogger,
         ILogger<Phase2ArbitrateService> logger)
     {
         _haClient = haClient;
+        _errorLogger = errorLogger;
         _logger = logger;
     }
 
@@ -75,6 +78,7 @@ public class Phase2ArbitrateService : IPhaseService
         {
             var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
             _logger.LogError(ex, "Błąd podczas wykonania Fazę 2");
+            await _errorLogger.LogAsync(ex, PhaseNumber, nameof(Phase2ArbitrateService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
     }

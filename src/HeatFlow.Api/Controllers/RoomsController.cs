@@ -10,11 +10,13 @@ public class RoomsController : ControllerBase
 {
     private readonly IConfigurationService _config;
     private readonly IConfigurationAuditService _audit;
+    private readonly IApplicationErrorLogger _errorLogger;
 
-    public RoomsController(IConfigurationService config, IConfigurationAuditService audit)
+    public RoomsController(IConfigurationService config, IConfigurationAuditService audit, IApplicationErrorLogger errorLogger)
     {
         _config = config;
         _audit = audit;
+        _errorLogger = errorLogger;
     }
 
     [HttpGet]
@@ -45,11 +47,15 @@ public class RoomsController : ControllerBase
             await _config.SaveRoomAsync(body, ct);
             var source = Request.Headers["X-Source"].FirstOrDefault();
             try { await _audit.LogRoomChangesAsync(name, oldRoom, body, source, ct); }
-            catch (Exception ex) { await Console.Error.WriteLineAsync($"Audit: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                await _errorLogger.LogAsync(ex, null, nameof(RoomsController), new { Action = "Put", Route = "api/rooms", RoomName = name, Audit = true }, "Warning", "Api", ct);
+            }
             return Ok(body);
         }
         catch (Exception ex)
         {
+            await _errorLogger.LogAsync(ex, null, nameof(RoomsController), new { Action = "Put", Route = "api/rooms", RoomName = name }, "Error", "Api", ct);
             return Problem(detail: ex.Message, statusCode: 500);
         }
     }

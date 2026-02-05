@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HeatFlow.Application\HeatFlow.Application.csproj" />
+    <ProjectReference Include="..\HeatFlow.Infrastructure\HeatFlow.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.2" />
   </ItemGroup>

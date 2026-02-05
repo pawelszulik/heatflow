@@ -12,11 +12,13 @@ public class HeatingParametersController : ControllerBase
 {
     private readonly IConfigurationService _config;
     private readonly IConfigurationAuditService _audit;
+    private readonly IApplicationErrorLogger _errorLogger;
 
-    public HeatingParametersController(IConfigurationService config, IConfigurationAuditService audit)
+    public HeatingParametersController(IConfigurationService config, IConfigurationAuditService audit, IApplicationErrorLogger errorLogger)
     {
         _config = config;
         _audit = audit;
+        _errorLogger = errorLogger;
     }
 
     [HttpGet]
@@ -37,11 +39,15 @@ public class HeatingParametersController : ControllerBase
             await _config.SaveHeatingParametersAsync(body, ct);
             var source = Request.Headers["X-Source"].FirstOrDefault();
             try { await _audit.LogHeatingParametersChangesAsync(oldParams, body, source, ct); }
-            catch (Exception ex) { await Console.Error.WriteLineAsync($"Audit: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                await _errorLogger.LogAsync(ex, null, nameof(HeatingParametersController), new { Action = "Put", Route = "api/heating-parameters", Audit = true }, "Warning", "Api", ct);
+            }
             return Ok(body);
         }
         catch (Exception ex)
         {
+            await _errorLogger.LogAsync(ex, null, nameof(HeatingParametersController), new { Action = "Put", Route = "api/heating-parameters" }, "Error", "Api", ct);
             return Problem(detail: ex.Message, statusCode: 500);
         }
     }
@@ -51,12 +57,20 @@ public class HeatingParametersController : ControllerBase
     {
         HeatingParameters? current;
         try { current = await _config.GetHeatingParametersAsync(ct); }
-        catch { return Problem(detail: "Nie można odczytać parametrów.", statusCode: 500); }
+        catch (Exception ex)
+        {
+            await _errorLogger.LogAsync(ex, null, nameof(HeatingParametersController), new { Action = "Patch", Route = "api/heating-parameters", Step = "GetHeatingParameters" }, "Error", "Api", ct);
+            return Problem(detail: "Nie można odczytać parametrów.", statusCode: 500);
+        }
         if (current == null) return Problem(detail: "Brak parametrów.", statusCode: 404);
 
         JsonDocument? doc;
         try { doc = await JsonDocument.ParseAsync(Request.Body, cancellationToken: ct); }
-        catch { return BadRequest(new { error = "Nieprawidłowy JSON." }); }
+        catch (Exception ex)
+        {
+            await _errorLogger.LogAsync(ex, null, nameof(HeatingParametersController), new { Action = "Patch", Route = "api/heating-parameters", Step = "ParseJson" }, "Error", "Api", ct);
+            return BadRequest(new { error = "Nieprawidłowy JSON." });
+        }
 
         using (doc)
         {
@@ -70,10 +84,18 @@ public class HeatingParametersController : ControllerBase
             try
             {
                 await _config.SaveHeatingParametersAsync(updated, ct);
-                try { await _audit.LogHeatingParametersChangesAsync(current, updated, source, ct); } catch { }
+                try { await _audit.LogHeatingParametersChangesAsync(current, updated, source, ct); }
+                catch (Exception auditEx)
+                {
+                    await _errorLogger.LogAsync(auditEx, null, nameof(HeatingParametersController), new { Action = "Patch", Route = "api/heating-parameters", Audit = true }, "Warning", "Api", ct);
+                }
                 return Ok(updated);
             }
-            catch (Exception ex) { return Problem(detail: ex.Message, statusCode: 500); }
+            catch (Exception ex)
+            {
+                await _errorLogger.LogAsync(ex, null, nameof(HeatingParametersController), new { Action = "Patch", Route = "api/heating-parameters" }, "Error", "Api", ct);
+                return Problem(detail: ex.Message, statusCode: 500);
+            }
         }
     }
 

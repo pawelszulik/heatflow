@@ -1,3 +1,4 @@
+using HeatFlow.Domain;
 using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +20,7 @@ builder.Services.AddDbContext<HeatFlowDbContext>(options =>
 });
 
 builder.Services.AddScoped<IHeatFlowRepository, HeatFlowRepository>();
+builder.Services.AddScoped<IApplicationErrorLogger, ApplicationErrorLogger>();
 builder.Services.AddScoped<IConfigurationService, ConfigurationService>();
 builder.Services.AddScoped<IConfigurationAuditService, ConfigurationAuditService>();
 
@@ -53,6 +55,31 @@ app.Use(async (context, next) =>
 });
 
 app.UseCors();
+
+// Globalny obsługiwacz wyjątków – zapis do ApplicationErrorLog z origin "Api"
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context);
+    }
+    catch (Exception ex)
+    {
+        try
+        {
+            using var scope = context.RequestServices.CreateScope();
+            var errorLogger = scope.ServiceProvider.GetService<IApplicationErrorLogger>();
+            if (errorLogger != null)
+            {
+                var ctx = new { Path = context.Request.Path.Value, Method = context.Request.Method };
+                await errorLogger.LogAsync(ex, null, "Api.Unhandled", ctx, "Error", "Api");
+            }
+        }
+        catch { /* nie rzucamy */ }
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new { error = "Wystąpił błąd wewnętrzny." });
+    }
+});
 
 app.MapGet("/", () => Results.Ok("HeatFlow API"));
 app.MapControllers();

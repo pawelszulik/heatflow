@@ -11,13 +11,16 @@ namespace HeatFlow.Application;
 public class DataPersistenceService
 {
     private readonly IHeatFlowRepository _repository;
+    private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<DataPersistenceService> _logger;
 
     public DataPersistenceService(
         IHeatFlowRepository repository,
-        Microsoft.Extensions.Logging.ILogger<DataPersistenceService> logger)
+        IApplicationErrorLogger errorLogger,
+        ILogger<DataPersistenceService> logger)
     {
         _repository = repository;
+        _errorLogger = errorLogger;
         _logger = logger;
     }
 
@@ -106,6 +109,7 @@ public class DataPersistenceService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Błąd podczas zapisywania wyników do bazy danych");
+            await _errorLogger.LogAsync(ex, null, nameof(DataPersistenceService), "SaveExecutionResults", "Error", "Console", cancellationToken);
             // Nie rzucamy wyjątku - zapis do bazy nie powinien blokować działania systemu
         }
     }

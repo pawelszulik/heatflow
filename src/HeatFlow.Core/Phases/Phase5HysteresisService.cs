@@ -12,15 +12,18 @@ namespace HeatFlow.Core.Phases;
 public class Phase5HysteresisService : IPhaseService
 {
     private readonly IHomeAssistantClient _haClient;
+    private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase5HysteresisService> _logger;
 
     public int PhaseNumber => 5;
 
     public Phase5HysteresisService(
         IHomeAssistantClient haClient,
+        IApplicationErrorLogger errorLogger,
         ILogger<Phase5HysteresisService> logger)
     {
         _haClient = haClient;
+        _errorLogger = errorLogger;
         _logger = logger;
     }
 
@@ -71,6 +74,7 @@ public class Phase5HysteresisService : IPhaseService
         {
             var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
             _logger.LogError(ex, "Błąd podczas wykonania Fazę 5");
+            await _errorLogger.LogAsync(ex, PhaseNumber, nameof(Phase5HysteresisService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
     }

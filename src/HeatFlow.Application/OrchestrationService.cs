@@ -20,6 +20,7 @@ public class OrchestrationService
     private readonly IPhaseService _phase4;
     private readonly IPhaseService _phase5;
     private readonly DataPersistenceService? _dataPersistenceService;
+    private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<OrchestrationService> _logger;
     private DateTime _lastPhase0Execution = DateTime.MinValue;
 
@@ -28,11 +29,13 @@ public class OrchestrationService
         IConfigurationService configurationService,
         IEnumerable<IPhaseService> phaseServices,
         ILogger<OrchestrationService> logger,
+        IApplicationErrorLogger errorLogger,
         DataPersistenceService? dataPersistenceService = null)
     {
         _haClient = haClient;
         _configurationService = configurationService;
         _logger = logger;
+        _errorLogger = errorLogger;
         _dataPersistenceService = dataPersistenceService;
 
         var phases = phaseServices.ToDictionary(p => p.PhaseNumber);
@@ -101,6 +104,7 @@ public class OrchestrationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Błąd podczas wykonania głównej pętli");
+            await _errorLogger.LogAsync(ex, null, nameof(OrchestrationService), null, "Error", "Console", cancellationToken);
             return ExecutionResult.Error(ex.Message);
         }
     }
@@ -135,6 +139,7 @@ public class OrchestrationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Błąd podczas wykonania Fazę 0");
+            await _errorLogger.LogAsync(ex, 0, nameof(OrchestrationService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(0, ex.Message);
         }
     }

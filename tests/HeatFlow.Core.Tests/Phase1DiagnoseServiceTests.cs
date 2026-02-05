@@ -11,14 +11,17 @@ namespace HeatFlow.Core.Tests;
 public class Phase1DiagnoseServiceTests
 {
     private readonly Mock<IHomeAssistantClient> _haClientMock;
+    private readonly Mock<IApplicationErrorLogger> _errorLoggerMock;
     private readonly Mock<ILogger<Phase1DiagnoseService>> _loggerMock;
     private readonly Phase1DiagnoseService _service;
 
     public Phase1DiagnoseServiceTests()
     {
         _haClientMock = new Mock<IHomeAssistantClient>();
+        _errorLoggerMock = new Mock<IApplicationErrorLogger>();
+        _errorLoggerMock.Setup(x => x.LogAsync(It.IsAny<Exception?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<object?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         _loggerMock = new Mock<ILogger<Phase1DiagnoseService>>();
-        _service = new Phase1DiagnoseService(_haClientMock.Object, _loggerMock.Object);
+        _service = new Phase1DiagnoseService(_haClientMock.Object, _errorLoggerMock.Object, _loggerMock.Object);
     }
 
     [Fact]

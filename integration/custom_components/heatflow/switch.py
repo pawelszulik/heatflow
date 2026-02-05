@@ -44,6 +44,7 @@ class RoomSwitchEntity(CoordinatorEntity, SwitchEntity):
         self._field = field
         key = "sensitive" if field == "sensitive" else "automationDisabled"
         self._attr_unique_id = f"{entry.entry_id}_{room_name}_{key}"
+        self._attr_name = "Wrażliwy" if field == "sensitive" else "Automatyka wyłączona"
         self._attr_device_info = {"identifiers": {(DOMAIN, f"{entry.entry_id}_{room_name}")}, "name": f"HeatFlow {room_name}"}
 
     @property

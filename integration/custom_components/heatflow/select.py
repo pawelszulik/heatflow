@@ -37,6 +37,7 @@ class RoomPrioritySelect(CoordinatorEntity, SelectEntity):
         self._entry = entry
         self._room_name = room.get("name") or room.get("Name") or "unknown"
         self._attr_unique_id = f"{entry.entry_id}_{self._room_name}_priority"
+        self._attr_name = "Priorytet"
         self._attr_device_info = {"identifiers": {(DOMAIN, f"{entry.entry_id}_{self._room_name}")}, "name": f"HeatFlow {self._room_name}"}
 
     @property

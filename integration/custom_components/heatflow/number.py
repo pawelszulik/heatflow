@@ -11,6 +11,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATOR, DOMAIN
 
+ROOM_FIELD_NAMES = {
+    "tempTarget": "Temperatura docelowa",
+    "tempTargetActive": "Temperatura docelowa (aktywny)",
+    "tempTargetInactive": "Temperatura docelowa (nieaktywny)",
+}
+
 PARAM_FIELDS = [
     ("deficitHighP1", 0, 10, 0.1),
     ("deficitHighP2", 0, 10, 0.1),
@@ -27,6 +33,22 @@ PARAM_FIELDS = [
     ("hysteresisSafetyThreshold", 0, 10, 0.1),
 ]
 
+PARAM_DISPLAY_NAMES = {
+    "deficitHighP1": "Deficit wysoki P1",
+    "deficitHighP2": "Deficit wysoki P2",
+    "deficitHighP3": "Deficit wysoki P3",
+    "bufferPreparation": "Bufor przygotowania",
+    "bufferHeatingTime": "Czas grzania bufora (min)",
+    "forecastTempDropThreshold": "Próg spadku temp. prognozy",
+    "forecastHoursCount": "Liczba godzin prognozy",
+    "maxValvesOpen": "Maks. liczba otwartych zaworów",
+    "minValvesOpen": "Min. liczba otwartych zaworów",
+    "boilerNominalTemp": "Temperatura nominalna pieca",
+    "minReturnTemp": "Min. temp. powrotu",
+    "hysteresis": "Histereza",
+    "hysteresisSafetyThreshold": "Próg histerezy (bezpieczeństwo)",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -40,7 +62,9 @@ async def async_setup_entry(
     entities = []
     rooms = (coordinator.data or {}).get("rooms") or []
     for room in rooms:
-        name = room.get("name") or room.get("Name") or "unknown"
+        name = room.get("name") or room.get("Name")
+        if not name:
+            continue
         for key in ["tempTarget", "tempTargetActive", "tempTargetInactive"]:
             val = room.get(key) or room.get(key[0].upper() + key[1:])
             if val is not None:
@@ -66,6 +90,7 @@ class RoomNumberEntity(CoordinatorEntity, NumberEntity):
         self._field = field
         self._attr_unique_id = f"{entry.entry_id}_{room_name}_{field}"
         self._attr_native_value = initial
+        self._attr_name = ROOM_FIELD_NAMES.get(field, field)
         self._attr_device_info = {"identifiers": {(DOMAIN, f"{entry.entry_id}_{room_name}")}, "name": f"HeatFlow {room_name}"}
 
     @property
@@ -116,6 +141,7 @@ class HeatingParameterNumber(CoordinatorEntity, NumberEntity):
         self._attr_native_min_value = min_v
         self._attr_native_max_value = max_v
         self._attr_native_step = step
+        self._attr_name = PARAM_DISPLAY_NAMES.get(field, field)
         self._attr_device_info = {"identifiers": {(DOMAIN, f"{entry.entry_id}_params")}, "name": "HeatFlow Parametry"}
 
     @property

@@ -36,6 +36,7 @@ class HeatFlowStatusSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_status"
+        self._attr_name = "Status"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "HeatFlow",
@@ -63,6 +64,7 @@ class HeatFlowConfigurationChangesSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_configuration_changes"
+        self._attr_name = "Ostatnie zmiany konfiguracji"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "HeatFlow",

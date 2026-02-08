@@ -154,7 +154,7 @@ public class Room
             DeficitClassification = DeficitClassification.Max;
             return;
         }
-        if (Score < -50)
+        if (Score < 0)
         {
             DeficitClassification = DeficitClassification.Disabled;
             return;

@@ -45,14 +45,6 @@ public class Phase2ArbitrateService : IPhaseService
 
             state.RoomsToHot = selectedRooms;
 
-            // Dodaj te Stay, jeśli jest miejsce
-            if (selectedRooms.Count < parameters.MaxValvesOpen)
-            {
-                var rowsToAdd = enabledRooms.Where(r => r.DeficitClassification == DeficitClassification.Stay).OrderBy(x => x.Score).Take(parameters.MaxValvesOpen - selectedRooms.Count);
-                state.RoomsToStay = rowsToAdd.ToList(); 
-                selectedRooms.AddRange(state.RoomsToStay);
-            }
-
             if (selectedRooms.Count == 0)
             {
                 // Dodaj pokój bezpieczeństwa (najwyższy priorytet z pozostałych)
@@ -60,6 +52,14 @@ public class Phase2ArbitrateService : IPhaseService
                 safetyRoom.SetSafetyRoom();
                 state.RoomsToHot.Add(safetyRoom);
                 selectedRooms.Add(safetyRoom);
+            }
+
+            // Dodaj te Stay, jeśli jest miejsce
+            if (selectedRooms.Count < parameters.MaxValvesOpen)
+            {
+                var rowsToAdd = enabledRooms.Where(r => r.DeficitClassification == DeficitClassification.Stay).OrderBy(x => x.Score).Take(parameters.MaxValvesOpen - selectedRooms.Count);
+                state.RoomsToStay = rowsToAdd.ToList(); 
+                selectedRooms.AddRange(state.RoomsToStay);
             }
 
             foreach (Room selectedRoom in selectedRooms)

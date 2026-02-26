@@ -2,6 +2,7 @@ using System.Reflection;
 using HeatFlow.Domain;
 using HeatFlow.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace HeatFlow.Infrastructure.Configuration;
 
@@ -11,10 +12,12 @@ namespace HeatFlow.Infrastructure.Configuration;
 public class ConfigurationAuditService : IConfigurationAuditService
 {
     private readonly HeatFlowDbContext _dbContext;
+    private readonly ILogger<ConfigurationAuditService> _logger;
 
-    public ConfigurationAuditService(HeatFlowDbContext dbContext)
+    public ConfigurationAuditService(HeatFlowDbContext dbContext, ILogger<ConfigurationAuditService> logger)
     {
         _dbContext = dbContext;
+        _logger = logger;
     }
 
     public async Task LogRoomChangesAsync(string roomName, RoomConfiguration? oldValue, RoomConfiguration newValue, string? source = null, CancellationToken cancellationToken = default)
@@ -29,7 +32,7 @@ public class ConfigurationAuditService : IConfigurationAuditService
         await SaveEntriesAsync(entries, cancellationToken);
     }
 
-    private static List<ConfigurationChangeLog> CompareObjects(string entityType, string entityId, object? oldObj, object newObj, string? source)
+    private List<ConfigurationChangeLog> CompareObjects(string entityType, string entityId, object? oldObj, object newObj, string? source)
     {
         var list = new List<ConfigurationChangeLog>();
         var type = newObj.GetType();
@@ -45,8 +48,9 @@ public class ConfigurationAuditService : IConfigurationAuditService
                 if (oldObj != null) oldVal = prop.GetValue(oldObj);
                 newVal = prop.GetValue(newObj);
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogDebug(ex, "CompareObjects: nie udało się odczytać właściwości {EntityType}.{PropertyName}", entityType, prop.Name);
                 continue;
             }
 

@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using HeatFlow.Domain;
+using Microsoft.Extensions.Logging;
 
 namespace HeatFlow.Infrastructure.HomeAssistant;
 
@@ -13,12 +15,16 @@ public class HomeAssistantClient : IHomeAssistantClient
     private readonly string _baseUrl;
     private readonly string _accessToken;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly ILogger<HomeAssistantClient> _logger;
+    private readonly IApplicationErrorLogger _errorLogger;
 
-    public HomeAssistantClient(HttpClient httpClient, string baseUrl, string accessToken)
+    public HomeAssistantClient(HttpClient httpClient, string baseUrl, string accessToken, ILogger<HomeAssistantClient> logger, IApplicationErrorLogger errorLogger)
     {
         _httpClient = httpClient;
         _baseUrl = baseUrl.TrimEnd('/');
         _accessToken = accessToken;
+        _logger = logger;
+        _errorLogger = errorLogger;
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
@@ -43,8 +49,10 @@ public class HomeAssistantClient : IHomeAssistantClient
             var state = JsonSerializer.Deserialize<EntityState>(content, _jsonOptions);
             return state;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Home Assistant GetState failed: {EntityId}", entityId);
+            await _errorLogger.LogAsync(ex, null, "HomeAssistantClient.GetState", new { EntityId = entityId }, "Error", "Console", cancellationToken);
             return null;
         }
     }
@@ -128,8 +136,10 @@ public class HomeAssistantClient : IHomeAssistantClient
             var tmp = await response.Content.ReadAsStringAsync(cancellationToken);
             return response.IsSuccessStatusCode;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Home Assistant CallService failed: {Domain}/{Service}", domain, service);
+            await _errorLogger.LogAsync(ex, null, "HomeAssistantClient.CallService", new { Domain = domain, Service = service }, "Error", "Console", cancellationToken);
             return false;
         }
     }

@@ -2,8 +2,14 @@ using HeatFlow.Domain;
 using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .WriteTo.Console()
+    .WriteTo.File("logs/heatflow-api-.log", rollingInterval: RollingInterval.Day));
 
 if (OperatingSystem.IsWindows())
     builder.Host.UseWindowsService();
@@ -75,7 +81,11 @@ app.Use(async (context, next) =>
                 await errorLogger.LogAsync(ex, null, "Api.Unhandled", ctx, "Error", "Api");
             }
         }
-        catch { /* nie rzucamy */ }
+        catch (Exception innerEx)
+        {
+            var logger = context.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("HeatFlow.Api");
+            logger?.LogError(innerEx, "Nie udało się zapisać błędu do ApplicationErrorLog");
+        }
         context.Response.StatusCode = 500;
         await context.Response.WriteAsJsonAsync(new { error = "Wystąpił błąd wewnętrzny." });
     }

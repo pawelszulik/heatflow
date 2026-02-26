@@ -26,6 +26,8 @@ public class ApplicationErrorLogger : IApplicationErrorLogger
 
     public async Task LogAsync(Exception? ex, int? phase, string? source, object? context = null, string severity = "Error", string? origin = null, CancellationToken cancellationToken = default)
     {
+        if (ex != null)
+            _logger?.LogError(ex, "[{Origin}] {Source}: {Message}", origin ?? "", source ?? "", ex.Message);
         var message = ex?.Message ?? "";
         var exceptionType = ex?.GetType().FullName;
         var stackTrace = ex?.StackTrace;
@@ -59,6 +61,7 @@ public class ApplicationErrorLogger : IApplicationErrorLogger
 
     public async Task LogAsync(string message, int? phase, string? source, object? context = null, string severity = "Error", string? origin = null, CancellationToken cancellationToken = default)
     {
+        _logger?.LogError("[{Origin}] {Source}: {Message}", origin ?? "", source ?? "", message ?? "");
         await SaveAsync(
             Truncate(message ?? "", MaxMessageLength),
             null,
@@ -81,8 +84,9 @@ public class ApplicationErrorLogger : IApplicationErrorLogger
             {
                 contextJson = contextObj is string s ? s : JsonSerializer.Serialize(contextObj);
             }
-            catch
+            catch (Exception serializationEx)
             {
+                _logger?.LogDebug(serializationEx, "Serializacja kontekstu nie powiodła się, używam ToString()");
                 contextJson = contextObj.ToString();
             }
         }

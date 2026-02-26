@@ -163,11 +163,13 @@ class Program
                 configuration.GetValue<int>("HomeAssistant:TimeoutSeconds", 30));
         });
 
-        services.AddSingleton<IHomeAssistantClient>(sp =>
+        services.AddScoped<IHomeAssistantClient>(sp =>
         {
             var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
             var httpClient = httpClientFactory.CreateClient(nameof(HomeAssistantClient));
-            return new HomeAssistantClient(httpClient, haBaseUrl, haAccessToken);
+            var logger = sp.GetRequiredService<ILogger<HomeAssistantClient>>();
+            var errorLogger = sp.GetRequiredService<IApplicationErrorLogger>();
+            return new HomeAssistantClient(httpClient, haBaseUrl, haAccessToken, logger, errorLogger);
         });
 
         // OpenWeatherMap Client
@@ -228,8 +230,9 @@ class Program
             var errorLogger = scope.ServiceProvider.GetRequiredService<IApplicationErrorLogger>();
             await errorLogger.LogAsync(message, phase, source, null, "Error", "Console");
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warning(ex, "Nie udało się zapisać błędu do ApplicationErrorLog (Console)");
             // Nie rzucamy – log do bazy nie może powalić aplikacji
         }
     }
@@ -242,8 +245,9 @@ class Program
             var errorLogger = scope.ServiceProvider.GetRequiredService<IApplicationErrorLogger>();
             await errorLogger.LogAsync(ex, null, source, null, "Error", "Console");
         }
-        catch
+        catch (Exception innerEx)
         {
+            Log.Warning(innerEx, "Nie udało się zapisać wyjątku do ApplicationErrorLog (Console)");
             // Nie rzucamy – log do bazy nie może powalić aplikacji
         }
     }

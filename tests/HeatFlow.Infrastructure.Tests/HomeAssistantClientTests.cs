@@ -1,4 +1,7 @@
+using HeatFlow.Domain;
 using HeatFlow.Infrastructure.HomeAssistant;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -9,6 +12,8 @@ namespace HeatFlow.Infrastructure.Tests;
 
 public class HomeAssistantClientTests
 {
+    private static readonly ILogger<HomeAssistantClient> NullLogger = NullLogger<HomeAssistantClient>.Instance;
+    private static readonly IApplicationErrorLogger NoOpErrorLogger = new NoOpApplicationErrorLogger();
     [Fact]
     public async Task GetStateAsync_WithValidEntity_ShouldReturnState()
     {
@@ -26,7 +31,7 @@ public class HomeAssistantClientTests
             BaseAddress = new Uri("http://test")
         };
 
-        var client = new HomeAssistantClient(httpClient, "http://test", "test-token");
+        var client = new HomeAssistantClient(httpClient, "http://test", "test-token", NullLogger, NoOpErrorLogger);
 
         // Act
         var result = await client.GetStateAsync("sensor.test");
@@ -54,7 +59,7 @@ public class HomeAssistantClientTests
             BaseAddress = new Uri("http://test")
         };
 
-        var client = new HomeAssistantClient(httpClient, "http://test", "test-token");
+        var client = new HomeAssistantClient(httpClient, "http://test", "test-token", NullLogger, NoOpErrorLogger);
 
         // Act
         var result = await client.GetStateDoubleAsync("sensor.temp");
@@ -81,7 +86,7 @@ public class HomeAssistantClientTests
             BaseAddress = new Uri("http://test")
         };
 
-        var client = new HomeAssistantClient(httpClient, "http://test", "test-token");
+        var client = new HomeAssistantClient(httpClient, "http://test", "test-token", NullLogger, NoOpErrorLogger);
 
         // Act
         var result = await client.GetStateDoubleAsync("sensor.temp");
@@ -102,7 +107,7 @@ public class HomeAssistantClientTests
             BaseAddress = new Uri("http://test")
         };
 
-        var client = new HomeAssistantClient(httpClient, "http://test", "test-token");
+        var client = new HomeAssistantClient(httpClient, "http://test", "test-token", NullLogger, NoOpErrorLogger);
 
         // Act
         var result = await client.SetNumberValueAsync("number.test", 25.0);
@@ -140,5 +145,11 @@ public class HomeAssistantClientTests
         {
             return Task.FromResult(_response ?? new HttpResponseMessage(HttpStatusCode.NotFound));
         }
+    }
+
+    private sealed class NoOpApplicationErrorLogger : IApplicationErrorLogger
+    {
+        public Task LogAsync(Exception? ex, int? phase, string? source, object? context = null, string severity = "Error", string? origin = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LogAsync(string message, int? phase, string? source, object? context = null, string severity = "Error", string? origin = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

@@ -101,6 +101,28 @@ public class DataPersistenceService
                 await _repository.SaveBoilerStateAsync(boilerState, cancellationToken);
             }
 
+            // Zapisz stany zaworów (z Fazy 3)
+            var phase3Result = phaseResults.FirstOrDefault(r => r.PhaseNumber == 3);
+            var phase3ExecutionId = executionIds.GetValueOrDefault(3);
+            if (phase3ExecutionId > 0 && phase3Result?.ValveResults.Count > 0)
+            {
+                foreach (var valve in phase3Result.ValveResults)
+                {
+                    var valveState = new ValveState
+                    {
+                        ExecutionId = phase3ExecutionId,
+                        RoomName = valve.RoomName,
+                        ValveEntityId = valve.ValveEntityId,
+                        TempSet = valve.TempSet,
+                        TempActual = valve.TempActual,
+                        Success = valve.Success,
+                        RetryCount = valve.RetryCount,
+                        RecordedAt = executionTime
+                    };
+                    await _repository.SaveValveStateAsync(valveState, cancellationToken);
+                }
+            }
+
             // Zapisz wszystkie zmiany
             await _repository.SaveChangesAsync(cancellationToken);
 

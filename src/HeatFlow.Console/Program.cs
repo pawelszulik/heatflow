@@ -10,6 +10,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.MSSqlServer;
 
 namespace HeatFlow.Console;
 
@@ -18,9 +20,27 @@ class Program
     static async Task Main(string[] args)
     {
         // Konfiguracja Serilog
+        var earlyConfig = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+            .Build();
+        var earlyConnectionString = earlyConfig.GetConnectionString("DefaultConnection");
+
         Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .WriteTo.Console()
             .WriteTo.File("logs/heatflow-.log", rollingInterval: RollingInterval.Day)
+            .WriteTo.MSSqlServer(
+                connectionString: earlyConnectionString,
+                sinkOptions: new MSSqlServerSinkOptions
+                {
+                    TableName = "SerilogLog",
+                    AutoCreateSqlTable = true,
+                    BatchPostingLimit = 50,
+                    BatchPeriod = TimeSpan.FromSeconds(5)
+                },
+                restrictedToMinimumLevel: LogEventLevel.Information)
             .CreateLogger();
 
         IServiceProvider? serviceProvider = null;

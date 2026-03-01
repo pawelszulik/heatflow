@@ -230,7 +230,7 @@ public class RoomTests
     }
 
     [Fact]
-    public void ClassifyDeficit_WithScoreExactlyMinus50_ShouldSetStay()
+    public void ClassifyDeficit_WithScoreExactlyMinus50_ShouldSetDisabled()
     {
         // Arrange
         var room = new Room
@@ -242,8 +242,8 @@ public class RoomTests
         room.ClassifyDeficit();
 
         // Assert
-        // W kodzie: if (Score < -50) Disabled, więc dokładnie -50 to Stay
-        Assert.Equal(DeficitClassification.Stay, room.DeficitClassification);
+        // W kodzie: if (Score < 0) Disabled, więc dokładnie -50 to Disabled
+        Assert.Equal(DeficitClassification.Disabled, room.DeficitClassification);
     }
 
     [Fact]

@@ -85,6 +85,16 @@ public class Phase3ValvesServiceTests
     public async Task ExecuteAsync_WithHeatingDisabled_ShouldSetClosedTemp()
     {
         // Arrange
+        var hotRoom = new Room
+        {
+            Name = "salon",
+            ValveEntityId = "climate.salon",
+            MaximalSetTemperature = 26.0
+        };
+        hotRoom.Score = 100;
+        hotRoom.ClassifyDeficit();
+        hotRoom.ChangeTemperatureToSet(); // TemperatureToSet = 26
+
         var room = new Room
         {
             Name = "sypialnia",
@@ -95,12 +105,13 @@ public class Phase3ValvesServiceTests
             ValveEntityId = "climate.sypialnia",
             MinimalSetTemperature = 0.0
         };
-        
+
         var state = new HeatingState
         {
             CurrentTime = DateTime.Now,
             IsWeekend = false,
-            Rooms = new List<Room> { room },
+            Rooms = new List<Room> { hotRoom, room },
+            RoomsToHot = new List<Room> { hotRoom },
             RoomsToDisable = new List<Room> { room }
         };
 
@@ -108,26 +119,45 @@ public class Phase3ValvesServiceTests
         {
             ValveTolerance = 0.1,
             ValveRetryCount = 3,
-            ValveRetryDelay = 1.0,
+            ValveRetryDelay = 0.01,
             MinValvesOpen = 1
         };
 
-        _haClientMock.Setup(x => x.GetStateAsync("climate.sypialnia", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new EntityState 
-            { 
-                State = "21.0",
-                Attributes = new Dictionary<string, object> { { "temperature", 21.0 } }
+        // hotRoom - sukces z pierwszego wywołania
+        var salon26Json = System.Text.Json.JsonSerializer.SerializeToElement(26.0);
+        _haClientMock.Setup(x => x.GetStateAsync("climate.salon", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", salon26Json } }
             });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.salon", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
-        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.sypialnia", 0, It.IsAny<CancellationToken>()))
+        // sypialnia (disabled) - ustawiana na temp minimalną (0)
+        var temp21Json = System.Text.Json.JsonSerializer.SerializeToElement(21.0);
+        var temp0Json = System.Text.Json.JsonSerializer.SerializeToElement(0.0);
+        var callCount = 0;
+        _haClientMock.Setup(x => x.GetStateAsync("climate.sypialnia", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                callCount++;
+                var temp = callCount <= 1 ? temp21Json : temp0Json;
+                return new EntityState
+                {
+                    State = "heat",
+                    Attributes = new Dictionary<string, object> { { "temperature", temp } }
+                };
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.sypialnia", 0.0, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         // Act
         var result = await _service.ExecuteAsync(state, parameters);
 
         // Assert
-        Assert.True(result.Success);
-        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.sypialnia", 0, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        Assert.True(result.Success, $"Success={result.Success} Error={result.ErrorMessage} Details={result.Details}");
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.sypialnia", 0.0, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -473,6 +503,16 @@ public class Phase3ValvesServiceTests
     public async Task ExecuteAsync_WithRoomsToStay_ShouldSetTemperature()
     {
         // Arrange
+        var hotRoom = new Room
+        {
+            Name = "salon",
+            ValveEntityId = "climate.salon",
+            MaximalSetTemperature = 26.0
+        };
+        hotRoom.Score = 100;
+        hotRoom.ClassifyDeficit();
+        hotRoom.ChangeTemperatureToSet(); // TemperatureToSet = 26
+
         var room = new Room
         {
             Name = "sypialnia",
@@ -486,12 +526,13 @@ public class Phase3ValvesServiceTests
         room.Score = 0; // Stay
         room.ClassifyDeficit();
         room.ChangeTemperatureToSet(); // TemperatureToSet = tempActual = 20.5
-        
+
         var state = new HeatingState
         {
             CurrentTime = DateTime.Now,
             IsWeekend = false,
-            Rooms = new List<Room> { room },
+            Rooms = new List<Room> { hotRoom, room },
+            RoomsToHot = new List<Room> { hotRoom },
             RoomsToStay = new List<Room> { room }
         };
 
@@ -499,16 +540,35 @@ public class Phase3ValvesServiceTests
         {
             ValveTolerance = 0.1,
             ValveRetryCount = 3,
-            ValveRetryDelay = 0.1
+            ValveRetryDelay = 0.01
         };
 
-        _haClientMock.Setup(x => x.GetStateAsync("climate.sypialnia", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new EntityState 
-            { 
+        // hotRoom - sukces z pierwszego wywołania (temp już ustawiona)
+        var salon26Json = System.Text.Json.JsonSerializer.SerializeToElement(26.0);
+        _haClientMock.Setup(x => x.GetStateAsync("climate.salon", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
                 State = "heat",
-                Attributes = new Dictionary<string, object> { { "temperature", 20.0 } }
+                Attributes = new Dictionary<string, object> { { "temperature", salon26Json } }
             });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.salon", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
+        // sypialnia - aktualna temp 18 (różna od docelowej 20), po Set zwraca 20
+        var temp18Json = System.Text.Json.JsonSerializer.SerializeToElement(18.0);
+        var temp20Json = System.Text.Json.JsonSerializer.SerializeToElement(20.0);
+        var sypialniaCallCount = 0;
+        _haClientMock.Setup(x => x.GetStateAsync("climate.sypialnia", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                sypialniaCallCount++;
+                var temp = sypialniaCallCount <= 1 ? temp18Json : temp20Json;
+                return new EntityState
+                {
+                    State = "heat",
+                    Attributes = new Dictionary<string, object> { { "temperature", temp } }
+                };
+            });
         _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.sypialnia", 20, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -516,8 +576,259 @@ public class Phase3ValvesServiceTests
         var result = await _service.ExecuteAsync(state, parameters);
 
         // Assert
-        Assert.True(result.Success);
+        Assert.True(result.Success, $"Success={result.Success} Error={result.ErrorMessage} Details={result.Details}");
         // Powinno ustawić temperaturę dla RoomsToStay
         _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.sypialnia", 20, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAllRoomsToHotFail_ShouldPromoteBestStayRoomToFullHeat()
+    {
+        // Arrange
+        var hotRoom = new Room
+        {
+            Name = "salon",
+            ValveEntityId = "climate.salon",
+            MaximalSetTemperature = 26.0
+        };
+        hotRoom.Score = 100;
+        hotRoom.ClassifyDeficit();
+        hotRoom.ChangeTemperatureToSet(); // TemperatureToSet = 26
+
+        var stayRoom = new Room
+        {
+            Name = "kuchnia",
+            TempActual = 19.0,
+            TempTarget = 20.0,
+            ValveEntityId = "climate.kuchnia",
+            MaximalSetTemperature = 26.0
+        };
+        stayRoom.Score = 20;
+        stayRoom.ClassifyDeficit();
+        stayRoom.ChangeTemperatureToSet(); // TemperatureToSet = 19 (stay)
+
+        var state = new HeatingState
+        {
+            CurrentTime = DateTime.Now,
+            RoomsToHot = new List<Room> { hotRoom },
+            RoomsToStay = new List<Room> { stayRoom }
+        };
+
+        var parameters = new HeatingParameters
+        {
+            ValveTolerance = 0.1,
+            ValveRetryCount = 3,
+            ValveRetryDelay = 0.01
+        };
+
+        // hotRoom - aktualna temp daleka od celu, wszystkie retry nieudane
+        _haClientMock.Setup(x => x.GetStateAsync("climate.salon", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", 21.0 } }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.salon", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // stayRoom jako fallback - przed ustawieniem temp=19 (różna od 26), po ustawieniu temp=26
+        var kuchniaTemp19Json = System.Text.Json.JsonSerializer.SerializeToElement(19.0);
+        var kuchniaTemp26Json = System.Text.Json.JsonSerializer.SerializeToElement(26.0);
+        var kuchniaCallCount = 0;
+        _haClientMock.Setup(x => x.GetStateAsync("climate.kuchnia", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                kuchniaCallCount++;
+                var temp = kuchniaCallCount <= 1 ? kuchniaTemp19Json : kuchniaTemp26Json;
+                return new EntityState
+                {
+                    State = "heat",
+                    Attributes = new Dictionary<string, object> { { "temperature", temp } }
+                };
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.kuchnia", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // Act
+        var result = await _service.ExecuteAsync(state, parameters);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.NotEmpty(result.Warnings);
+        Assert.Contains("kuchnia", result.Warnings[0]);
+        // Fallback room ustawiony na pełne grzanie (26), NIE na temperaturę stay (19)
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.kuchnia", 26, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.kuchnia", 19, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAllRoomsToHotFailAndNoStayRooms_ShouldPromoteDisableRoomToFullHeat()
+    {
+        // Arrange
+        var hotRoom = new Room
+        {
+            Name = "salon",
+            ValveEntityId = "climate.salon",
+            MaximalSetTemperature = 26.0
+        };
+        hotRoom.Score = 100;
+        hotRoom.ClassifyDeficit();
+        hotRoom.ChangeTemperatureToSet();
+
+        var disableRoom = new Room
+        {
+            Name = "przedpokoj",
+            ValveEntityId = "climate.przedpokoj",
+            MinimalSetTemperature = 5.0,
+            MaximalSetTemperature = 26.0
+        };
+        disableRoom.Score = -10;
+        disableRoom.ClassifyDeficit();
+        disableRoom.ChangeTemperatureToSet(); // TemperatureToSet = 5 (disabled)
+
+        var state = new HeatingState
+        {
+            CurrentTime = DateTime.Now,
+            RoomsToHot = new List<Room> { hotRoom },
+            RoomsToStay = new List<Room>(),
+            RoomsToDisable = new List<Room> { disableRoom }
+        };
+
+        var parameters = new HeatingParameters
+        {
+            ValveTolerance = 0.1,
+            ValveRetryCount = 3,
+            ValveRetryDelay = 0.01
+        };
+
+        // hotRoom - wszystkie retry nieudane
+        _haClientMock.Setup(x => x.GetStateAsync("climate.salon", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", 21.0 } }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.salon", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // disableRoom jako fallback - przed ustawieniem temp=5, po ustawieniu temp=26
+        var przedpokojTemp5Json = System.Text.Json.JsonSerializer.SerializeToElement(5.0);
+        var przedpokojTemp26Json = System.Text.Json.JsonSerializer.SerializeToElement(26.0);
+        var przedpokojCallCount = 0;
+        _haClientMock.Setup(x => x.GetStateAsync("climate.przedpokoj", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                przedpokojCallCount++;
+                var temp = przedpokojCallCount <= 1 ? przedpokojTemp5Json : przedpokojTemp26Json;
+                return new EntityState
+                {
+                    State = "heat",
+                    Attributes = new Dictionary<string, object> { { "temperature", temp } }
+                };
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.przedpokoj", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // Act
+        var result = await _service.ExecuteAsync(state, parameters);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.NotEmpty(result.Warnings);
+        // Fallback room ustawiony na 26, NIE na minimalną (5)
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.przedpokoj", 26, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.przedpokoj", 5, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSomeRoomsToHotSucceed_ShouldNotActivateSafetyFallback()
+    {
+        // Arrange
+        var hotRoomFail = new Room
+        {
+            Name = "salon",
+            ValveEntityId = "climate.salon",
+            MaximalSetTemperature = 26.0
+        };
+        hotRoomFail.Score = 100;
+        hotRoomFail.ClassifyDeficit();
+        hotRoomFail.ChangeTemperatureToSet();
+
+        var hotRoomSuccess = new Room
+        {
+            Name = "sypialnia",
+            ValveEntityId = "climate.sypialnia",
+            MaximalSetTemperature = 26.0
+        };
+        hotRoomSuccess.Score = 80;
+        hotRoomSuccess.ClassifyDeficit();
+        hotRoomSuccess.ChangeTemperatureToSet();
+
+        var stayRoom = new Room
+        {
+            Name = "kuchnia",
+            TempActual = 19.0,
+            TempTarget = 20.0,
+            ValveEntityId = "climate.kuchnia",
+            MaximalSetTemperature = 26.0
+        };
+        stayRoom.Score = 20;
+        stayRoom.ClassifyDeficit();
+        stayRoom.ChangeTemperatureToSet(); // TemperatureToSet = 19
+
+        var state = new HeatingState
+        {
+            CurrentTime = DateTime.Now,
+            RoomsToHot = new List<Room> { hotRoomFail, hotRoomSuccess },
+            RoomsToStay = new List<Room> { stayRoom }
+        };
+
+        var parameters = new HeatingParameters
+        {
+            ValveTolerance = 0.1,
+            ValveRetryCount = 3,
+            ValveRetryDelay = 0.01
+        };
+
+        // salon - nieudane
+        _haClientMock.Setup(x => x.GetStateAsync("climate.salon", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", 21.0 } }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.salon", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        // sypialnia - udane z weryfikacją
+        var temp26Json = System.Text.Json.JsonSerializer.SerializeToElement(26.0);
+        _haClientMock.Setup(x => x.GetStateAsync("climate.sypialnia", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", temp26Json } }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.sypialnia", 26, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // kuchnia - stay, udane
+        _haClientMock.Setup(x => x.GetStateAsync("climate.kuchnia", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", 20.0 } }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync("climate.kuchnia", 19, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        // Act
+        var result = await _service.ExecuteAsync(state, parameters);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.Empty(result.Warnings); // Brak ostrzeżeń - zabezpieczenie nie aktywowane
+        // kuchnia ustawiona na temperaturę stay (19), NIE na full heat (26)
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.kuchnia", 19, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.kuchnia", 26, It.IsAny<CancellationToken>()), Times.Never);
     }
 }

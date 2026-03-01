@@ -35,6 +35,11 @@ public class PhaseResult
     /// </summary>
     public List<string> Warnings { get; set; } = new();
 
+    /// <summary>
+    /// Wyniki sterowania zaworami (wypełniane przez Phase3).
+    /// </summary>
+    public List<ValveResult> ValveResults { get; set; } = new();
+
     public static PhaseResult SuccessResult(int phaseNumber, long durationMs, string? details = null)
     {
         return new PhaseResult

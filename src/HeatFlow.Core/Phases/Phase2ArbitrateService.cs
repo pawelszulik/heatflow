@@ -48,7 +48,7 @@ public class Phase2ArbitrateService : IPhaseService
             if (selectedRooms.Count == 0)
             {
                 // Dodaj pokój bezpieczeństwa (najwyższy priorytet z pozostałych)
-                var safetyRoom = enabledRooms.OrderByDescending(r => r.Score).First();
+                var safetyRoom = enabledRooms.OrderBy(r => r.TempActual).First();
                 safetyRoom.SetSafetyRoom();
                 state.RoomsToHot.Add(safetyRoom);
                 selectedRooms.Add(safetyRoom);

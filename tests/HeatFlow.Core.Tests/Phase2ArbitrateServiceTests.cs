@@ -88,11 +88,11 @@ public class Phase2ArbitrateServiceTests
         room1.ClassifyDeficit();
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 0.5, AutomationDisabled = false };
-        room2.Score = -10; // Score między -50 a 50 dla Stay
+        room2.Score = 10; // Score 0-50 dla Stay
         room2.ClassifyDeficit();
-        
+
         var room3 = new Room { Name = "room3", Priority = 1, TempDeficit = 0.0, AutomationDisabled = false };
-        room3.Score = -10; // Score między -50 a 50 dla Stay
+        room3.Score = 5; // Score 0-50 dla Stay
         room3.ClassifyDeficit();
         
         var state = new HeatingState

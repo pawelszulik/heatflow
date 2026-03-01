@@ -3,13 +3,35 @@ using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.MSSqlServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, services, configuration) => configuration
-    .ReadFrom.Configuration(context.Configuration)
-    .WriteTo.Console()
-    .WriteTo.File("logs/heatflow-api-.log", rollingInterval: RollingInterval.Day));
+var useInMemoryEarly = builder.Configuration.GetValue<bool>("UseInMemoryDatabase");
+
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .WriteTo.Console()
+        .WriteTo.File("logs/heatflow-api-.log", rollingInterval: RollingInterval.Day);
+
+    if (!useInMemoryEarly)
+    {
+        configuration.WriteTo.MSSqlServer(
+            connectionString: context.Configuration.GetConnectionString("DefaultConnection"),
+            sinkOptions: new MSSqlServerSinkOptions
+            {
+                TableName = "SerilogLog",
+                AutoCreateSqlTable = true,
+                BatchPostingLimit = 50,
+                BatchPeriod = TimeSpan.FromSeconds(5)
+            },
+            restrictedToMinimumLevel: LogEventLevel.Information);
+    }
+});
 
 if (OperatingSystem.IsWindows())
     builder.Host.UseWindowsService();

@@ -48,19 +48,13 @@ public class OrchestrationServiceTests
         phase4Mock.Setup(x => x.ExecuteAsync(It.IsAny<HeatingState>(), It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PhaseResult.SuccessResult(4, 250));
 
-        var phase5Mock = new Mock<IPhaseService>();
-        phase5Mock.Setup(x => x.PhaseNumber).Returns(5);
-        phase5Mock.Setup(x => x.ExecuteAsync(It.IsAny<HeatingState>(), It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(PhaseResult.SuccessResult(5, 100));
-
         _phaseServices = new List<IPhaseService>
         {
             phase0Mock.Object,
             phase1Mock.Object,
             phase2Mock.Object,
             phase3Mock.Object,
-            phase4Mock.Object,
-            phase5Mock.Object
+            phase4Mock.Object
         };
 
         var errorLoggerMock = new Mock<IApplicationErrorLogger>();
@@ -148,6 +142,6 @@ public class OrchestrationServiceTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(4, result.PhaseResults.Count); // Faza 0 + fazy 1-3 (fazy 4-5 są zakomentowane)
+        Assert.Equal(5, result.PhaseResults.Count); // Faza 0 + fazy 1-4
     }
 }

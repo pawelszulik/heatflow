@@ -27,6 +27,7 @@ public class HeatFlowDbContext : DbContext
     public DbSet<ForecastDataEntity> ForecastDataCache { get; set; }
     public DbSet<ConfigurationChangeLog> ConfigurationChangeLogs { get; set; }
     public DbSet<ApplicationErrorLog> ApplicationErrorLogs { get; set; }
+    public DbSet<SummerModeLog> SummerModeLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -206,6 +207,18 @@ public class HeatFlowDbContext : DbContext
             entity.HasIndex(e => e.Timestamp);
             entity.HasIndex(e => e.EntityType);
             entity.HasIndex(e => e.EntityId);
+        });
+
+        // SummerModeLog
+        modelBuilder.Entity<SummerModeLog>(entity =>
+        {
+            entity.ToTable("SummerModeLog");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.Date).HasColumnType("datetime2");
+            entity.Property(e => e.ActivatedAt).HasColumnType("datetime2");
+            entity.Property(e => e.DeactivatedAt).HasColumnType("datetime2");
+            entity.HasIndex(e => e.Date).IsUnique();
         });
 
         // ApplicationErrorLog

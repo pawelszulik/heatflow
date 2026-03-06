@@ -214,8 +214,8 @@ class Program
         services.AddScoped<IPhaseService, Phase1DiagnoseService>();
         services.AddScoped<IPhaseService, Phase2ArbitrateService>();
         services.AddScoped<IPhaseService, Phase3ValvesService>();
-        services.AddScoped<IPhaseService, Phase4BoilerService>();
-        services.AddScoped<IPhaseService, Phase5HysteresisService>();
+        services.AddScoped<IPhaseService, Phase4SummerModeService>();
+        services.AddScoped<ISummerModeRepository, SummerModeRepository>();
 
         // Database (wymagane)
         var connectionString = configuration.GetConnectionString("DefaultConnection")

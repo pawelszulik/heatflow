@@ -1,0 +1,116 @@
+<mxfile host="app.diagrams.net" modified="2026-06-23T10:00:00.000Z" agent="HeatFlowDocs" version="24.0.0" etag="data1" type="device">
+  <diagram name="Przeplyw danych" id="data-flow">
+    <mxGraphModel dx="1434" dy="780" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="HeatFlow - Przeplyw danych" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="360" y="20" width="440" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- External sources -->
+        <mxCell id="srcHa" value="Home Assistant&#xa;(sensory)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="srcOwm" value="OpenWeatherMap&#xa;(prognoza)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="srcDb" value="SQL Server&#xa;(konfiguracja)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Console process -->
+        <mxCell id="procConsole" value="HeatFlow.Console&#xa;(5 faz)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14" vertex="1" parent="1">
+          <mxGeometry x="320" y="140" width="200" height="200" as="geometry" />
+        </mxCell>
+
+        <!-- Fazy inside console -->
+        <mxCell id="f0" value="Faza 0&#xa;Prognoza" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="340" y="160" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="Faza 1&#xa;Diagnoza" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="410" y="160" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="Faza 2&#xa;Arbitraz" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="340" y="210" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="Faza 3&#xa;Zawory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="410" y="210" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="Faza 4&#xa;Letni/Zimny" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10" vertex="1" parent="1">
+          <mxGeometry x="375" y="260" width="70" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Outputs Console -> HA -->
+        <mxCell id="outHa" value="Home Assistant&#xa;(zawory, piec,&#xa;przelacznik)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="640" y="100" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Outputs Console -> DB telemetry -->
+        <mxCell id="outDb" value="SQL Server&#xa;(historia, stany,&#xa;logi bledow)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="640" y="220" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- API path -->
+        <mxCell id="api" value="HeatFlow.Api&#xa;(REST)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="320" y="420" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="haEdit" value="Home Assistant&#xa;(integracja custom)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="640" y="420" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dbConfig" value="SQL Server&#xa;(RoomConfiguration,&#xa;HeatingParameters)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="320" y="520" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows inputs -> Console -->
+        <mxCell id="e1" value="odczyt&#xa;temperatur" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="srcHa" target="procConsole">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="prognoza&#xa;pogody" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="srcOwm" target="procConsole">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="odczyt&#xa;config" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="srcDb" target="procConsole">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows Console -> outputs -->
+        <mxCell id="e4" value="zapis&#xa;zaworow/pieca" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="procConsole" target="outHa">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="zapis&#xa;wynikow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="procConsole" target="outDb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows HA edit -> Api -->
+        <mxCell id="e6" value="PUT/PATCH&#xa;(X-API-Key)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="haEdit" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows Api -> DB config -->
+        <mxCell id="e7" value="zapis&#xa;config" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="api" target="dbConfig">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="odczyt&#xa;config" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="api" target="dbConfig">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="480" />
+              <mxPoint x="400" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend1" value="Ściezka wykonawcza (algorytm)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="200" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legend2" value="Ściezka konfiguracyjna (edycja)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="450" width="200" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,84 @@
+<mxfile host="app.diagrams.net" modified="2026-06-23T10:00:00.000Z" agent="HeatFlowDocs" version="24.0.0" etag="db1" type="device">
+  <diagram name="Model danych" id="data-model">
+    <mxGraphModel dx="1434" dy="780" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="HeatFlow - Model danych (SQL Server)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="360" y="20" width="440" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Config tables -->
+        <mxCell id="tblSys" value="SystemConfiguration&#xa;(PK: Id = 1)&#xa;------------------&#xa;RoomsList&#xa;EkoPiecDeviceSn&#xa;TempReturnEntityId&#xa;Mixer4DPositionEntityId&#xa;BoilerTempEntityId&#xa;FeederTimeEntityId&#xa;SystemEnabled&#xa;Latitude&#xa;Longitude" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="200" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblRoom" value="RoomConfiguration&#xa;(PK: Name)&#xa;------------------&#xa;Name&#xa;TempTarget&#xa;TempTargetActive&#xa;TempTargetInactive&#xa;Priority&#xa;Sensitive&#xa;AutomationDisabled&#xa;UsageSchedule&#xa;HeatingSchedule&#xa;SensorTemperatureEntityId&#xa;ValveEntityId&#xa;MinimalSetTemperature&#xa;MaximalSetTemperature" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="280" y="80" width="220" height="280" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblParams" value="HeatingParameters&#xa;(PK: Id = 1)&#xa;------------------&#xa;DeficitHighP1/P2/P3&#xa;DeficitHighP1Base...&#xa;BufferPreparation&#xa;BufferHeatingTime&#xa;ForecastTempDropThreshold&#xa;ForecastTempRiseThreshold&#xa;ForecastHoursCount&#xa;PreHeating/Reduction multipliers&#xa;MaxValvesOpen, MinValvesOpen&#xa;UsageSoonMinutes&#xa;Score* (multipliers/bonuses)&#xa;ValveTolerance, ValveRetryCount&#xa;BoilerNominalTemp, MinReturnTemp&#xa;Hysteresis, HysteresisSafetyThreshold&#xa;... (wszystkie parametry)" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="540" y="80" width="240" height="340" as="geometry" />
+        </mxCell>
+
+        <!-- Telemetry tables -->
+        <mxCell id="tblExec" value="ExecutionHistory&#xa;(PK: Id)&#xa;------------------&#xa;ExecutionTime&#xa;Phase (0-4)&#xa;Status (Success/Error/Warning)&#xa;DurationMs&#xa;ErrorMessage&#xa;Details" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="200" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblRoomState" value="RoomState&#xa;(PK: Id)&#xa;------------------&#xa;ExecutionId (FK)&#xa;RoomName&#xa;TempActual&#xa;TempTarget&#xa;TempDeficit&#xa;Classification (int)&#xa;Score&#xa;HeatingEnabled&#xa;RecordedAt" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="280" y="420" width="200" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblBoiler" value="BoilerState&#xa;(PK: Id)&#xa;------------------&#xa;ExecutionId (FK)&#xa;TempExternal&#xa;TempReturn&#xa;TempTarget&#xa;FeederTime&#xa;Mixer4DPosition&#xa;RoomsHeatedCount&#xa;ForecastMode&#xa;RecordedAt" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="520" y="420" width="200" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblValve" value="ValveState&#xa;(PK: Id)&#xa;------------------&#xa;ExecutionId (FK)&#xa;RoomName&#xa;ValveEntityId&#xa;TempSet&#xa;TempActual&#xa;Success&#xa;RetryCount&#xa;RecordedAt" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="760" y="420" width="200" height="200" as="geometry" />
+        </mxCell>
+
+        <!-- Audit & Logs -->
+        <mxCell id="tblAudit" value="ConfigurationChangeLog&#xa;(PK: Id)&#xa;------------------&#xa;Timestamp&#xa;EntityType (Room/HeatingParameters)&#xa;EntityId&#xa;FieldName&#xa;OldValue&#xa;NewValue&#xa;Source" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="40" y="660" width="220" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblErr" value="ApplicationErrorLog&#xa;(PK: Id)&#xa;------------------&#xa;OccurredAtUtc&#xa;Source&#xa;Phase (0-4, null)&#xa;Message&#xa;ExceptionType&#xa;StackTrace&#xa;ExceptionJson&#xa;ContextJson&#xa;Severity (Error/Warning)&#xa;Origin (Console/Api)" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="300" y="660" width="220" height="240" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblSummer" value="SummerModeLog&#xa;(PK: Id, UQ: Date)&#xa;------------------&#xa;Date&#xa;WasActivated&#xa;WasDeactivated&#xa;ActivatedAt&#xa;DeactivatedAt" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="560" y="660" width="200" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tblForecast" value="ForecastDataCache&#xa;(PK: Id)&#xa;------------------&#xa;Latitude&#xa;Longitude&#xa;CurrentTemp&#xa;ForecastHoursJson&#xa;TempDropThreshold&#xa;TempRiseThreshold&#xa;CreatedAt&#xa;UpdatedAt" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="800" y="660" width="200" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="leg1" value="Konfiguracja" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="80" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2" value="Telemetria" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="110" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3" value="Audyt / Logi" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="140" width="80" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- FK arrows -->
+        <mxCell id="fk1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=none;startFill=0;endArrow=classic;endFill=1;" edge="1" parent="1" source="tblRoomState" target="tblExec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=none;startFill=0;endArrow=classic;endFill=1;" edge="1" parent="1" source="tblBoiler" target="tblExec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=none;startFill=0;endArrow=classic;endFill=1;" edge="1" parent="1" source="tblValve" target="tblExec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

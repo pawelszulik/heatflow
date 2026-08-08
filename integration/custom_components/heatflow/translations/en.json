@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HeatFlow API",
+        "description": "Enter the HeatFlow.Api address and the API key (set in the server configuration).",
+        "data": {
+          "api_url": "API URL",
+          "api_key": "API key"
+        }
+      },
+      "reconfigure": {
+        "title": "HeatFlow API — change address",
+        "description": "Change the HeatFlow.Api address or the API key. Devices and entities are kept (same entity_id).",
+        "data": {
+          "api_url": "API URL",
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the API",
+      "invalid_auth": "Invalid API key"
+    },
+    "abort": {
+      "already_configured": "This API instance is already configured",
+      "reconfigure_successful": "API address updated, integration reloaded"
+    }
+  }
+}

@@ -57,6 +57,12 @@ HeatFlow dodajesz jako **integrację**, nie jako dodatek z Add-on Store.
    - **Klucz API** – wartość ustawiona w konfiguracji API (`HeatFlow:ApiKey`).
 4. Po pomyślnej weryfikacji połączenia integracja utworzy urządzenia i encje.
 
+### Zmiana adresu / klucza API
+
+**Ustawienia** → **Urządzenia i usługi** → **HeatFlow** → **⋮** → **Skonfiguruj ponownie**. Wpis jest aktualizowany w miejscu, więc urządzenia i encje zachowują swoje `entity_id`.
+
+Usuwanie i dodawanie integracji od nowa **nie jest** sposobem na zmianę adresu — `unique_id` encji zawiera `entry_id`, więc nowy wpis tworzy zestaw nowych encji i psuje odwołania na dashboardach.
+
 ## Encje
 
 - **Pokoje** – dla każdego pokoju z API: temperatury docelowe (number), priorytet (select), Sensitive / AutomationDisabled (switch).

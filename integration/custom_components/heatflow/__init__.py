@@ -8,6 +8,8 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_API_KEY, CONF_API_URL, DATA_COORDINATOR, DOMAIN
 from .coordinator import HeatFlowDataUpdateCoordinator
 
+PLATFORMS = ["sensor", "number", "select", "switch"]
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Konfiguracja integracji z wpisu config."""
@@ -24,13 +26,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_API_KEY: entry.data[CONF_API_KEY],
         DATA_COORDINATOR: coordinator,
     }
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "number", "select", "switch"])
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Odładowanie integracji."""
-    unload_ok = await hass.config_entries.async_unload_entries(entry, ["sensor", "number", "select", "switch"])
+    """Odładowanie integracji.
+
+    Musi byc async_unload_platforms - to udokumentowane API HA do zwalniania platform
+    wpisu. Wczesniej bylo tu async_unload_entries, po ktorym przeladowanie wpisu nie
+    odtwarzalo encji (np. nowe parametry z API nie pojawialy sie bez restartu HA).
+    """
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok

@@ -17,6 +17,20 @@ ROOM_FIELD_NAMES = {
     "tempTargetInactive": "Temperatura docelowa (nieaktywny)",
 }
 
+
+def _pole(dane: dict, klucz: str):
+    """Wartość pola z API, tolerująca camelCase i PascalCase.
+
+    Nie wolno tu użyć `dane.get(a) or dane.get(A)` - zero jest falsy, więc parametr
+    o wartości 0 (np. scoreThresholdDisabled) wyglądałby na brakujący i encja
+    pokazywała `unknown`.
+    """
+    wartosc = dane.get(klucz)
+    if wartosc is not None:
+        return wartosc
+    return dane.get(klucz[0].upper() + klucz[1:])
+
+
 PARAM_FIELDS = [
     ("deficitHighP1", 0, 10, 0.1),
     ("deficitHighP2", 0, 10, 0.1),
@@ -72,7 +86,7 @@ async def async_setup_entry(
         if not name:
             continue
         for key in ["tempTarget", "tempTargetActive", "tempTargetInactive"]:
-            val = room.get(key) or room.get(key[0].upper() + key[1:])
+            val = _pole(room, key)
             if val is not None:
                 entities.append(RoomNumberEntity(coordinator, entry, name, key, float(val)))
     params = (coordinator.data or {}).get("heating_parameters") or {}
@@ -105,7 +119,7 @@ class RoomNumberEntity(CoordinatorEntity, NumberEntity):
         for r in (data.get("rooms") or []):
             rn = r.get("name") or r.get("Name")
             if rn == self._room_name:
-                v = r.get(self._field) or r.get(self._field[0].upper() + self._field[1:])
+                v = _pole(r, self._field)
                 return float(v) if v is not None else None
         return self._attr_native_value
 
@@ -153,7 +167,7 @@ class HeatingParameterNumber(CoordinatorEntity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         params = (self.coordinator.data or {}).get("heating_parameters") or {}
-        v = params.get(self._field) or params.get(self._field[0].upper() + self._field[1:])
+        v = _pole(params, self._field)
         if v is None:
             return None
         return float(v)

@@ -49,6 +49,9 @@ public class HeatingParametersEntity
     public int ScoreSensitiveBonus { get; set; }
     public int ScoreUsageSoonBonus { get; set; }
     public int ScoreHeatingScheduleBonus { get; set; }
+    public double ScoreThresholdMax { get; set; }
+    public double ScoreThresholdDisabled { get; set; }
+    public int MinDwellMinutes { get; set; }
 
     // Parametry zaworów
     public double ValveTolerance { get; set; }
@@ -119,6 +122,9 @@ public class HeatingParametersEntity
             ScoreSensitiveBonus = ScoreSensitiveBonus,
             ScoreUsageSoonBonus = ScoreUsageSoonBonus,
             ScoreHeatingScheduleBonus = ScoreHeatingScheduleBonus,
+            ScoreThresholdMax = ScoreThresholdMax,
+            ScoreThresholdDisabled = ScoreThresholdDisabled,
+            MinDwellMinutes = MinDwellMinutes,
             ValveTolerance = ValveTolerance,
             ValveRetryCount = ValveRetryCount,
             ValveRetryDelay = ValveRetryDelay,
@@ -178,6 +184,9 @@ public class HeatingParametersEntity
         ScoreSensitiveBonus = parameters.ScoreSensitiveBonus;
         ScoreUsageSoonBonus = parameters.ScoreUsageSoonBonus;
         ScoreHeatingScheduleBonus = parameters.ScoreHeatingScheduleBonus;
+        ScoreThresholdMax = parameters.ScoreThresholdMax;
+        ScoreThresholdDisabled = parameters.ScoreThresholdDisabled;
+        MinDwellMinutes = parameters.MinDwellMinutes;
         ValveTolerance = parameters.ValveTolerance;
         ValveRetryCount = parameters.ValveRetryCount;
         ValveRetryDelay = parameters.ValveRetryDelay;

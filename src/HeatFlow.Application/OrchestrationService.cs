@@ -160,13 +160,19 @@ public class OrchestrationService
 
         var boilerState = await LoadBoilerStateAsync(systemConfig, cancellationToken);
 
+        // Stan z poprzedniego cyklu: histereza klasyfikacji (Faza 1) i dwell zaworów (Faza 2).
+        var previousRoomStates = _dataPersistenceService is null
+            ? new Dictionary<string, RoomState>()
+            : await _dataPersistenceService.LoadPreviousRoomStatesAsync(cancellationToken);
+
         return new HeatingState
         {
             CurrentTime = DateTime.Now,
             IsWeekend = DateTime.Now.DayOfWeek == DayOfWeek.Saturday || DateTime.Now.DayOfWeek == DayOfWeek.Sunday,
             Rooms = rooms,
             BoilerState = boilerState,
-            SystemConfiguration = systemConfig
+            SystemConfiguration = systemConfig,
+            PreviousRoomStates = previousRoomStates
         };
     }
 

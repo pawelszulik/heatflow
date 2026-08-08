@@ -44,7 +44,7 @@ public class Phase3ValvesServiceTests
         };
         // Ustaw TemperatureToSet przez Score i ClassifyDeficit
         room.Score = 100; // Score > 50 dla Max
-        room.ClassifyDeficit(); // Ustawi DeficitClassification na Max
+        room.ClassifyDeficit(TestParameters.Default()); // Ustawi DeficitClassification na Max
         room.ChangeTemperatureToSet(); // Ustawi TemperatureToSet na 26
         
         var state = new HeatingState
@@ -92,7 +92,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         hotRoom.Score = 100;
-        hotRoom.ClassifyDeficit();
+        hotRoom.ClassifyDeficit(TestParameters.Default());
         hotRoom.ChangeTemperatureToSet(); // TemperatureToSet = 26
 
         var room = new Room
@@ -175,7 +175,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet();
         
         var state = new HeatingState
@@ -217,7 +217,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet(); // TemperatureToSet = 26
         
         var state = new HeatingState
@@ -273,7 +273,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet(); // TemperatureToSet = 26
         
         var state = new HeatingState
@@ -366,7 +366,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet(); // TemperatureToSet = 26
         
         var state = new HeatingState
@@ -421,7 +421,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet(); // TemperatureToSet = 26
         
         var state = new HeatingState
@@ -470,7 +470,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet(); // TemperatureToSet = 26
         
         var state = new HeatingState
@@ -510,7 +510,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         hotRoom.Score = 100;
-        hotRoom.ClassifyDeficit();
+        hotRoom.ClassifyDeficit(TestParameters.Default());
         hotRoom.ChangeTemperatureToSet(); // TemperatureToSet = 26
 
         var room = new Room
@@ -524,7 +524,7 @@ public class Phase3ValvesServiceTests
             ValveEntityId = "climate.sypialnia"
         };
         room.Score = 0; // Stay
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         room.ChangeTemperatureToSet(); // TemperatureToSet = tempActual = 20.5
 
         var state = new HeatingState
@@ -592,7 +592,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         hotRoom.Score = 100;
-        hotRoom.ClassifyDeficit();
+        hotRoom.ClassifyDeficit(TestParameters.Default());
         hotRoom.ChangeTemperatureToSet(); // TemperatureToSet = 26
 
         var stayRoom = new Room
@@ -604,7 +604,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         stayRoom.Score = 20;
-        stayRoom.ClassifyDeficit();
+        stayRoom.ClassifyDeficit(TestParameters.Default());
         stayRoom.ChangeTemperatureToSet(); // TemperatureToSet = 19 (stay)
 
         var state = new HeatingState
@@ -672,7 +672,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         hotRoom.Score = 100;
-        hotRoom.ClassifyDeficit();
+        hotRoom.ClassifyDeficit(TestParameters.Default());
         hotRoom.ChangeTemperatureToSet();
 
         var disableRoom = new Room
@@ -683,7 +683,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         disableRoom.Score = -10;
-        disableRoom.ClassifyDeficit();
+        disableRoom.ClassifyDeficit(TestParameters.Default());
         disableRoom.ChangeTemperatureToSet(); // TemperatureToSet = 5 (disabled)
 
         var state = new HeatingState
@@ -751,7 +751,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         hotRoomFail.Score = 100;
-        hotRoomFail.ClassifyDeficit();
+        hotRoomFail.ClassifyDeficit(TestParameters.Default());
         hotRoomFail.ChangeTemperatureToSet();
 
         var hotRoomSuccess = new Room
@@ -761,7 +761,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         hotRoomSuccess.Score = 80;
-        hotRoomSuccess.ClassifyDeficit();
+        hotRoomSuccess.ClassifyDeficit(TestParameters.Default());
         hotRoomSuccess.ChangeTemperatureToSet();
 
         var stayRoom = new Room
@@ -773,7 +773,7 @@ public class Phase3ValvesServiceTests
             MaximalSetTemperature = 26.0
         };
         stayRoom.Score = 20;
-        stayRoom.ClassifyDeficit();
+        stayRoom.ClassifyDeficit(TestParameters.Default());
         stayRoom.ChangeTemperatureToSet(); // TemperatureToSet = 19
 
         var state = new HeatingState

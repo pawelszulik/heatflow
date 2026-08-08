@@ -56,8 +56,27 @@ Opcjonalny naglowek `X-Source` (np. `home_assistant`) jest zapisywany w audycie 
 | GET | `/api/configuration-changes` | Historia zmian konfiguracji (audyt). |
 | GET | `/api/error-logs` | Dziennik bledow z Console i Api. |
 | GET | `/api/health` | Health check systemu. |
+| GET | `/api/status` | Stan zdrowia **sterownika** (HeatFlow.Console) z `dbo.ExecutionHistory`. |
 
 Szczegolowe opisy, przyklady zadan i odpowiedzi JSON znajduja sie w **[HeatFlow.Api-Kontrakt.md](HeatFlow.Api-Kontrakt.md)**.
+
+### `/api/health` a `/api/status`
+
+Te dwa endpointy odpowiadaja na zupelnie inne pytania i nie zastepuja sie wzajemnie:
+
+- **`/api/health`** – "czy Api odpowiada". Zwraca stale `{"status":"ok"}` i nie wie nic o sterowniku.
+- **`/api/status`** – "czy ogrzewanie jest sterowane". Czyta ostatni przebieg z `dbo.ExecutionHistory` i zwraca:
+
+| Pole | Znaczenie |
+|------|-----------|
+| `status` | `ok` / `stale` (brak przebiegu ponad 15 min) / `error` (faza zakonczona bledem) / `unknown` (brak historii) |
+| `lastRun`, `minutesSinceLastRun` | kiedy sterownik ostatnio przebiegl |
+| `phases[]` | status, czas trwania, blad i `Details` kazdej fazy tego przebiegu |
+| `failedPhases` | numery faz, ktore sie nie udaly |
+| `valvesTotal`, `valvesFailed`, `valvesFailedRooms` | zawory z Fazy 3, ktore nie odpowiedzialy |
+| `roomsWithoutSensor`, `phase1Details` | czy Faza 1 raportowala pokoje bez odczytu temperatury |
+
+Integracja Home Assistant zamienia to na encje `Status` i `Ostatni przebieg`. Wazne: gdy Api jest starsze i nie ma tego endpointu, integracja pokazuje `unknown` – **nigdy** falszywego `ok`.
 
 ---
 

@@ -74,7 +74,7 @@ public class RoomTests
             MaximalSetTemperature = 35.0,
             Score = -60.0 // Score < -50 dla Disabled
         };
-        room.ClassifyDeficit(); // Ustawi DeficitClassification na Disabled
+        room.ClassifyDeficit(TestParameters.Default()); // Ustawi DeficitClassification na Disabled
 
         // Act
         room.ChangeTemperatureToSet();
@@ -95,7 +95,7 @@ public class RoomTests
             MaximalSetTemperature = 35.0,
             Score = 0.0 // Score w zakresie -50 do 50 dla Stay
         };
-        room.ClassifyDeficit(); // Ustawi DeficitClassification na Stay
+        room.ClassifyDeficit(TestParameters.Default()); // Ustawi DeficitClassification na Stay
 
         // Act
         room.ChangeTemperatureToSet();
@@ -116,7 +116,7 @@ public class RoomTests
             MaximalSetTemperature = 35.0,
             Score = 0.0 // Score w zakresie -50 do 50 dla Stay
         };
-        room.ClassifyDeficit(); // Ustawi DeficitClassification na Stay
+        room.ClassifyDeficit(TestParameters.Default()); // Ustawi DeficitClassification na Stay
 
         // Act
         room.ChangeTemperatureToSet();
@@ -136,7 +136,7 @@ public class RoomTests
             MaximalSetTemperature = 35.0,
             Score = 60.0 // Score > 50 dla Max
         };
-        room.ClassifyDeficit(); // Ustawi DeficitClassification na Max
+        room.ClassifyDeficit(TestParameters.Default()); // Ustawi DeficitClassification na Max
 
         // Act
         room.ChangeTemperatureToSet();
@@ -174,7 +174,7 @@ public class RoomTests
         };
 
         // Act
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
 
         // Assert
         Assert.Equal(DeficitClassification.Max, room.DeficitClassification);
@@ -190,7 +190,7 @@ public class RoomTests
         };
 
         // Act
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
 
         // Assert
         Assert.Equal(DeficitClassification.Disabled, room.DeficitClassification);
@@ -206,7 +206,7 @@ public class RoomTests
         };
 
         // Act
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
 
         // Assert
         Assert.Equal(DeficitClassification.Stay, room.DeficitClassification);
@@ -222,7 +222,7 @@ public class RoomTests
         };
 
         // Act
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
 
         // Assert
         // W kodzie: if (Score > 50) Max, więc dokładnie 50 to Stay
@@ -239,7 +239,7 @@ public class RoomTests
         };
 
         // Act
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
 
         // Assert
         // W kodzie: if (Score < 0) Disabled, więc dokładnie -50 to Disabled
@@ -257,7 +257,7 @@ public class RoomTests
             MaximalSetTemperature = 35.0,
             Score = 0.0
         };
-        room.ClassifyDeficit(); // Ustawi DeficitClassification na Stay
+        room.ClassifyDeficit(TestParameters.Default()); // Ustawi DeficitClassification na Stay
 
         // Act
         room.SetSafetyRoom();

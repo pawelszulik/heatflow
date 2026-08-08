@@ -15,4 +15,10 @@ public class RoomState
     public decimal Score { get; set; }
     public bool HeatingEnabled { get; set; }
     public DateTime RecordedAt { get; set; }
+
+    /// <summary>
+    /// Od kiedy pokój jest w obecnej klasyfikacji. Przenoszone z poprzedniego cyklu,
+    /// gdy klasyfikacja się nie zmieniła - na tym opiera się dwell (anti-flap) w Fazie 2.
+    /// </summary>
+    public DateTime ClassificationSince { get; set; }
 }

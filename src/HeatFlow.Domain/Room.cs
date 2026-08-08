@@ -147,19 +147,58 @@ public class Room
         TemperatureToSet = (int)MaximalSetTemperature;
     }
 
-    public void ClassifyDeficit()
+    /// <summary>
+    /// Utrzymuje pokój na pełnym grzaniu mimo spadku Score poniżej progu - dwell (anti-flap)
+    /// z Fazy 2. To nie to samo co pokój bezpieczeństwa: powód jest inny i nie chcemy,
+    /// żeby taki pokój raportował się jako awaryjny.
+    /// </summary>
+    public void KeepHeating()
     {
-        if (Score > 50)
+        DeficitClassification = DeficitClassification.Max;
+        ChangeTemperatureToSet();
+    }
+
+    /// <summary>
+    /// Klasyfikuje pokój na podstawie Score i progów z konfiguracji, z histerezą względem
+    /// poprzedniej klasyfikacji. Histereza w °C (parametr Hysteresis) jest przeliczana na
+    /// jednostki Score przez ScoreDeficitMultiplier, bo tym mnożnikiem deficyt wchodzi do Score.
+    /// </summary>
+    /// <param name="parameters">Parametry grzewcze (progi, histereza).</param>
+    /// <param name="previous">
+    /// Klasyfikacja z poprzedniego cyklu. Bez niej histereza nie ma się do czego odnieść
+    /// i progi działają symetrycznie, jak przed wprowadzeniem histerezy.
+    /// </param>
+    public void ClassifyDeficit(HeatingParameters parameters, DeficitClassification? previous = null)
+    {
+        // Realne wychłodzenie łamie histerezę - pokój wchodzi w pełne grzanie natychmiast.
+        if (TempDeficit >= parameters.HysteresisSafetyThreshold)
         {
             DeficitClassification = DeficitClassification.Max;
             return;
         }
-        if (Score < 0)
+
+        var histScore = parameters.Hysteresis * parameters.ScoreDeficitMultiplier;
+
+        // Pokój już grzejący wypada z Max dopiero poniżej progu obniżonego o histerezę.
+        var progMax = previous == DeficitClassification.Max
+            ? parameters.ScoreThresholdMax - histScore
+            : parameters.ScoreThresholdMax;
+
+        // Ostro większe, tak jak przed parametryzacją progów (Score > 50) - granica bez zmian.
+        if (Score > progMax)
         {
-            DeficitClassification = DeficitClassification.Disabled;
+            DeficitClassification = DeficitClassification.Max;
             return;
         }
 
-        DeficitClassification = DeficitClassification.Stay;
+        // Analogicznie w drugą stronę: pokój zamknięty wraca do Stay dopiero powyżej
+        // progu podniesionego o histerezę.
+        var progDisabled = previous == DeficitClassification.Disabled
+            ? parameters.ScoreThresholdDisabled + histScore
+            : parameters.ScoreThresholdDisabled;
+
+        DeficitClassification = Score < progDisabled
+            ? DeficitClassification.Disabled
+            : DeficitClassification.Stay;
     }
 }

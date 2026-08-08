@@ -27,6 +27,48 @@ public class HeatFlowRepository : IHeatFlowRepository
         _context.RoomStates.Add(roomState);
     }
 
+    public async Task<Dictionary<string, RoomState>> GetLatestRoomStatesAsync(CancellationToken cancellationToken = default)
+    {
+        // Korzysta z indeksu IX_RoomState_RoomName_RecordedAt (RoomName ASC, RecordedAt DESC).
+        var latest = await _context.RoomStates
+            .GroupBy(s => s.RoomName)
+            .Select(g => g.OrderByDescending(s => s.RecordedAt).First())
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        return latest.ToDictionary(s => s.RoomName, s => s);
+    }
+
+    public async Task<List<ExecutionHistory>> GetLastExecutionAsync(CancellationToken cancellationToken = default)
+    {
+        var ostatniPrzebieg = await _context.ExecutionHistories
+            .OrderByDescending(e => e.ExecutionTime)
+            .Select(e => (DateTime?)e.ExecutionTime)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (ostatniPrzebieg is null)
+        {
+            return new List<ExecutionHistory>();
+        }
+
+        // Wszystkie fazy jednego przebiegu maja ten sam ExecutionTime (nadawany raz w
+        // DataPersistenceService), wiec porownanie po czasie zbiera caly cykl.
+        return await _context.ExecutionHistories
+            .Where(e => e.ExecutionTime == ostatniPrzebieg.Value)
+            .OrderBy(e => e.Phase)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<ValveState>> GetValveStatesAsync(int executionId, CancellationToken cancellationToken = default)
+    {
+        return await _context.ValveStates
+            .Where(v => v.ExecutionId == executionId)
+            .OrderBy(v => v.RoomName)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task SaveBoilerStateAsync(BoilerStateEntity boilerState, CancellationToken cancellationToken = default)
     {
         _context.BoilerStates.Add(boilerState);

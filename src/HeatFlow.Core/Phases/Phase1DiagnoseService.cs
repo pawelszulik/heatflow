@@ -37,16 +37,31 @@ public class Phase1DiagnoseService : IPhaseService
         try
         {
             var enabledRooms = state.GetEnabledRooms();
+            var slepePokoje = new List<string>();
 
             foreach (var room in enabledRooms)
             {
-                await DiagnoseRoomAsync(room, state, parameters, cancellationToken);
+                if (!await DiagnoseRoomAsync(room, state, parameters, cancellationToken))
+                {
+                    slepePokoje.Add(room.Name);
+                }
             }
 
             var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            _logger.LogInformation("Faza 1 wykonana: przetworzono {Count} pokoi", enabledRooms.Count);
+            var details = $"Przetworzono {enabledRooms.Count} pokoi";
+            if (slepePokoje.Count > 0)
+            {
+                details += $", bez odczytu temperatury: {slepePokoje.Count} ({string.Join(", ", slepePokoje)})";
+                _logger.LogWarning(
+                    "Faza 1: {Count} pokoi bez odczytu temperatury - podstawiono temperaturę zadaną, " +
+                    "więc ich deficyt wynosi 0 i NIE zostaną ogrzane: {Pokoje}",
+                    slepePokoje.Count, string.Join(", ", slepePokoje));
+            }
 
-            return PhaseResult.SuccessResult(PhaseNumber, duration, $"Przetworzono {enabledRooms.Count} pokoi");
+            _logger.LogInformation("Faza 1 wykonana: przetworzono {Count} pokoi, bez czujnika {Blind}",
+                enabledRooms.Count, slepePokoje.Count);
+
+            return PhaseResult.SuccessResult(PhaseNumber, duration, details);
         }
         catch (Exception ex)
         {
@@ -57,7 +72,11 @@ public class Phase1DiagnoseService : IPhaseService
         }
     }
 
-    private async Task DiagnoseRoomAsync(
+    /// <summary>
+    /// Diagnozuje pokój. Zwraca false, jeśli nie udało się odczytać temperatury
+    /// i trzeba było podstawić temperaturę zadaną (pokój "ślepy").
+    /// </summary>
+    private async Task<bool> DiagnoseRoomAsync(
         Room room,
         HeatingState state,
         HeatingParameters parameters,
@@ -73,17 +92,18 @@ public class Phase1DiagnoseService : IPhaseService
         var tempTarget = room.GetTargetTemperature(isHeatingActive);
 
         // Pobierz aktualną temperaturę pokoju (używając encji z konfiguracji)
-        var tempActual = await GetRoomTemperatureAsync(room, cancellationToken);
-        if (!tempActual.HasValue)
-        {
-            tempActual = tempTarget; // Fallback
-        }
+        var odczyt = await GetRoomTemperatureAsync(room, cancellationToken);
+        var maOdczyt = odczyt.HasValue;
 
-        room.TempActual = tempActual.Value;
+        // Fallback bez odczytu: pokój wygląda wtedy na idealnie dogrzany (deficyt 0),
+        // więc nigdy nie dostanie zaworu. Wołający to raportuje - patrz ExecuteAsync.
+        var tempActual = odczyt ?? tempTarget;
+
+        room.TempActual = tempActual;
 
         // Waliduj temperaturę
         var tempActualValidated = TemperatureHelper.ValidateTemperature(
-            tempActual.Value,
+            tempActual,
             parameters.TempValidationMin,
             parameters.TempValidationMax);
 
@@ -108,9 +128,11 @@ public class Phase1DiagnoseService : IPhaseService
 
         CalculateScore(room, state, parameters);
 
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(parameters, state.PreviousClassification(room.Name));
 
         room.ChangeTemperatureToSet();
+
+        return maOdczyt;
     }
 
     private void CalculateScore(

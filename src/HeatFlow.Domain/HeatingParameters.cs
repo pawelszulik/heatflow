@@ -43,6 +43,15 @@ public class HeatingParameters
     public int ScoreUsageSoonBonus { get; set; }
     public int ScoreHeatingScheduleBonus { get; set; }
 
+    /// <summary>Score, od którego pokój wchodzi w klasyfikację Max (pełne grzanie).</summary>
+    public double ScoreThresholdMax { get; set; }
+
+    /// <summary>Score, poniżej którego pokój schodzi do Disabled (zawór zamknięty).</summary>
+    public double ScoreThresholdDisabled { get; set; }
+
+    /// <summary>Minimalny czas w minutach, przez jaki pokój utrzymuje przydzielony zawór (anti-flap).</summary>
+    public int MinDwellMinutes { get; set; }
+
     // Parametry zaworów
     public double ValveTolerance { get; set; }
     public int ValveRetryCount { get; set; }

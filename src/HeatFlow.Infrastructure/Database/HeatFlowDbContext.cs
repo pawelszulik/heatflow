@@ -59,9 +59,12 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.TempDeficit).HasColumnType("decimal(5,2)");
             entity.Property(e => e.Score).HasColumnType("decimal(10,2)");
             entity.Property(e => e.RecordedAt).HasColumnType("datetime2");
+            entity.Property(e => e.ClassificationSince).HasColumnType("datetime2");
             entity.HasIndex(e => e.ExecutionId);
             entity.HasIndex(e => e.RoomName);
             entity.HasIndex(e => e.RecordedAt);
+            // Dwell w Fazie 2 czyta ostatni stan kazdego pokoju w kazdym cyklu
+            entity.HasIndex(e => new { e.RoomName, e.RecordedAt }).IsDescending(false, true);
         });
 
         // BoilerStateEntity
@@ -152,6 +155,8 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.ForecastReductionP2Multiplier).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ForecastReductionP3Multiplier).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ForecastReductionBufferMultiplier).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.ScoreThresholdMax).HasColumnType("decimal(10,2)");
+            entity.Property(e => e.ScoreThresholdDisabled).HasColumnType("decimal(10,2)");
             entity.Property(e => e.ValveTolerance).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveRetryDelay).HasColumnType("decimal(5,2)");
             entity.Property(e => e.MinReturnTemp).HasColumnType("decimal(5,2)");

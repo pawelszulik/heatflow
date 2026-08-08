@@ -18,6 +18,23 @@ public interface IHeatFlowRepository
     Task SaveRoomStateAsync(RoomState roomState, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Zwraca najnowszy zapisany stan każdego pokoju (po nazwie pokoju).
+    /// Zasila histerezę w Fazie 1 i dwell w Fazie 2.
+    /// </summary>
+    Task<Dictionary<string, RoomState>> GetLatestRoomStatesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Zwraca wpisy historii wykonania z ostatniego przebiegu (po jednym na fazę).
+    /// Podstawa endpointu /api/status i watchdoga w Home Assistant.
+    /// </summary>
+    Task<List<ExecutionHistory>> GetLastExecutionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Zwraca stany zaworów z podanego wykonania (identyfikator z ExecutionHistory).
+    /// </summary>
+    Task<List<ValveState>> GetValveStatesAsync(int executionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Zapisuje stan pieca.
     /// </summary>
     Task SaveBoilerStateAsync(BoilerStateEntity boilerState, CancellationToken cancellationToken = default);

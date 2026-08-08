@@ -25,6 +25,26 @@ public class DataPersistenceService
     }
 
     /// <summary>
+    /// Wczytuje najnowszy zapisany stan każdego pokoju - podstawa histerezy w Fazie 1
+    /// i dwell w Fazie 2. Błąd bazy nie może zablokować grzania, więc w razie problemu
+    /// zwracany jest pusty słownik, a oba mechanizmy po prostu nie działają w tym cyklu.
+    /// </summary>
+    public async Task<Dictionary<string, RoomState>> LoadPreviousRoomStatesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _repository.GetLatestRoomStatesAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Nie udało się wczytać poprzednich stanów pokoi - histereza i dwell będą nieaktywne w tym cyklu");
+            return new Dictionary<string, RoomState>();
+        }
+    }
+
+    /// <summary>
     /// Zapisuje wyniki wykonania faz do bazy danych.
     /// </summary>
     public async Task SaveExecutionResultsAsync(
@@ -60,6 +80,17 @@ public class DataPersistenceService
             {
                 foreach (var room in state.GetEnabledRooms())
                 {
+                    // ClassificationSince przenosimy z poprzedniego cyklu, jeśli klasyfikacja
+                    // się nie zmieniła - na tym opiera się dwell (anti-flap) w Fazie 2.
+                    var previous = state.PreviousRoomStates.GetValueOrDefault(room.Name);
+                    var classification = (int)room.DeficitClassification;
+                    var classificationSince =
+                        previous is not null
+                        && previous.Classification == classification
+                        && previous.ClassificationSince > DateTime.MinValue
+                            ? previous.ClassificationSince
+                            : executionTime;
+
                     var roomState = new RoomState
                     {
                         ExecutionId = phase1ExecutionId,
@@ -74,7 +105,8 @@ public class DataPersistenceService
                         Classification = (int)room.DeficitClassification,
                         Score = (decimal)room.Score,
                         HeatingEnabled = room.HeatingEnabled,
-                        RecordedAt = executionTime
+                        RecordedAt = executionTime,
+                        ClassificationSince = classificationSince
                     };
 
                     await _repository.SaveRoomStateAsync(roomState, cancellationToken);

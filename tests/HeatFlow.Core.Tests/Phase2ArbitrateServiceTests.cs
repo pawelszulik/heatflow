@@ -34,15 +34,15 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = false };
         room1.Score = 100; // Score > 50 dla Max
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 2.5, AutomationDisabled = false };
         room2.Score = 80; // Score > 50 dla Max
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
         
         var room3 = new Room { Name = "room3", Priority = 3, TempDeficit = 1.5, AutomationDisabled = false };
         room3.Score = 0; // Score między -50 a 50 dla Stay
-        room3.ClassifyDeficit();
+        room3.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -85,15 +85,15 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = false };
         room1.Score = 100; // Score > 50 dla Max
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 0.5, AutomationDisabled = false };
         room2.Score = 10; // Score 0-50 dla Stay
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
 
         var room3 = new Room { Name = "room3", Priority = 1, TempDeficit = 0.0, AutomationDisabled = false };
         room3.Score = 5; // Score 0-50 dla Stay
-        room3.ClassifyDeficit();
+        room3.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -132,11 +132,11 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 0.5, AutomationDisabled = false };
         room1.Score = 0; // Score między -50 a 50 dla Stay
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 0.0, AutomationDisabled = false };
         room2.Score = -10; // Score między -50 a 50 dla Stay
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -179,7 +179,7 @@ public class Phase2ArbitrateServiceTests
         {
             var room = new Room { Name = $"room{i}", Priority = i, TempDeficit = 3.0, AutomationDisabled = false };
             room.Score = 100 - i; // Różne score
-            room.ClassifyDeficit();
+            room.ClassifyDeficit(TestParameters.Default());
             rooms.Add(room);
         }
         
@@ -218,7 +218,7 @@ public class Phase2ArbitrateServiceTests
         {
             var room = new Room { Name = $"room{i}", Priority = i, TempDeficit = 3.0, AutomationDisabled = false };
             room.Score = 100 - i;
-            room.ClassifyDeficit();
+            room.ClassifyDeficit(TestParameters.Default());
             rooms.Add(room);
         }
         
@@ -254,15 +254,15 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = false };
         room1.Score = 100;
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 0.5, AutomationDisabled = false };
         room2.Score = 0; // Stay
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
         
         var room3 = new Room { Name = "room3", Priority = 3, TempDeficit = 0.3, AutomationDisabled = false };
         room3.Score = -5; // Stay
-        room3.ClassifyDeficit();
+        room3.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -297,11 +297,11 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = true };
         room1.Score = 100;
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 2.0, AutomationDisabled = true };
         room2.Score = 80;
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -323,11 +323,13 @@ public class Phase2ArbitrateServiceTests
         var result = await _service.ExecuteAsync(state, parameters);
 
         // Assert
-        // Wszystkie pokoje są disabled, więc GetEnabledRooms() zwróci pustą listę
-        // selectedRooms będzie puste, więc kod spróbuje dodać safety room
-        // Ale enabledRooms.OrderByDescending(r => r.Score).First() rzuci wyjątek jeśli lista jest pusta
-        // Kod ma try-catch, więc zwróci PhaseResult.ErrorResult
-        Assert.False(result.Success);
+        // Wszystkie pokoje mają automationDisabled, więc GetEnabledRooms() zwraca pustą listę.
+        // To stan konfiguracyjny, nie awaria: faza kończy się sukcesem i zerem otwartych zaworów.
+        // (Wcześniej .First() na pustej liście rzucał wyjątkiem i faza raportowała błąd co 5 minut.)
+        Assert.True(result.Success);
+        Assert.Empty(state.RoomsToHot);
+        Assert.Empty(state.RoomsToStay);
+        Assert.Empty(state.RoomsToDisable);
     }
 
     [Fact]
@@ -336,15 +338,15 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = false };
         room1.Score = 100;
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 3.0, AutomationDisabled = false };
         room2.Score = 100; // Takie samo score jak room1
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
         
         var room3 = new Room { Name = "room3", Priority = 3, TempDeficit = 3.0, AutomationDisabled = false };
         room3.Score = 100; // Takie samo score jak room1 i room2
-        room3.ClassifyDeficit();
+        room3.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -380,15 +382,15 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = false };
         room1.Score = 100;
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var room2 = new Room { Name = "room2", Priority = 2, TempDeficit = 2.0, AutomationDisabled = false };
         room2.Score = 80;
-        room2.ClassifyDeficit();
+        room2.ClassifyDeficit(TestParameters.Default());
         
         var room3 = new Room { Name = "room3", Priority = 3, TempDeficit = 0.5, AutomationDisabled = false };
         room3.Score = 0; // Stay
-        room3.ClassifyDeficit();
+        room3.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {
@@ -425,7 +427,7 @@ public class Phase2ArbitrateServiceTests
         // Arrange
         var room1 = new Room { Name = "room1", Priority = 1, TempDeficit = 3.0, AutomationDisabled = false };
         room1.Score = 100;
-        room1.ClassifyDeficit();
+        room1.ClassifyDeficit(TestParameters.Default());
         
         var state = new HeatingState
         {

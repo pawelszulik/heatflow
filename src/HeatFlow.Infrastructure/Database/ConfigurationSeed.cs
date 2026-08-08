@@ -92,6 +92,9 @@ public static class ConfigurationSeed
             ScoreSensitiveBonus = 50,
             ScoreUsageSoonBonus = 20,
             ScoreHeatingScheduleBonus = 50,
+            ScoreThresholdMax = 50.0,
+            ScoreThresholdDisabled = 0.0,
+            MinDwellMinutes = 20,
 
             // Parametry zaworów
             ValveTolerance = 0.1,

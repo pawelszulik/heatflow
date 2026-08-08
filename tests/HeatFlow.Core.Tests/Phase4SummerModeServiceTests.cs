@@ -350,7 +350,7 @@ public class Phase4SummerModeServiceTests
             DeficitClassification.Disabled => -10,
             _ => 0
         };
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         return room;
     }
 
@@ -359,7 +359,7 @@ public class Phase4SummerModeServiceTests
         // Deficyt >= 1°C i klasyfikacja Max
         var room = new Room { Name = name, TempTarget = tempTarget, TempActual = tempActual };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         return room;
     }
 
@@ -367,7 +367,7 @@ public class Phase4SummerModeServiceTests
     {
         var room = new Room { Name = name, TempTarget = 21.0, TempActual = null };
         room.Score = 100;
-        room.ClassifyDeficit();
+        room.ClassifyDeficit(TestParameters.Default());
         return room;
     }
 

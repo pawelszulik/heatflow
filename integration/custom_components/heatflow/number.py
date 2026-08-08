@@ -31,6 +31,9 @@ PARAM_FIELDS = [
     ("minReturnTemp", 20, 60, 1),
     ("hysteresis", 0, 5, 0.1),
     ("hysteresisSafetyThreshold", 0, 10, 0.1),
+    ("scoreThresholdMax", -200, 500, 1),
+    ("scoreThresholdDisabled", -200, 500, 1),
+    ("minDwellMinutes", 0, 120, 1),
 ]
 
 PARAM_DISPLAY_NAMES = {
@@ -47,6 +50,9 @@ PARAM_DISPLAY_NAMES = {
     "minReturnTemp": "Min. temp. powrotu",
     "hysteresis": "Histereza",
     "hysteresisSafetyThreshold": "Próg histerezy (bezpieczeństwo)",
+    "scoreThresholdMax": "Próg Score - pełne grzanie",
+    "scoreThresholdDisabled": "Próg Score - zawór zamknięty",
+    "minDwellMinutes": "Min. czas trzymania zaworu (min)",
 }
 
 

@@ -61,7 +61,21 @@ class HeatFlowDataUpdateCoordinator(DataUpdateCoordinator[dict]):
                 )
                 changes = await changes_resp.json() if changes_resp.status == 200 else []
 
-                return {"rooms": rooms, "heating_parameters": params, "configuration_changes": changes}
+                # Stan zdrowia sterownika (HeatFlow.Console). Starsze wersje API nie mają
+                # tego endpointu - wtedy sensor statusu pokaże "unknown", a nie fałszywe "ok".
+                status_resp = await session.get(
+                    f"{self._api_url}/api/status",
+                    headers=_headers(self._api_key),
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                status = await status_resp.json() if status_resp.status == 200 else None
+
+                return {
+                    "rooms": rooms,
+                    "heating_parameters": params,
+                    "configuration_changes": changes,
+                    "status": status,
+                }
             except aiohttp.ClientError as e:
                 raise UpdateFailed(f"Błąd połączenia: {e}") from e
 

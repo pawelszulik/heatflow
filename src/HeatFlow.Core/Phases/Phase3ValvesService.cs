@@ -35,6 +35,8 @@ public class Phase3ValvesService : IPhaseService
 
         try
         {
+            var additionalInfo = $"RoomsToHot: {state.RoomsToHot.Count}, RoomsToStay: {state.RoomsToStay.Count}, RoomsToDisable: {state.RoomsToDisable.Count}";
+            var valveMessages = new List<string>();
             var successCount = 0;
             var failCount = 0;
             var hotSuccessCount = 0;
@@ -49,8 +51,17 @@ public class Phase3ValvesService : IPhaseService
                     (decimal)room.TemperatureToSet, room.TempActual.HasValue ? (decimal)room.TempActual.Value : null,
                     success, retries));
 
-                if (success) { successCount++; hotSuccessCount++; }
-                else failCount++;
+                if (success)
+                {
+                    successCount++;
+                    hotSuccessCount++;
+                    valveMessages.Add($"Ustawiono pokój do grzania {room.Name} na {room.TemperatureToSet}°C");
+                }
+                else
+                {
+                    failCount++;
+                    valveMessages.Add($"NIE udało się ustawić pokoju do grzania {room.Name} na {room.TemperatureToSet}°C");
+                }
             }
 
             // ZABEZPIECZENIE: jeśli żaden zawór z RoomsToHot nie odpowiedział,
@@ -80,18 +91,21 @@ public class Phase3ValvesService : IPhaseService
                     if (fallbackSuccess)
                     {
                         successCount++;
+                        valveMessages.Add($"ZABEZPIECZENIE: {safetyFallbackRoom.Name} ustawiony na {fallbackTemp}°C (pełne grzanie)");
                         _logger.LogInformation(
                             "Faza 3: Zabezpieczenie aktywne - '{Room}' utrzymany na pełnym grzaniu.",
                             safetyFallbackRoom.Name);
                     }
                     else
                     {
+                        valveMessages.Add($"ZABEZPIECZENIE NIEUDANE: {safetyFallbackRoom.Name} nie odpowiedział na {fallbackTemp}°C");
                         _logger.LogError(
                             "Faza 3: Zabezpieczenie NIEUDANE - '{Room}' nie odpowiedział. Żaden zawór nie grzeje na pełną moc!",
                             safetyFallbackRoom.Name);
                         var errorResult = PhaseResult.ErrorResult(PhaseNumber,
                             $"Faza 3: Zabezpieczenie NIEUDANE - '{safetyFallbackRoom.Name}' nie odpowiedział. Żaden zawór nie grzeje na pełną moc!");
                         errorResult.ValveResults = valveResults;
+                        errorResult.Details = $"{additionalInfo} | {string.Join(" | ", valveMessages)}";
                         return errorResult;
                     }
                 }
@@ -111,8 +125,16 @@ public class Phase3ValvesService : IPhaseService
                     (decimal)room.TemperatureToSet, room.TempActual.HasValue ? (decimal)room.TempActual.Value : null,
                     success, retries));
 
-                if (success) successCount++;
-                else failCount++;
+                if (success)
+                {
+                    successCount++;
+                    valveMessages.Add($"Ustawiono pokój do podtrzymania {room.Name} na {room.TemperatureToSet}°C");
+                }
+                else
+                {
+                    failCount++;
+                    valveMessages.Add($"NIE udało się ustawić pokoju do podtrzymania {room.Name} na {room.TemperatureToSet}°C");
+                }
             }
             foreach (var room in state.RoomsToDisable)
             {
@@ -124,14 +146,29 @@ public class Phase3ValvesService : IPhaseService
                     (decimal)disableTemp, room.TempActual.HasValue ? (decimal)room.TempActual.Value : null,
                     success, retries));
 
-                if (success) successCount++;
-                else failCount++;
+                if (success)
+                {
+                    successCount++;
+                    valveMessages.Add($"Ustawiono pokój do wyłączenia {room.Name} na {disableTemp}°C");
+                }
+                else
+                {
+                    failCount++;
+                    valveMessages.Add($"NIE udało się ustawić pokoju do wyłączenia {room.Name} na {disableTemp}°C");
+                }
             }
 
             var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            _logger.LogInformation("Faza 3 wykonana: sukces {Success}, błędy {Fail}", successCount, failCount);
+            var valveDetails = string.Join(" | ", valveMessages);
+            var details = valveMessages.Count > 0
+                ? $"Sukces: {successCount}, Błędy: {failCount}, {additionalInfo} | {valveDetails}"
+                : $"Sukces: {successCount}, Błędy: {failCount}, {additionalInfo}";
 
-            var phaseResult = PhaseResult.SuccessResult(PhaseNumber, duration, $"Sukces: {successCount}, Błędy: {failCount}");
+            _logger.LogInformation(
+                "Faza 3 wykonana: sukces {Success}, błędy {Fail} ({Rooms}). Zawory: {Valves}",
+                successCount, failCount, additionalInfo, valveDetails);
+
+            var phaseResult = PhaseResult.SuccessResult(PhaseNumber, duration, details);
             phaseResult.ValveResults = valveResults;
 
             if (safetyFallbackRoom != null)

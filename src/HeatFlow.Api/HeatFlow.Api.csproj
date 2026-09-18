@@ -17,4 +17,22 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+
+  <!-- Serwer docelowy (CT 200) to Linux. Publish bez RID albo pod win-x64 daje artefakt,
+       ktory na serwerze WSTAJE i nasluchuje, a wywala sie dopiero przy pierwszym zapisie
+       do bazy: PlatformNotSupportedException (windowsowy wariant Microsoft.Data.SqlClient).
+       Build z RID ma tez wkompilowana platforme docelowa, wiec domyslne logowanie dodaje
+       EventLog, ktorego na Linuksie nie ma. Awaria 2026-08-16 - ubuntuserver/README.md, sekcja 6.1.
+       Dlatego publish bez jawnego RID dostaje linux-x64 automatycznie. -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true' And '$(RuntimeIdentifier)' == ''">
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <!-- Zapora na obcy RID podany jawnie. Swiadome obejscie: -p:PozwolNaObcyRid=true -->
+  <Target Name="SprawdzRidPrzedPublikacja" BeforeTargets="Publish"
+          Condition="'$(RuntimeIdentifier)' != 'linux-x64' And '$(PozwolNaObcyRid)' != 'true'">
+    <Error Text="Publish dla RID '$(RuntimeIdentifier)' - serwerem docelowym jest Linux (CT 200). Uzyj: dotnet publish -c Release -r linux-x64 --self-contained false -o &lt;folder&gt;. Kontrola artefaktu: plik bez rozszerzenia zamiast .exe. Szczegoly: ubuntuserver/README.md sekcja 6.1." />
+  </Target>
+
 </Project>

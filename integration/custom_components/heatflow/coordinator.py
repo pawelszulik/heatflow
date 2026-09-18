@@ -16,7 +16,7 @@ def _headers(api_key: str) -> dict[str, str]:
 
 
 class HeatFlowDataUpdateCoordinator(DataUpdateCoordinator[dict]):
-    """Pobiera rooms i heating_parameters z API."""
+    """Pobiera rooms, heating_parameters, status i stan systemu z API."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str, api_url: str, api_key: str) -> None:
         super().__init__(
@@ -70,11 +70,21 @@ class HeatFlowDataUpdateCoordinator(DataUpdateCoordinator[dict]):
                 )
                 status = await status_resp.json() if status_resp.status == 200 else None
 
+                # Włącznik całego systemu (SystemEnabled). Starsze wersje API nie mają
+                # tego endpointu - wtedy switch "Sterowanie ogrzewaniem" jest niedostępny.
+                system_resp = await session.get(
+                    f"{self._api_url}/api/system",
+                    headers=_headers(self._api_key),
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                system = await system_resp.json() if system_resp.status == 200 else None
+
                 return {
                     "rooms": rooms,
                     "heating_parameters": params,
                     "configuration_changes": changes,
                     "status": status,
+                    "system": system,
                 }
             except aiohttp.ClientError as e:
                 raise UpdateFailed(f"Błąd połączenia: {e}") from e

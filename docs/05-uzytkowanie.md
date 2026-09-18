@@ -150,16 +150,32 @@ Automatyczne wyłączenie ogrzewania (przejście w tryb letni) przy ciepłej pog
 
 ### Co robi
 
-1. Odczytuje stan przełącznika `switch.kociol_tryb_zima_lato` z Home Assistant.
-2. Sprawdza log dzienny w tabeli `SummerModeLog`.
+1. Odczytuje stan przełącznika `switch.kociol_tryb_zima_lato` z Home Assistant (razem z `last_changed`).
+2. Sprawdza **karencję po zmianie przełącznika** (patrz niżej).
+3. Sprawdza log dzienny w tabeli `SummerModeLog`.
+4. Ustala, czy zapowiada się **ciepły dzień** (patrz niżej).
+
+#### Ciepły dzień
+
+„Ciepły dzień" to sytuacja, w której **maksymalna temperatura z najbliższych 24 godzin prognozy** (cache `ForecastDataCache`, zapisywany przez Fazę 0) jest **>= `SummerModeWarmDayTemp`** (domyślnie 20°C, parametr edytowalny z HA jako „Tryb lato - próg ciepłego dnia").
+
+Gdy prognozy nie ma (pusty cache, cache starszy niż 6h, brak temperatur, brak współrzędnych) – zamiast prognozy brana jest **aktualna temperatura zewnętrzna** (`BoilerState.TempExternal`). Przy awarii odczytu z HA temperatura ta wynosi 0°C, czyli „nie jest ciepło" – bezpieczny kierunek.
+
+#### Karencja po zmianie przełącznika
+
+Przez **3 godziny** od ostatniej zmiany stanu przełącznika (wg `last_changed` z HA – niezależnie, czy zmienił go człowiek, automatyzacja, czy sama Faza 4) faza **nie robi nic**: ani nie aktywuje, ani nie dezaktywuje trybu lato. Dzięki temu ręczne przełączenie kotła na lato nie jest cofane po chwili.
+
+Uwaga: restart Home Assistant resetuje `last_changed` wszystkich encji, więc po restarcie Faza 4 jest wstrzymana na 3h. Gdy HA nie zwróci `last_changed`, karencja nie działa (zostaje reguła 3h z `SummerModeLog`).
 
 #### Aktywacja trybu letniego (winter → summer)
 
 Warunki **wszystkie muszą być spełnione**:
 
+- Poza karencją po zmianie przełącznika.
 - Godzina mieści się w przedziale **06:00 – 13:59**.
 - Temperatura zewnętrzna (`BoilerState.TempExternal`) **> 10°C**.
 - **Żaden** włączony pokój nie ma klasyfikacji **Max**.
+- **Ciepły dzień** (max prognozy 24h >= `SummerModeWarmDayTemp`).
 - Dziś nie było jeszcze aktywacji.
 
 Jeśli warunki są spełnione – wywołuje usługę `turn_on` na przełączniku `switch.kociol_tryb_zima_lato` i zapisuje aktywację w `SummerModeLog`.
@@ -168,17 +184,36 @@ Jeśli warunki są spełnione – wywołuje usługę `turn_on` na przełączniku
 
 Warunki **wszystkie muszą być spełnione**:
 
+- Poza karencją po zmianie przełącznika.
 - Co najmniej **2 pokoje** mają klasyfikację **Max**.
 - Dla tych pokoi: `TempActual < TempTarget - 1°C`.
 - Jeśli dziś była aktywacja – musi minąć co najmniej **3 godziny**.
+- **Nie jest** ciepły dzień (max prognozy 24h < `SummerModeWarmDayTemp`).
 - Dziś nie było jeszcze deaktywacji.
 
 Jeśli warunki są spełnione – wywołuje usługę `turn_off` na przełączniku i zapisuje deaktywację.
+
+Przykład: prognoza na dziś 23°C, wieczorem dwa pokoje ostygły o >1°C – kocioł **zostaje na lecie**, a w `ExecutionHistory` (pole `Details` Fazy 4) pojawia się `Brak zmian trybu lato - dezaktywacja zablokowana: ciepły dzień (prognoza max 24h 23.0°C >= 20.0°C)`. Następnego dnia z prognozą 14°C przełączy na zimę przy pierwszym cyklu z dwoma zimnymi pokojami.
 
 ### Wyjście
 
 - Stan przełącznika w Home Assistant.
 - Zapis w tabeli `SummerModeLog`.
+- `Details` w `ExecutionHistory`: `Tryb lato aktywowany` / `Tryb lato dezaktywowany` / `Brak zmian trybu lato` (z powodem blokady, gdy było realne zapotrzebowanie) / `Brak zmian trybu lato - karencja po zmianie przełącznika (…)`.
+
+---
+
+## Wyłączenie całego systemu z Home Assistant
+
+Integracja HA tworzy switch **„Sterowanie ogrzewaniem"** (`switch.heatflow_sterowanie_ogrzewaniem`) na urządzeniu HeatFlow. Steruje on polem `SystemConfiguration.SystemEnabled` przez `PUT /api/system/enabled`.
+
+Po wyłączeniu:
+
+- HeatFlow.Console pomija **wszystkie fazy** przy każdym uruchomieniu (co minutę) – zawory, mieszacz i tryb lato zostają w ostatnim stanie. Jeśli chcesz zamknąć zawory, zrób to ręcznie w HA przed wyłączeniem.
+- `GET /api/status` zwraca `status: "disabled"`, a sensor „Status" w HA pokazuje `disabled` (zamiast mylącego `stale`).
+- Zmiana trafia do audytu (`ConfigurationChangeLog`, `SystemConfiguration.SystemEnabled`).
+
+Włączenie z powrotem: ten sam switch. Sterownik podejmie pracę od następnego cyklu.
 
 ---
 

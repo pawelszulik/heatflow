@@ -1,3 +1,4 @@
+using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,6 +8,8 @@ namespace HeatFlow.Api.Controllers;
 /// Stan zdrowia sterownika: kiedy ostatnio przebiegł, czy fazy się udały i czy zawory
 /// odpowiedziały. Inaczej niż /api/health (który mówi tylko, że API odpowiada), ten
 /// endpoint patrzy na HeatFlow.Console - czyli na to, co realnie steruje ogrzewaniem.
+/// Gdy system jest wyłączony (SystemEnabled = false), Console nic nie zapisuje - wtedy
+/// zamiast mylącego "stale" zwracamy "disabled".
 /// Wymaga nagłówka X-API-Key jak reszta API.
 /// </summary>
 [ApiController]
@@ -17,22 +20,26 @@ public class StatusController : ControllerBase
     private const int ProgStaleMinut = 15;
 
     private readonly IHeatFlowRepository _repo;
+    private readonly IConfigurationService _config;
 
-    public StatusController(IHeatFlowRepository repo)
+    public StatusController(IHeatFlowRepository repo, IConfigurationService config)
     {
         _repo = repo;
+        _config = config;
     }
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
+        var systemEnabled = (await _config.GetSystemConfigurationAsync(ct)).SystemEnabled;
         var fazy = await _repo.GetLastExecutionAsync(ct);
 
         if (fazy.Count == 0)
         {
             return Ok(new
             {
-                status = "unknown",
+                status = systemEnabled ? "unknown" : "disabled",
+                systemEnabled,
                 message = "Brak historii wykonania - sterownik nigdy nie zapisał przebiegu",
                 lastRun = (DateTime?)null,
                 minutesSinceLastRun = (double?)null
@@ -55,13 +62,15 @@ public class StatusController : ControllerBase
         var faza1Details = fazy.FirstOrDefault(f => f.Phase == 1)?.Details ?? string.Empty;
         var slepePokoje = faza1Details.Contains("bez odczytu temperatury", StringComparison.OrdinalIgnoreCase);
 
-        var status = bledneFazy.Count > 0 ? "error"
+        var status = !systemEnabled ? "disabled"
+            : bledneFazy.Count > 0 ? "error"
             : minut > ProgStaleMinut ? "stale"
             : "ok";
 
         return Ok(new
         {
             status,
+            systemEnabled,
             lastRun,
             minutesSinceLastRun = Math.Round(minut, 1),
             staleThresholdMinutes = ProgStaleMinut,

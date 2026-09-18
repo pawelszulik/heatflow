@@ -19,6 +19,13 @@ public class HeatingState
     public SystemConfiguration? SystemConfiguration { get; set; }
 
     /// <summary>
+    /// Prognoza pogody z cache (tabela ForecastDataCache, zapisywana przez Fazę 0),
+    /// załadowana na początku cyklu. Null, gdy cache jest pusty, starszy niż 6h albo
+    /// odczyt się nie powiódł - konsumenci (Faza 4) muszą mieć fallback na BoilerState.TempExternal.
+    /// </summary>
+    public ForecastData? Forecast { get; set; }
+
+    /// <summary>
     /// Stan pokoi z poprzedniego cyklu, po nazwie pokoju. Zasila histerezę w Fazie 1
     /// i dwell (anti-flap) w Fazie 2. Pusty przy pierwszym uruchomieniu - wtedy oba
     /// mechanizmy zachowują się jak przed ich wprowadzeniem.

@@ -57,6 +57,8 @@ Opcjonalny naglowek `X-Source` (np. `home_assistant`) jest zapisywany w audycie 
 | GET | `/api/error-logs` | Dziennik bledow z Console i Api. |
 | GET | `/api/health` | Health check systemu. |
 | GET | `/api/status` | Stan zdrowia **sterownika** (HeatFlow.Console) z `dbo.ExecutionHistory`. |
+| GET | `/api/system` | Czy system jest wlaczony (`SystemConfiguration.SystemEnabled`). |
+| PUT | `/api/system/enabled` | Wlacza/wylacza caly system (uzywane przez switch "Sterowanie ogrzewaniem" w HA). |
 
 Szczegolowe opisy, przyklady zadan i odpowiedzi JSON znajduja sie w **[HeatFlow.Api-Kontrakt.md](HeatFlow.Api-Kontrakt.md)**.
 
@@ -69,7 +71,8 @@ Te dwa endpointy odpowiadaja na zupelnie inne pytania i nie zastepuja sie wzajem
 
 | Pole | Znaczenie |
 |------|-----------|
-| `status` | `ok` / `stale` (brak przebiegu ponad 15 min) / `error` (faza zakonczona bledem) / `unknown` (brak historii) |
+| `status` | `disabled` (system wylaczony przez `SystemEnabled`) / `ok` / `stale` (brak przebiegu ponad 15 min) / `error` (faza zakonczona bledem) / `unknown` (brak historii) |
+| `systemEnabled` | wartosc `SystemConfiguration.SystemEnabled`; przy `false` sterownik celowo nic nie zapisuje, wiec `disabled` ma pierwszenstwo przed `stale` |
 | `lastRun`, `minutesSinceLastRun` | kiedy sterownik ostatnio przebiegl |
 | `phases[]` | status, czas trwania, blad i `Details` kazdej fazy tego przebiegu |
 | `failedPhases` | numery faz, ktore sie nie udaly |

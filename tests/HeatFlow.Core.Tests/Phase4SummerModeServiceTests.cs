@@ -42,11 +42,11 @@ public class Phase4SummerModeServiceTests
     public async Task ExecuteAsync_WhenSwitchUnreadable_ShouldReturnSuccessWithSkip()
     {
         _haClientMock
-            .Setup(x => x.GetStateBoolAsync("switch.kociol_tryb_zima_lato", It.IsAny<CancellationToken>()))
-            .ReturnsAsync((bool?)null);
+            .Setup(x => x.GetStateAsync("switch.kociol_tryb_zima_lato", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EntityState?)null);
 
         var state = BuildState(externalTemp: 15.0, rooms: new List<Room>());
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         Assert.Contains("Pominięto", result.Details ?? "");
@@ -61,7 +61,7 @@ public class Phase4SummerModeServiceTests
             .ReturnsAsync(new SummerModeLog { Date = DateTime.Now.Date, WasActivated = true });
 
         var state = BuildState(externalTemp: 20.0, rooms: BuildAllStayRooms(3));
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
@@ -76,7 +76,7 @@ public class Phase4SummerModeServiceTests
         SetupNoLogToday();
 
         var state = BuildState(externalTemp: 10.0, rooms: BuildAllStayRooms(2));
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
@@ -95,7 +95,7 @@ public class Phase4SummerModeServiceTests
             BuildRoom("sypialnia", DeficitClassification.Max)
         };
         var state = BuildState(externalTemp: 20.0, rooms: rooms);
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
@@ -122,8 +122,8 @@ public class Phase4SummerModeServiceTests
             .Setup(x => x.SaveLogAsync(It.IsAny<SummerModeLog>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var state = BuildState(externalTemp: 15.0, rooms: BuildAllStayRooms(3));
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var state = BuildState(externalTemp: 15.0, rooms: BuildAllStayRooms(3), forecastMaxTemp: 24.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         Assert.Contains("aktywowany", result.Details ?? "");
@@ -147,7 +147,7 @@ public class Phase4SummerModeServiceTests
             BuildColdRoom("salon", tempActual: 18.0, tempTarget: 21.0),
             BuildColdRoom("sypialnia", tempActual: 19.0, tempTarget: 21.0)
         });
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
@@ -165,7 +165,7 @@ public class Phase4SummerModeServiceTests
             BuildColdRoom("salon", tempActual: 18.0, tempTarget: 21.0),
             BuildRoom("sypialnia", DeficitClassification.Stay)
         });
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
@@ -184,7 +184,7 @@ public class Phase4SummerModeServiceTests
             BuildColdRoom("salon", tempActual: 20.6, tempTarget: 21.0),
             BuildColdRoom("sypialnia", tempActual: 20.5, tempTarget: 21.0)
         });
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
@@ -210,7 +210,7 @@ public class Phase4SummerModeServiceTests
             BuildColdRoom("salon", tempActual: 18.0, tempTarget: 21.0),
             BuildColdRoom("sypialnia", tempActual: 18.5, tempTarget: 21.0)
         });
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
@@ -237,12 +237,8 @@ public class Phase4SummerModeServiceTests
             .Setup(x => x.SaveLogAsync(It.IsAny<SummerModeLog>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var state = BuildState(externalTemp: 5.0, rooms: new List<Room>
-        {
-            BuildColdRoom("salon", tempActual: 18.0, tempTarget: 21.0),
-            BuildColdRoom("sypialnia", tempActual: 18.5, tempTarget: 21.0)
-        });
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var state = BuildState(externalTemp: 5.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         Assert.Contains("dezaktywowany", result.Details ?? "");
@@ -266,12 +262,8 @@ public class Phase4SummerModeServiceTests
             .Setup(x => x.SaveLogAsync(It.IsAny<SummerModeLog>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var state = BuildState(externalTemp: 5.0, rooms: new List<Room>
-        {
-            BuildColdRoom("salon", tempActual: 18.0, tempTarget: 21.0),
-            BuildColdRoom("sypialnia", tempActual: 18.5, tempTarget: 21.0)
-        });
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var state = BuildState(externalTemp: 5.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         Assert.Contains("dezaktywowany", result.Details ?? "");
@@ -292,7 +284,7 @@ public class Phase4SummerModeServiceTests
             BuildRoomWithNullTemp("sypialnia")
         };
         var state = BuildState(externalTemp: 5.0, rooms: rooms);
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
@@ -303,23 +295,286 @@ public class Phase4SummerModeServiceTests
     public async Task ExecuteAsync_WhenExceptionThrown_ShouldReturnErrorResult()
     {
         _haClientMock
-            .Setup(x => x.GetStateBoolAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetStateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("Connection refused"));
 
         var state = BuildState(externalTemp: 15.0, rooms: new List<Room>());
-        var result = await _service.ExecuteAsync(state, new HeatingParameters());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.False(result.Success);
         Assert.Contains("Connection refused", result.ErrorMessage ?? "");
     }
 
-    // --- Helpers ---
+    // --- Ciepły dzień (prognoza / temperatura zewnętrzna) ---
 
-    private void SetupSwitchState(bool isSummerActive)
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_ColdRoomsButWarmForecast_ShouldNotDeactivate()
+    {
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 23.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("ciepły dzień", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_ColdRoomsAndColdForecast_ShouldDeactivate()
+    {
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 15.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_ForecastMaxExactlyAtThreshold_ShouldNotDeactivate()
+    {
+        // Warunek: >= próg
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 20.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_NoForecastAndWarmExternalTemp_ShouldNotDeactivate()
+    {
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 21.0, rooms: BuildTwoColdRooms());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("brak prognozy", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_ForecastWithoutTemperatures_ShouldFallbackToExternalTemp()
+    {
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 25.0, rooms: BuildTwoColdRooms());
+        state.Forecast = new ForecastData { CurrentTemp = 25.0, ForecastHours = new List<ForecastHour>() };
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_CustomWarmDayThreshold_ShouldUseParameter()
+    {
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        // Prognoza 23°C, ale próg podniesiony do 25°C -> to nie jest ciepły dzień
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 23.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default(summerModeWarmDayTemp: 25.0));
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_AllConditionsButColdForecast_ShouldNotActivate()
+    {
+        if (OutsideActivationWindow()) return;
+
+        SetupSwitchState(isSummerActive: false);
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 15.0, rooms: BuildAllStayRooms(3), forecastMaxTemp: 17.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("brak ciepłego dnia", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_NoForecastAndWarmExternalTemp_ShouldActivate()
+    {
+        if (OutsideActivationWindow()) return;
+
+        SetupSwitchState(isSummerActive: false);
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var state = BuildState(externalTemp: 22.0, rooms: BuildAllStayRooms(3));
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // --- Karencja po zmianie przełącznika (last_changed) ---
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_SwitchChangedLessThan3HoursAgo_ShouldNotDeactivate()
+    {
+        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.Now.AddMinutes(-30));
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("karencja", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+        // Karencja sprawdzana przed sięgnięciem do bazy
+        _repoMock.Verify(x => x.GetLogForDateAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_SwitchChangedLessThan3HoursAgo_ShouldNotActivate()
+    {
+        if (OutsideActivationWindow()) return;
+
+        SetupSwitchState(isSummerActive: false, lastChanged: DateTime.Now.AddHours(-1));
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 15.0, rooms: BuildAllStayRooms(3), forecastMaxTemp: 24.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("karencja", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_SwitchChangedMoreThan3HoursAgo_ShouldDeactivate()
+    {
+        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.Now.AddHours(-3.5));
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_LastChangedUtcKind_ShouldApplyGrace()
+    {
+        // HA zwraca "+00:00" -> zależnie od deserializacji Kind=Utc albo Local; oba muszą działać
+        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.UtcNow.AddMinutes(-10));
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.Contains("karencja", result.Details ?? "");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_LastChangedUnknown_ShouldNotApplyGrace()
+    {
+        // HA nie zwróciło last_changed (default) -> brak karencji, działa tylko reguła z SummerModeLog
+        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.MinValue);
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSwitchStateUnavailable_ShouldReturnSuccessWithSkip()
     {
         _haClientMock
-            .Setup(x => x.GetStateBoolAsync("switch.kociol_tryb_zima_lato", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(isSummerActive);
+            .Setup(x => x.GetStateAsync("switch.kociol_tryb_zima_lato", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState { State = "unavailable" });
+
+        var state = BuildState(externalTemp: 15.0, rooms: new List<Room>());
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("Pominięto", result.Details ?? "");
+    }
+
+    // --- Helpers ---
+
+    private void SetupSwitchState(bool isSummerActive, DateTime? lastChanged = null)
+    {
+        // Domyślnie przełącznik zmieniony dobę temu - poza karencją 3h
+        _haClientMock
+            .Setup(x => x.GetStateAsync("switch.kociol_tryb_zima_lato", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EntityState
+            {
+                EntityId = "switch.kociol_tryb_zima_lato",
+                State = isSummerActive ? "on" : "off",
+                LastChanged = lastChanged ?? DateTime.Now.AddHours(-24)
+            });
+    }
+
+    private void SetupTurnOffSucceeds()
+    {
+        _haClientMock
+            .Setup(x => x.CallServiceAsync("switch", "turn_off", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _repoMock
+            .Setup(x => x.SaveLogAsync(It.IsAny<SummerModeLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+    }
+
+    private void SetupTurnOnSucceeds()
+    {
+        _haClientMock
+            .Setup(x => x.CallServiceAsync("switch", "turn_on", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _repoMock
+            .Setup(x => x.SaveLogAsync(It.IsAny<SummerModeLog>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+    }
+
+    /// <summary>Godzina poza oknem aktywacji 6-14 - testy aktywacji wtedy nic nie sprawdzają.</summary>
+    private static bool OutsideActivationWindow()
+    {
+        var currentHour = DateTime.Now.Hour;
+        return currentHour < 6 || currentHour >= 14;
+    }
+
+    private static List<Room> BuildTwoColdRooms()
+    {
+        return new List<Room>
+        {
+            BuildColdRoom("salon", tempActual: 18.0, tempTarget: 21.0),
+            BuildColdRoom("sypialnia", tempActual: 18.5, tempTarget: 21.0)
+        };
     }
 
     private void SetupNoLogToday()
@@ -329,14 +584,31 @@ public class Phase4SummerModeServiceTests
             .ReturnsAsync((SummerModeLog?)null);
     }
 
-    private static HeatingState BuildState(double externalTemp, List<Room> rooms)
+    private static HeatingState BuildState(double externalTemp, List<Room> rooms, double? forecastMaxTemp = null)
     {
         return new HeatingState
         {
             CurrentTime = DateTime.Now,
             IsWeekend = false,
             Rooms = rooms,
-            BoilerState = new BoilerState { TempExternal = externalTemp }
+            BoilerState = new BoilerState { TempExternal = externalTemp },
+            Forecast = forecastMaxTemp.HasValue ? BuildForecast(externalTemp, forecastMaxTemp.Value) : null
+        };
+    }
+
+    /// <summary>24 godziny prognozy, max w godzinie 12, reszta 5°C niżej.</summary>
+    private static ForecastData BuildForecast(double currentTemp, double maxTemp)
+    {
+        return new ForecastData
+        {
+            CurrentTemp = currentTemp,
+            ForecastHours = Enumerable.Range(0, 24)
+                .Select(i => new ForecastHour
+                {
+                    DateTime = DateTime.UtcNow.AddHours(i),
+                    Temperature = i == 12 ? maxTemp : maxTemp - 5.0
+                })
+                .ToList()
         };
     }
 

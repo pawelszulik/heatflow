@@ -96,6 +96,9 @@ public static class ConfigurationSeed
             ScoreThresholdDisabled = 0.0,
             MinDwellMinutes = 20,
 
+            // Parametry trybu lato (Faza 4)
+            SummerModeWarmDayTemp = 20.0,
+
             // Parametry zaworów
             ValveTolerance = 0.1,
             ValveRetryCount = 3,

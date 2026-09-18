@@ -70,7 +70,7 @@ Gdy HeatFlow.Api przeniesie sie na inny host albo zmieni sie klucz: **Ustawienia
 
 | Encja | Wartosc | Atrybuty |
 |-------|---------|----------|
-| `sensor.heatflow_status` | `ok` | `rooms_count`, `heating_parameters_loaded` |
+| `sensor.heatflow_status` | `ok` / `stale` / `error` / `disabled` / `unknown` | `last_run`, `minutes_since_last_run`, `failed_phases`, `valves_failed_rooms`, … (z `GET /api/status`) |
 | `sensor.heatflow_configuration_changes` | liczba zmian | `last_changes` (lista ostatnich zmian), `changes_count` |
 
 ### Number (pokoje)
@@ -95,6 +95,8 @@ Wybrane parametry z `HeatingParameters` sa udostepniane jako globalne suwaki:
 - `maxValvesOpen`, `minValvesOpen`
 - `boilerNominalTemp`, `minReturnTemp`
 - `hysteresis`, `hysteresisSafetyThreshold`
+- `scoreThresholdMax`, `scoreThresholdDisabled`, `minDwellMinutes`
+- `summerModeWarmDayTemp` – **Tryb lato - prog cieplego dnia (°C)**, 0–40, krok 0.5
 
 Kazdy ma wlasny zakres, krok i jednostke. Zmiana wysyla `PATCH /api/heating-parameters`.
 
@@ -107,6 +109,10 @@ Dla kazdego pokoju:
 Zmiana wysyla `PUT /api/rooms/{name}`.
 
 ### Switch
+
+Globalny, na urzadzeniu HeatFlow:
+
+- `switch.heatflow_sterowanie_ogrzewaniem` – **Sterowanie ogrzewaniem**: wlacznik calego systemu (`SystemConfiguration.SystemEnabled`). Wylaczony = Console pomija wszystkie fazy, zawory i mieszacz zostaja w ostatnim stanie, sensor `Status` pokazuje `disabled`. Wysyla `PUT /api/system/enabled`. Przy starszym Api bez `/api/system` encja jest niedostepna.
 
 Dla kazdego pokoju:
 
@@ -150,7 +156,7 @@ Zmiana wysyla `PUT /api/rooms/{name}`.
 1. **Uzytkownik zmienia temperature pokoju** w suwaku HA.
 2. Integracja wysyla `PUT /api/rooms/sypialnia` do HeatFlow.Api.
 3. Api aktualizuje rekord w `RoomConfiguration` i dodaje wpis do `ConfigurationChangeLog`.
-4. Co 2 minuty **koordynator** integracji odpytuje API (`GET /api/rooms`, `GET /api/heating-parameters`) i odswieza stany encji w HA.
+4. Co 2 minuty **koordynator** integracji odpytuje API (`GET /api/rooms`, `GET /api/heating-parameters`, `GET /api/status`, `GET /api/system`) i odswieza stany encji w HA.
 5. Co minute (lub co 5 min w trybie ciaglym) **HeatFlow.Console** uruchamia sie, odczytuje aktualna konfiguracje z bazy i wykonuje algorytm.
 6. Console ustawia zawory i piec w Home Assistant, a wyniki zapisuje do `ExecutionHistory` i powiazanych tabel.
 

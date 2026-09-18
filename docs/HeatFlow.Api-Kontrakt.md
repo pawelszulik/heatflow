@@ -24,6 +24,8 @@ Opcjonalny nagłówek **X-Source** (np. `home_assistant`) – zapisywany w audit
 | GET | `/api/configuration-changes` | Historia zmian (audit log). Parametry zapytania: `entityType`, `entityId`, `from`, `to`, `limit` (domyślnie 100). |
 | GET | `/api/error-logs` | Dziennik błędów aplikacji (Console i Api). Parametry: `from`, `to`, `phase`, `source`, `origin`, `limit` (1–500, domyślnie 100). |
 | GET | `/api/health` | Health check. Odpowiedź: `{"status":"ok"}`. |
+| GET | `/api/status` | Stan zdrowia sterownika (`status`: `disabled`/`ok`/`stale`/`error`/`unknown`, `systemEnabled`, `lastRun`, `phases[]`, …). |
+| GET | `/api/system` | Włącznik systemu. Odpowiedź: `{"enabled":true}`. |
 
 ### Zapis
 
@@ -32,6 +34,7 @@ Opcjonalny nagłówek **X-Source** (np. `home_assistant`) – zapisywany w audit
 | PUT | `/api/rooms/{name}` | `RoomConfiguration` (JSON) | Aktualizacja pokoju. Nazwa w URL musi być równa `name` w body. |
 | PUT | `/api/heating-parameters` | `HeatingParameters` (JSON) | Pełna aktualizacja parametrów. |
 | PATCH | `/api/heating-parameters` | Obiekt JSON z podzbiorem pól | Częściowa aktualizacja – tylko podane właściwości. |
+| PUT | `/api/system/enabled` | `{"enabled": true\|false}` | Włącza/wyłącza cały system (`SystemConfiguration.SystemEnabled`). Odpowiedź: `{"enabled": …}`. Zmiana trafia do audytu jako `SystemConfiguration.SystemEnabled`. |
 
 ---
 

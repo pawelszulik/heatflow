@@ -157,6 +157,7 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.ForecastReductionBufferMultiplier).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ScoreThresholdMax).HasColumnType("decimal(10,2)");
             entity.Property(e => e.ScoreThresholdDisabled).HasColumnType("decimal(10,2)");
+            entity.Property(e => e.SummerModeWarmDayTemp).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveTolerance).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveRetryDelay).HasColumnType("decimal(5,2)");
             entity.Property(e => e.MinReturnTemp).HasColumnType("decimal(5,2)");

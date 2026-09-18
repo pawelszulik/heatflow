@@ -43,6 +43,53 @@ public class HomeAssistantClientTests
     }
 
     [Fact]
+    public async Task GetStateAsync_ShouldMapSnakeCaseEntityIdAndLastChanged()
+    {
+        // Arrange - surowa odpowiedź HA (snake_case, ISO-8601 z offsetem)
+        var handler = new TestHttpMessageHandler();
+        handler.SetResponse(new
+        {
+            entity_id = "switch.kociol_tryb_zima_lato",
+            state = "on",
+            attributes = new { },
+            last_changed = "2026-09-18T07:12:34.123456+00:00",
+            last_updated = "2026-09-18T07:12:34.123456+00:00"
+        });
+
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://test") };
+        var client = new HomeAssistantClient(httpClient, "http://test", "test-token", NullLogger, NoOpErrorLogger);
+
+        // Act
+        var result = await client.GetStateAsync("switch.kociol_tryb_zima_lato");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("switch.kociol_tryb_zima_lato", result.EntityId);
+        Assert.Equal("on", result.State);
+        Assert.NotEqual(default, result.LastChanged);
+        var expected = new DateTime(2026, 9, 18, 7, 12, 34, DateTimeKind.Utc);
+        Assert.Equal(expected, new DateTime(result.LastChanged.ToUniversalTime().Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, DateTimeKind.Utc));
+    }
+
+    [Theory]
+    [InlineData("on", true)]
+    [InlineData("ON", true)]
+    [InlineData("true", true)]
+    [InlineData("1", true)]
+    [InlineData("off", false)]
+    [InlineData("false", false)]
+    [InlineData("0", false)]
+    [InlineData("unknown", null)]
+    [InlineData("unavailable", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    [InlineData("foo", null)]
+    public void ParseBoolState_ShouldMapValues(string? input, bool? expected)
+    {
+        Assert.Equal(expected, HomeAssistantClient.ParseBoolState(input));
+    }
+
+    [Fact]
     public async Task GetStateDoubleAsync_WithValidNumber_ShouldReturnDouble()
     {
         // Arrange

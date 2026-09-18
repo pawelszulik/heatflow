@@ -82,6 +82,15 @@ public class HomeAssistantClient : IHomeAssistantClient
     public async Task<bool?> GetStateBoolAsync(string entityId, CancellationToken cancellationToken = default)
     {
         var valueStr = await GetStateValueAsync(entityId, cancellationToken);
+        return ParseBoolState(valueStr);
+    }
+
+    /// <summary>
+    /// Mapuje stan encji HA na bool: on/true/1 => true, off/false/0 => false,
+    /// unknown/unavailable/puste/inne => null.
+    /// </summary>
+    public static bool? ParseBoolState(string? valueStr)
+    {
         if (string.IsNullOrWhiteSpace(valueStr) || valueStr == "unknown" || valueStr == "unavailable")
         {
             return null;

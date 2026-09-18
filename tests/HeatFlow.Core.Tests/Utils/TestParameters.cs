@@ -18,10 +18,12 @@ internal static class TestParameters
         int scoreDeficitMultiplier = 10,
         int minDwellMinutes = 0,
         int maxValvesOpen = 5,
-        int minValvesOpen = 1)
+        int minValvesOpen = 1,
+        double summerModeWarmDayTemp = 20.0)
     {
         return new HeatingParameters
         {
+            SummerModeWarmDayTemp = summerModeWarmDayTemp,
             ScoreThresholdMax = scoreThresholdMax,
             ScoreThresholdDisabled = scoreThresholdDisabled,
             Hysteresis = hysteresis,

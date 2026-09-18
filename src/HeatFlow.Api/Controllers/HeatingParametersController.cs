@@ -77,7 +77,7 @@ public class HeatingParametersController : ControllerBase
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return BadRequest(new { error = "Oczekiwano obiektu JSON." });
 
-            var updated = CloneHeatingParameters(current);
+            var updated = ShallowCopy.Of(current);
             ApplyPartialHeatingParameters(updated, root);
 
             var source = Request.Headers["X-Source"].FirstOrDefault();
@@ -97,15 +97,6 @@ public class HeatingParametersController : ControllerBase
                 return Problem(detail: ex.Message, statusCode: 500);
             }
         }
-    }
-
-    private static HeatingParameters CloneHeatingParameters(HeatingParameters src)
-    {
-        var t = typeof(HeatingParameters);
-        var dest = (HeatingParameters)(Activator.CreateInstance(t) ?? throw new InvalidOperationException());
-        foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead && p.CanWrite))
-            prop.SetValue(dest, prop.GetValue(src));
-        return dest;
     }
 
     private static void ApplyPartialHeatingParameters(HeatingParameters target, JsonElement json)

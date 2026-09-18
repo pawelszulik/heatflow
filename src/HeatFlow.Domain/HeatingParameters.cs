@@ -52,6 +52,15 @@ public class HeatingParameters
     /// <summary>Minimalny czas w minutach, przez jaki pokój utrzymuje przydzielony zawór (anti-flap).</summary>
     public int MinDwellMinutes { get; set; }
 
+    /// <summary>
+    /// Próg "ciepłego dnia" (°C) dla trybu lato (Faza 4). Max temperatura z najbliższych 24h
+    /// prognozy (albo temperatura zewnętrzna, gdy brak prognozy) >= tej wartości blokuje
+    /// dezaktywację trybu lato i jest wymagana do jego aktywacji.
+    /// Inicjalizator 20.0 jest celowy: zero (niepełny PUT, new HeatingParameters()) oznaczałoby
+    /// "zawsze ciepło" i tryb lato nigdy nie wróciłby do zimy.
+    /// </summary>
+    public double SummerModeWarmDayTemp { get; set; } = 20.0;
+
     // Parametry zaworów
     public double ValveTolerance { get; set; }
     public int ValveRetryCount { get; set; }

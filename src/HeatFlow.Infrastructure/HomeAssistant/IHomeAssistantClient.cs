@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HeatFlow.Infrastructure.HomeAssistant;
 
 /// <summary>
@@ -66,9 +68,17 @@ public interface IHomeAssistantClient
 /// </summary>
 public class EntityState
 {
+    // HA zwraca pola w snake_case; deserializacja ma tylko PropertyNameCaseInsensitive,
+    // więc bez jawnych nazw EntityId/LastChanged/LastUpdated zostawałyby puste.
+    [JsonPropertyName("entity_id")]
     public string EntityId { get; set; } = string.Empty;
     public string State { get; set; } = string.Empty;
     public Dictionary<string, object> Attributes { get; set; } = new();
+
+    /// <summary>Kiedy HA ostatnio zmieniło wartość stanu (last_changed). Default = brak danych.</summary>
+    [JsonPropertyName("last_changed")]
     public DateTime LastChanged { get; set; }
+
+    [JsonPropertyName("last_updated")]
     public DateTime LastUpdated { get; set; }
 }

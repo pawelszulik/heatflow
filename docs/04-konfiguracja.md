@@ -97,6 +97,12 @@ Tabela zawiera **jeden rekord** (`Id = 1`) ze wszystkimi parametrami algorytmu.
 | `ValveRetryCount` | 3 | Liczba prób ustawienia zaworu w razie niepowodzenia. |
 | `ValveRetryDelay` | 1.0 | Opóźnienie między próbami (sekundy). |
 
+#### Parametry trybu lato (Faza 4)
+
+| Pole | Domyślnie | Opis |
+|------|-----------|------|
+| `SummerModeWarmDayTemp` | 20.0 | Próg „ciepłego dnia" (°C). Max temperatura z najbliższych 24h prognozy (lub temperatura zewnętrzna, gdy brak prognozy) >= tej wartości blokuje wyjście z trybu lato i jest wymagana do wejścia w tryb lato. Edytowalny z HA. |
+
 #### Parametry pieca (nieużywane bezpośrednio – logika w Fazie 0/4)
 
 | Pole | Domyślnie | Opis |

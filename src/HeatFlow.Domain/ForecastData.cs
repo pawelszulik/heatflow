@@ -52,6 +52,22 @@ public class ForecastData
         var minTemp = GetMinTemp24h(hoursCount);
         return minTemp - CurrentTemp;
     }
+
+    /// <summary>
+    /// Zwraca maksymalną temperaturę w ciągu najbliższych N godzin prognozy
+    /// albo null, gdy prognoza nie zawiera żadnej temperatury (wtedy wołający
+    /// powinien użyć własnego fallbacku, np. temperatury zewnętrznej).
+    /// </summary>
+    public double? GetMaxTemp(int hoursCount)
+    {
+        var temps = ForecastHours
+            .Take(hoursCount)
+            .Where(f => f.Temperature.HasValue)
+            .Select(f => f.Temperature!.Value)
+            .ToList();
+
+        return temps.Count > 0 ? temps.Max() : null;
+    }
 }
 
 /// <summary>

@@ -1,4 +1,4 @@
-"""Encje switch dla Sensitive i AutomationDisabled pokoju."""
+"""Encje switch: włącznik całego systemu oraz Sensitive / AutomationDisabled pokoju."""
 
 from __future__ import annotations
 
@@ -22,7 +22,8 @@ async def async_setup_entry(
         return
     coordinator = data[DATA_COORDINATOR]
     rooms = (coordinator.data or {}).get("rooms") or []
-    entities = []
+    # Włącznik systemu ma istnieć nawet bez skonfigurowanych pokoi.
+    entities = [HeatFlowSystemSwitchEntity(coordinator, entry)]
     for room in rooms:
         name = room.get("name") or room.get("Name")
         if not name:
@@ -32,6 +33,59 @@ async def async_setup_entry(
         if "automationDisabled" in room or "AutomationDisabled" in room:
             entities.append(RoomSwitchEntity(coordinator, entry, name, "automation_disabled"))
     async_add_entities(entities)
+
+
+class HeatFlowSystemSwitchEntity(CoordinatorEntity, SwitchEntity):
+    """Włącznik całego systemu (SystemConfiguration.SystemEnabled przez /api/system).
+
+    Po wyłączeniu HeatFlow.Console pomija wszystkie fazy - zawory, mieszacz i tryb lato
+    zostają w ostatnim stanie, a sensor "Status" pokazuje "disabled".
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_system_enabled"
+        self._attr_name = "Sterowanie ogrzewaniem"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "HeatFlow",
+        }
+
+    @property
+    def available(self) -> bool:
+        # Starsze API bez /api/system -> coordinator daje None.
+        return super().available and (self.coordinator.data or {}).get("system") is not None
+
+    @property
+    def icon(self) -> str:
+        return "mdi:radiator" if self.is_on else "mdi:radiator-off"
+
+    @property
+    def is_on(self) -> bool:
+        system = (self.coordinator.data or {}).get("system") or {}
+        return bool(system.get("enabled", system.get("Enabled", False)))
+
+    async def _set_enabled(self, value: bool) -> None:
+        api_url = self.coordinator.api_url
+        api_key = self.coordinator.api_key
+        async with aiohttp.ClientSession() as session:
+            async with session.put(
+                f"{api_url}/api/system/enabled",
+                json={"enabled": value},
+                headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status in (200, 204):
+                    await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._set_enabled(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._set_enabled(False)
 
 
 class RoomSwitchEntity(CoordinatorEntity, SwitchEntity):

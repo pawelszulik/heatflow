@@ -33,15 +33,16 @@ async def async_setup_entry(
 
 
 class HeatFlowStatusSensor(CoordinatorEntity, SensorEntity):
-    """Stan zdrowia sterownika: ok / stale / error / unknown.
+    """Stan zdrowia sterownika: ok / stale / error / disabled / unknown.
 
     Czyta /api/status, czyli historię przebiegów HeatFlow.Console. Wcześniej ta encja
     miała wpisane na stałe "ok" i świeciła na zielono nawet przy wyłączonym sterowniku.
+    "disabled" = system celowo wyłączony switchem "Sterowanie ogrzewaniem".
     """
 
     _attr_has_entity_name = True
     _attr_device_class = "enum"
-    _attr_options = ["ok", "stale", "error", "unknown"]
+    _attr_options = ["ok", "stale", "error", "disabled", "unknown"]
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)

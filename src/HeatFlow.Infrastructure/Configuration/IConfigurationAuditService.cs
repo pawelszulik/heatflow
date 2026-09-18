@@ -16,4 +16,9 @@ public interface IConfigurationAuditService
     /// Rejestruje zmiany w parametrach grzania (porównanie starej i nowej wersji).
     /// </summary>
     Task LogHeatingParametersChangesAsync(HeatingParameters? oldValue, HeatingParameters newValue, string? source = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Rejestruje zmiany w konfiguracji systemowej, np. włączenie/wyłączenie całego systemu (SystemEnabled).
+    /// </summary>
+    Task LogSystemConfigurationChangesAsync(SystemConfiguration? oldValue, SystemConfiguration newValue, string? source = null, CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,7 @@
 using HeatFlow.Core.Phases;
 using HeatFlow.Domain;
 using HeatFlow.Infrastructure.Configuration;
+using HeatFlow.Infrastructure.Database;
 using HeatFlow.Infrastructure.HomeAssistant;
 using Microsoft.Extensions.Logging;
 
@@ -20,8 +21,12 @@ public class OrchestrationService
     private readonly IPhaseService _phase4;
     private readonly DataPersistenceService? _dataPersistenceService;
     private readonly IApplicationErrorLogger _errorLogger;
+    private readonly IHeatFlowRepository _repository;
     private readonly ILogger<OrchestrationService> _logger;
     private DateTime _lastPhase0Execution = DateTime.MinValue;
+
+    /// <summary>Starszy cache prognozy (Faza 0 odświeża co godzinę) traktujemy jako brak prognozy.</summary>
+    private const int ForecastCacheMaxAgeHours = 6;
 
     public OrchestrationService(
         IHomeAssistantClient haClient,
@@ -29,12 +34,14 @@ public class OrchestrationService
         IEnumerable<IPhaseService> phaseServices,
         ILogger<OrchestrationService> logger,
         IApplicationErrorLogger errorLogger,
+        IHeatFlowRepository repository,
         DataPersistenceService? dataPersistenceService = null)
     {
         _haClient = haClient;
         _configurationService = configurationService;
         _logger = logger;
         _errorLogger = errorLogger;
+        _repository = repository;
         _dataPersistenceService = dataPersistenceService;
 
         var phases = phaseServices.ToDictionary(p => p.PhaseNumber);
@@ -159,6 +166,7 @@ public class OrchestrationService
         }
 
         var boilerState = await LoadBoilerStateAsync(systemConfig, cancellationToken);
+        var forecast = await LoadForecastAsync(systemConfig, cancellationToken);
 
         // Stan z poprzedniego cyklu: histereza klasyfikacji (Faza 1) i dwell zaworów (Faza 2).
         var previousRoomStates = _dataPersistenceService is null
@@ -172,8 +180,51 @@ public class OrchestrationService
             Rooms = rooms,
             BoilerState = boilerState,
             SystemConfiguration = systemConfig,
+            Forecast = forecast,
             PreviousRoomStates = previousRoomStates
         };
+    }
+
+    /// <summary>
+    /// Ładuje prognozę z cache (ForecastDataCache) zapisanego przez Fazę 0. Zwraca null, gdy
+    /// brak współrzędnych, cache jest pusty lub starszy niż 6h, albo odczyt się nie powiódł -
+    /// Faza 4 ma wtedy fallback na temperaturę zewnętrzną. Błąd nigdy nie przerywa cyklu.
+    /// </summary>
+    private async Task<ForecastData?> LoadForecastAsync(SystemConfiguration systemConfig, CancellationToken cancellationToken)
+    {
+        if (systemConfig.Latitude == 0.0 && systemConfig.Longitude == 0.0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var cached = await _repository.GetForecastDataCacheAsync(
+                systemConfig.Latitude, systemConfig.Longitude, cancellationToken);
+
+            if (cached == null)
+            {
+                _logger.LogDebug("Brak cache prognozy pogody - Faza 4 użyje temperatury zewnętrznej");
+                return null;
+            }
+
+            // UpdatedAt jest zapisywany jako DateTime.UtcNow (Faza 0)
+            var age = DateTime.UtcNow - cached.UpdatedAt;
+            if (age.TotalHours > ForecastCacheMaxAgeHours)
+            {
+                _logger.LogWarning(
+                    "Cache prognozy pogody jest przestarzały ({Age:F1}h > {Max}h) - pomijam prognozę",
+                    age.TotalHours, ForecastCacheMaxAgeHours);
+                return null;
+            }
+
+            return cached.ToForecastData();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Błąd podczas ładowania prognozy pogody z cache - kontynuuję bez prognozy");
+            return null;
+        }
     }
 
     private async Task<Room?> LoadRoomAsync(string roomName, CancellationToken cancellationToken)

@@ -32,6 +32,12 @@ public class ConfigurationAuditService : IConfigurationAuditService
         await SaveEntriesAsync(entries, cancellationToken);
     }
 
+    public async Task LogSystemConfigurationChangesAsync(SystemConfiguration? oldValue, SystemConfiguration newValue, string? source = null, CancellationToken cancellationToken = default)
+    {
+        var entries = CompareObjects("SystemConfiguration", "SystemConfiguration", oldValue, newValue, source);
+        await SaveEntriesAsync(entries, cancellationToken);
+    }
+
     private List<ConfigurationChangeLog> CompareObjects(string entityType, string entityId, object? oldObj, object newObj, string? source)
     {
         var list = new List<ConfigurationChangeLog>();

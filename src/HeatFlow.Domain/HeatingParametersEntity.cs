@@ -52,6 +52,7 @@ public class HeatingParametersEntity
     public double ScoreThresholdMax { get; set; }
     public double ScoreThresholdDisabled { get; set; }
     public int MinDwellMinutes { get; set; }
+    public double SummerModeWarmDayTemp { get; set; }
 
     // Parametry zaworów
     public double ValveTolerance { get; set; }
@@ -125,6 +126,7 @@ public class HeatingParametersEntity
             ScoreThresholdMax = ScoreThresholdMax,
             ScoreThresholdDisabled = ScoreThresholdDisabled,
             MinDwellMinutes = MinDwellMinutes,
+            SummerModeWarmDayTemp = SummerModeWarmDayTemp,
             ValveTolerance = ValveTolerance,
             ValveRetryCount = ValveRetryCount,
             ValveRetryDelay = ValveRetryDelay,
@@ -187,6 +189,7 @@ public class HeatingParametersEntity
         ScoreThresholdMax = parameters.ScoreThresholdMax;
         ScoreThresholdDisabled = parameters.ScoreThresholdDisabled;
         MinDwellMinutes = parameters.MinDwellMinutes;
+        SummerModeWarmDayTemp = parameters.SummerModeWarmDayTemp;
         ValveTolerance = parameters.ValveTolerance;
         ValveRetryCount = parameters.ValveRetryCount;
         ValveRetryDelay = parameters.ValveRetryDelay;

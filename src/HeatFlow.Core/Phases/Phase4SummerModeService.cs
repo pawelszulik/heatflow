@@ -7,14 +7,16 @@ namespace HeatFlow.Core.Phases;
 
 /// <summary>
 /// Faza 4 - Zarządzanie trybem letnim kotła (switch.kociol_tryb_zima_lato).
-/// Aktywuje tryb lato gdy temperatura zewnętrzna jest wysoka, pokoje są w pełni nagrzane
-/// i zapowiada się "ciepły dzień" (max prognozy 24h >= SummerModeWarmDayTemp).
+/// Aktywuje tryb lato gdy temperatura zewnętrzna jest wysoka, żaden włączony pokój nie ma
+/// realnego deficytu (TempDeficit > 0) i zapowiada się "ciepły dzień" (max prognozy 24h
+/// >= SummerModeWarmDayTemp).
 /// Dezaktywuje tryb lato gdy co najmniej 2 pokoje wymagają grzania z deficytem >= 1°C,
 /// ale nigdy w ciepły dzień. Bez prognozy fallback na temperaturę zewnętrzną.
 /// Aktywacja i dezaktywacja możliwa maksymalnie raz dziennie.
 /// Dezaktywacja możliwa nie wcześniej niż 3h po aktywacji tego samego dnia.
-/// Przez 3h od ostatniej zmiany stanu przełącznika w HA (last_changed, ręcznej lub
-/// automatycznej) nie wykonuje ani aktywacji, ani dezaktywacji.
+/// Przez 3h od ostatniej zmiany stanu przełącznika, wykrytej przez samą Fazę 4 (nie z
+/// last_changed HA - ten resetuje się też przy krótkim zaniku integracji kotła, bez
+/// realnej zmiany stanu), nie wykonuje ani aktywacji, ani dezaktywacji.
 /// </summary>
 public class Phase4SummerModeService : IPhaseService
 {
@@ -66,12 +68,15 @@ public class Phase4SummerModeService : IPhaseService
                 return PhaseResult.SuccessResult(PhaseNumber, duration, $"Pominięto - brak odpowiedzi HA dla {SummerModeSwitchEntityId}");
             }
 
-            _logger.LogInformation("Faza 4: Aktualny stan trybu lato: {State} (last_changed: {LastChanged})",
+            _logger.LogInformation("Faza 4: Aktualny stan trybu lato: {State} (last_changed HA: {LastChanged})",
                 isSummerModeActive.Value ? "aktywny (lato)" : "nieaktywny (zima)",
                 entityState.LastChanged == default ? "brak" : entityState.LastChanged.ToString("s"));
 
-            // 2. Karencja po zmianie przełącznika - nieważne czy zmienił go człowiek, czy my
-            if (IsWithinSwitchChangeGrace(entityState, out var hoursSinceChange))
+            // 2. Karencja po zmianie przełącznika - liczona z własnej pamięci Fazy 4, nie
+            // z last_changed HA (ten resetuje się też przy krótkim zaniku integracji kotła).
+            var hoursSinceChange = await UpdateAndGetHoursSinceSwitchChangeAsync(
+                isSummerModeActive.Value, cancellationToken);
+            if (hoursSinceChange < SwitchChangeGraceHours)
             {
                 _logger.LogInformation(
                     "Faza 4: Przełącznik {EntityId} zmienił stan {Elapsed:F1}h temu - karencja {Grace}h po zmianie, pomijam",
@@ -169,26 +174,42 @@ public class Phase4SummerModeService : IPhaseService
     }
 
     /// <summary>
-    /// Karencja po zmianie stanu przełącznika (ręcznej lub automatycznej): przez 3h od
-    /// last_changed z HA nie wykonujemy ani aktywacji, ani dezaktywacji.
-    /// LastChanged == default (HA nie zwróciło pola) traktujemy jako "nieznane" - bez karencji.
-    /// Kind: HA zwraca offset (+00:00), System.Text.Json daje Kind=Local; Unspecified zakładamy UTC.
+    /// Karencja po zmianie stanu przełącznika (ręcznej lub automatycznej): przez 3h od chwili,
+    /// gdy Faza 4 sama zobaczyła zmianę stanu, nie wykonujemy ani aktywacji, ani dezaktywacji.
+    /// Celowo nie używa last_changed z HA - ta wartość resetuje się też przy krótkim zaniku
+    /// integracji kotła (unavailable → on/off), bez realnej zmiany stanu przełącznika, co
+    /// wcześniej blokowało Fazę 4 praktycznie bezterminowo.
+    ///
+    /// Brak zapisanego stanu (pierwsze uruchomienie po migracji) nie nakłada karencji - zapisuje
+    /// punkt odniesienia w przeszłości, żeby świeży deploy nie zamroził Fazy 4 na kolejne 3h.
     /// </summary>
-    private static bool IsWithinSwitchChangeGrace(EntityState entityState, out double hoursSinceChange)
+    private async Task<double> UpdateAndGetHoursSinceSwitchChangeAsync(
+        bool isSummerModeActive, CancellationToken cancellationToken)
     {
-        hoursSinceChange = 0;
-        if (entityState.LastChanged == default)
+        var previous = await _summerModeRepository.GetSwitchStateAsync(cancellationToken);
+        DateTime sinceUtc;
+
+        if (previous == null)
         {
-            return false;
+            sinceUtc = DateTime.UtcNow.AddHours(-SwitchChangeGraceHours);
+            await _summerModeRepository.SaveSwitchStateAsync(
+                new SummerModeSwitchState { IsSummer = isSummerModeActive, SinceUtc = sinceUtc },
+                cancellationToken);
+        }
+        else if (previous.IsSummer != isSummerModeActive)
+        {
+            sinceUtc = DateTime.UtcNow;
+            await _summerModeRepository.SaveSwitchStateAsync(
+                new SummerModeSwitchState { IsSummer = isSummerModeActive, SinceUtc = sinceUtc },
+                cancellationToken);
+        }
+        else
+        {
+            sinceUtc = previous.SinceUtc;
         }
 
-        var lastChangedUtc = entityState.LastChanged.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(entityState.LastChanged, DateTimeKind.Utc)
-            : entityState.LastChanged.ToUniversalTime();
-
-        // Zegar HA może minimalnie wyprzedzać nasz - ujemna wartość to wciąż "przed chwilą"
-        hoursSinceChange = Math.Max(0, (DateTime.UtcNow - lastChangedUtc).TotalHours);
-        return hoursSinceChange < SwitchChangeGraceHours;
+        // Zegar może minimalnie wahać się między przebiegami - ujemna wartość to wciąż "przed chwilą"
+        return Math.Max(0, (DateTime.UtcNow - sinceUtc).TotalHours);
     }
 
     /// <summary>
@@ -217,8 +238,13 @@ public class Phase4SummerModeService : IPhaseService
     /// Sprawdza warunki aktywacji trybu lato:
     /// - godzina lokalna między 6:00 a 13:59
     /// - temperatura zewnętrzna powyżej 10°C
-    /// - żaden włączony pokój nie ma klasyfikacji Max
+    /// - żaden włączony pokój nie ma realnego deficytu (TempDeficit > 0)
     /// - ciepły dzień (max prognozy 24h >= SummerModeWarmDayTemp)
+    ///
+    /// Celowo patrzy na TempDeficit, nie na DeficitClassification: Faza 2 zawsze trzyma co
+    /// najmniej jeden pokój w klasyfikacji Max (pokój bezpieczeństwa przy minValvesOpen, albo
+    /// pokój utrzymany przez dwell), niezależnie od tego, czy dom jest przegrzany, czy nie -
+    /// przez to warunek na klasyfikacji blokował aktywację zawsze, bez wyjątku.
     /// </summary>
     private bool ShouldActivate(HeatingState state, HeatingParameters parameters, out string? blockReason)
     {
@@ -239,15 +265,15 @@ public class Phase4SummerModeService : IPhaseService
             return false;
         }
 
-        var roomsWithMaxDeficit = state.GetEnabledRooms()
-            .Where(r => r.DeficitClassification == DeficitClassification.Max)
+        var roomsNeedingHeat = state.GetEnabledRooms()
+            .Where(r => r.TempDeficit > 0)
             .ToList();
 
-        if (roomsWithMaxDeficit.Count > 0)
+        if (roomsNeedingHeat.Count > 0)
         {
-            _logger.LogDebug("Faza 4 [aktywacja]: {Count} pokoje mają deficyt Max - nie aktywuję trybu lato: {Rooms}",
-                roomsWithMaxDeficit.Count,
-                string.Join(", ", roomsWithMaxDeficit.Select(r => r.Name)));
+            _logger.LogDebug("Faza 4 [aktywacja]: {Count} pokoje mają realny deficyt - nie aktywuję trybu lato: {Rooms}",
+                roomsNeedingHeat.Count,
+                string.Join(", ", roomsNeedingHeat.Select(r => $"{r.Name}({r.TempDeficit:F1})")));
             return false;
         }
 

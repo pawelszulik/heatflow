@@ -16,4 +16,17 @@ public interface ISummerModeRepository
     /// Zapisuje (tworzy lub aktualizuje) wpis logu dla danego dnia.
     /// </summary>
     Task SaveLogAsync(SummerModeLog log, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pobiera ostatni znany Fazie 4 stan przełącznika. Null przy pierwszym uruchomieniu
+    /// (nowa baza albo świeżo po migracji) - wtedy nie ma z czym porównywać, więc brak karencji.
+    /// </summary>
+    Task<SummerModeSwitchState?> GetSwitchStateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Zapisuje stan przełącznika widziany przez Fazę 4 wraz z chwilą (UTC), od której ten
+    /// stan obowiązuje. Wołający ustawia SinceUtc: na "teraz" przy zmianie, bez zmian gdy
+    /// stan jest taki sam jak poprzednio zapisany.
+    /// </summary>
+    Task SaveSwitchStateAsync(SummerModeSwitchState state, CancellationToken cancellationToken = default);
 }

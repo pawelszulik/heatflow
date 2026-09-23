@@ -28,6 +28,7 @@ public class HeatFlowDbContext : DbContext
     public DbSet<ConfigurationChangeLog> ConfigurationChangeLogs { get; set; }
     public DbSet<ApplicationErrorLog> ApplicationErrorLogs { get; set; }
     public DbSet<SummerModeLog> SummerModeLogs { get; set; }
+    public DbSet<SummerModeSwitchState> SummerModeSwitchStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -225,6 +226,15 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.ActivatedAt).HasColumnType("datetime2");
             entity.Property(e => e.DeactivatedAt).HasColumnType("datetime2");
             entity.HasIndex(e => e.Date).IsUnique();
+        });
+
+        // SummerModeSwitchState
+        modelBuilder.Entity<SummerModeSwitchState>(entity =>
+        {
+            entity.ToTable("SummerModeSwitchState");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.SinceUtc).HasColumnType("datetime2");
         });
 
         // ApplicationErrorLog

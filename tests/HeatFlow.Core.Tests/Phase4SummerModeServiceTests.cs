@@ -50,6 +50,8 @@ public class Phase4SummerModeServiceTests
 
         Assert.True(result.Success);
         Assert.Contains("Pominięto", result.Details ?? "");
+        // Encja nieczytelna - nie dotykamy własnej pamięci stanu przełącznika
+        _repoMock.Verify(x => x.GetSwitchStateAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -84,7 +86,7 @@ public class Phase4SummerModeServiceTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenWinterMode_RoomHasMaxDeficit_ShouldNotActivate()
+    public async Task ExecuteAsync_WhenWinterMode_RoomHasRealDeficit_ShouldNotActivate()
     {
         SetupSwitchState(isSummerActive: false);
         SetupNoLogToday();
@@ -92,14 +94,41 @@ public class Phase4SummerModeServiceTests
         var rooms = new List<Room>
         {
             BuildRoom("salon", DeficitClassification.Stay),
-            BuildRoom("sypialnia", DeficitClassification.Max)
+            BuildColdRoom("sypialnia", tempActual: 18.0, tempTarget: 21.0)
         };
-        var state = BuildState(externalTemp: 20.0, rooms: rooms);
+        var state = BuildState(externalTemp: 20.0, rooms: rooms, forecastMaxTemp: 24.0);
         var result = await _service.ExecuteAsync(state, TestParameters.Default());
 
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
             It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_SafetyRoomMaxButNoRealDeficit_ShouldActivate()
+    {
+        // Regresja: pokój bezpieczeństwa (minValvesOpen) albo trzymany dwellem dostaje
+        // DeficitClassification.Max niezależnie od tego, czy dom jest przegrzany - Faza 4
+        // nie może już na tym warunku blokować aktywacji, tylko na realnym TempDeficit.
+        if (OutsideActivationWindow()) return;
+
+        SetupSwitchState(isSummerActive: false);
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var safetyRoom = BuildRoom("garaz", DeficitClassification.Max);
+        safetyRoom.TempTarget = 6.0;
+        safetyRoom.TempActual = 18.0; // przegrzany, mimo klasyfikacji Max
+        safetyRoom.TempDeficit = safetyRoom.TempTarget - safetyRoom.TempActual.Value; // -12, nie > 0
+
+        var rooms = new List<Room> { safetyRoom };
+        rooms.AddRange(BuildAllStayRooms(2));
+        var state = BuildState(externalTemp: 15.0, rooms: rooms, forecastMaxTemp: 24.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -432,12 +461,13 @@ public class Phase4SummerModeServiceTests
             It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // --- Karencja po zmianie przełącznika (last_changed) ---
+    // --- Karencja po zmianie przełącznika (własna pamięć Fazy 4, nie last_changed HA) ---
 
     [Fact]
     public async Task ExecuteAsync_WhenSummerMode_SwitchChangedLessThan3HoursAgo_ShouldNotDeactivate()
     {
-        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.Now.AddMinutes(-30));
+        SetupSwitchState(isSummerActive: true, previousSwitchState:
+            new SummerModeSwitchState { IsSummer = true, SinceUtc = DateTime.UtcNow.AddMinutes(-30) });
         SetupNoLogToday();
 
         var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
@@ -447,7 +477,7 @@ public class Phase4SummerModeServiceTests
         Assert.Contains("karencja", result.Details ?? "");
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
             It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
-        // Karencja sprawdzana przed sięgnięciem do bazy
+        // Karencja sprawdzana przed sięgnięciem do logu dnia
         _repoMock.Verify(x => x.GetLogForDateAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -456,7 +486,8 @@ public class Phase4SummerModeServiceTests
     {
         if (OutsideActivationWindow()) return;
 
-        SetupSwitchState(isSummerActive: false, lastChanged: DateTime.Now.AddHours(-1));
+        SetupSwitchState(isSummerActive: false, previousSwitchState:
+            new SummerModeSwitchState { IsSummer = false, SinceUtc = DateTime.UtcNow.AddHours(-1) });
         SetupNoLogToday();
 
         var state = BuildState(externalTemp: 15.0, rooms: BuildAllStayRooms(3), forecastMaxTemp: 24.0);
@@ -471,7 +502,8 @@ public class Phase4SummerModeServiceTests
     [Fact]
     public async Task ExecuteAsync_WhenSummerMode_SwitchChangedMoreThan3HoursAgo_ShouldDeactivate()
     {
-        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.Now.AddHours(-3.5));
+        SetupSwitchState(isSummerActive: true, previousSwitchState:
+            new SummerModeSwitchState { IsSummer = true, SinceUtc = DateTime.UtcNow.AddHours(-3.5) });
         SetupNoLogToday();
         SetupTurnOffSucceeds();
 
@@ -484,23 +516,13 @@ public class Phase4SummerModeServiceTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenSummerMode_LastChangedUtcKind_ShouldApplyGrace()
+    public async Task ExecuteAsync_WhenSummerMode_IntegrationBlipDoesNotResetGrace_ShouldDeactivate()
     {
-        // HA zwraca "+00:00" -> zależnie od deserializacji Kind=Utc albo Local; oba muszą działać
-        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.UtcNow.AddMinutes(-10));
-        SetupNoLogToday();
-
-        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
-        var result = await _service.ExecuteAsync(state, TestParameters.Default());
-
-        Assert.Contains("karencja", result.Details ?? "");
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_WhenSummerMode_LastChangedUnknown_ShouldNotApplyGrace()
-    {
-        // HA nie zwróciło last_changed (default) -> brak karencji, działa tylko reguła z SummerModeLog
-        SetupSwitchState(isSummerActive: true, lastChanged: DateTime.MinValue);
+        // Regresja: zanik integracji kotła (last_changed HA się resetuje, stan nie) nie może
+        // już wydłużać karencji - liczy się tylko własna pamięć Fazy 4. Stan zapisany 3.5h temu,
+        // mimo że HA "właśnie" zaktualizowało last_changed (co tu w ogóle nie jest odczytywane).
+        SetupSwitchState(isSummerActive: true, previousSwitchState:
+            new SummerModeSwitchState { IsSummer = true, SinceUtc = DateTime.UtcNow.AddHours(-3.5) });
         SetupNoLogToday();
         SetupTurnOffSucceeds();
 
@@ -510,6 +532,26 @@ public class Phase4SummerModeServiceTests
         Assert.True(result.Success);
         _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
             It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_NoPreviousSwitchState_ShouldNotApplyGrace()
+    {
+        // Pierwsze uruchomienie po migracji (nowa tabela, brak wiersza) -> brak karencji,
+        // działa tylko reguła z SummerModeLog. Zapisuje baseline, nie zamraża Fazy 4 na 3h.
+        SetupSwitchState(isSummerActive: true, previousStateKnown: false);
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms(), forecastMaxTemp: 12.0);
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _repoMock.Verify(x => x.SaveSwitchStateAsync(
+            It.Is<SummerModeSwitchState>(s => s.IsSummer && s.SinceUtc <= DateTime.UtcNow.AddHours(-3)),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -524,21 +566,47 @@ public class Phase4SummerModeServiceTests
 
         Assert.True(result.Success);
         Assert.Contains("Pominięto", result.Details ?? "");
+        // unavailable - nie dotykamy własnej pamięci stanu przełącznika
+        _repoMock.Verify(x => x.GetSwitchStateAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // --- Helpers ---
 
-    private void SetupSwitchState(bool isSummerActive, DateTime? lastChanged = null)
+    /// <summary>
+    /// Ustawia stan przełącznika z HA i - niezależnie od last_changed HA - własną pamięć
+    /// stanu Fazy 4 w repozytorium (to ona decyduje o karencji, patrz
+    /// UpdateAndGetHoursSinceSwitchChangeAsync).
+    /// </summary>
+    /// <param name="previousSwitchState">
+    /// Ostatni stan zapamiętany przez Fazę 4. Domyślnie taki sam jak bieżący, sprzed doby -
+    /// poza karencją 3h. Podaj z innym SinceUtc/IsSummer, żeby wymusić konkretny scenariusz.
+    /// </param>
+    /// <param name="previousStateKnown">
+    /// false symuluje pierwsze uruchomienie po migracji (brak wiersza w tabeli) - wtedy
+    /// previousSwitchState jest ignorowany.
+    /// </param>
+    private void SetupSwitchState(
+        bool isSummerActive,
+        SummerModeSwitchState? previousSwitchState = null,
+        bool previousStateKnown = true)
     {
-        // Domyślnie przełącznik zmieniony dobę temu - poza karencją 3h
         _haClientMock
             .Setup(x => x.GetStateAsync("switch.kociol_tryb_zima_lato", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new EntityState
             {
                 EntityId = "switch.kociol_tryb_zima_lato",
-                State = isSummerActive ? "on" : "off",
-                LastChanged = lastChanged ?? DateTime.Now.AddHours(-24)
+                State = isSummerActive ? "on" : "off"
             });
+
+        _repoMock
+            .Setup(x => x.GetSwitchStateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(previousStateKnown
+                ? previousSwitchState ?? new SummerModeSwitchState { IsSummer = isSummerActive, SinceUtc = DateTime.UtcNow.AddHours(-24) }
+                : null);
+
+        _repoMock
+            .Setup(x => x.SaveSwitchStateAsync(It.IsAny<SummerModeSwitchState>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
     }
 
     private void SetupTurnOffSucceeds()
@@ -614,7 +682,11 @@ public class Phase4SummerModeServiceTests
 
     private static Room BuildRoom(string name, DeficitClassification classification)
     {
+        // TempActual == TempTarget -> TempDeficit = 0, tak jak Faza 1 liczyłaby dla dogrzanego
+        // pokoju. Klasyfikacja Max tu (Score=100) symuluje pokój bezpieczeństwa/dwell, nie
+        // realny deficyt - to jest celowe (patrz SafetyRoomMaxButNoRealDeficit_ShouldActivate).
         var room = new Room { Name = name, TempTarget = 21.0, TempActual = 21.0 };
+        room.TempDeficit = 0.0;
         room.Score = classification switch
         {
             DeficitClassification.Max => 100,
@@ -628,8 +700,10 @@ public class Phase4SummerModeServiceTests
 
     private static Room BuildColdRoom(string name, double tempActual, double tempTarget)
     {
-        // Deficyt >= 1°C i klasyfikacja Max
+        // Deficyt >= 1°C i klasyfikacja Max. TempDeficit liczony tak jak w Phase1DiagnoseService
+        // (TemperatureHelper.CalculateDeficit), bo Faza 4 od tego czasu patrzy na to pole wprost.
         var room = new Room { Name = name, TempTarget = tempTarget, TempActual = tempActual };
+        room.TempDeficit = tempTarget - tempActual;
         room.Score = 100;
         room.ClassifyDeficit(TestParameters.Default());
         return room;
@@ -637,7 +711,11 @@ public class Phase4SummerModeServiceTests
 
     private static Room BuildRoomWithNullTemp(string name)
     {
+        // Brak odczytu: Faza 1 podstawia TempActual = TempTarget (fallback), więc TempDeficit = 0.
+        // TempActual zostaje tu null tylko po to, żeby przetestować gałąź ShouldDeactivate,
+        // która jawnie sprawdza TempActual.HasValue.
         var room = new Room { Name = name, TempTarget = 21.0, TempActual = null };
+        room.TempDeficit = 0.0;
         room.Score = 100;
         room.ClassifyDeficit(TestParameters.Default());
         return room;

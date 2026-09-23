@@ -42,4 +42,27 @@ public class SummerModeRepository : ISummerModeRepository
 
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<SummerModeSwitchState?> GetSwitchStateAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.SummerModeSwitchStates.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task SaveSwitchStateAsync(SummerModeSwitchState state, CancellationToken cancellationToken = default)
+    {
+        var existing = await _context.SummerModeSwitchStates.FirstOrDefaultAsync(cancellationToken);
+
+        if (existing != null)
+        {
+            existing.IsSummer = state.IsSummer;
+            existing.SinceUtc = state.SinceUtc;
+        }
+        else
+        {
+            state.Id = 1;
+            _context.SummerModeSwitchStates.Add(state);
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
 }

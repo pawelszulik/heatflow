@@ -564,6 +564,22 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.ToTable("SummerModeLog", (string)null);
                 });
 
+            modelBuilder.Entity("HeatFlow.Domain.SummerModeSwitchState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsSummer")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("SinceUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SummerModeSwitchState", (string)null);
+                });
+
             modelBuilder.Entity("HeatFlow.Domain.SystemConfiguration", b =>
                 {
                     b.Property<int>("Id")

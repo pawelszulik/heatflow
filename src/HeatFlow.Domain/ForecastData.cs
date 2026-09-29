@@ -54,15 +54,22 @@ public class ForecastData
     }
 
     /// <summary>
-    /// Zwraca maksymalną temperaturę w ciągu najbliższych N godzin prognozy
-    /// albo null, gdy prognoza nie zawiera żadnej temperatury (wtedy wołający
-    /// powinien użyć własnego fallbacku, np. temperatury zewnętrznej).
+    /// Zwraca maksymalną temperaturę w oknie [nowUtc, nowUtc + hoursCount) prognozy, albo
+    /// null, gdy w tym oknie nie ma żadnej temperatury (wtedy wołający powinien użyć
+    /// własnego fallbacku, np. temperatury zewnętrznej).
+    ///
+    /// Filtruje po rzeczywistym znaczniku czasu godziny prognozy, nie po pozycji w liście -
+    /// inaczej okno "najbliższych N godzin" w praktyce oznaczało "pierwsze N godzin cache'u",
+    /// które przy starszym (do 6h) cache'u sięgało już w przeszłość, a przy krótkim oknie
+    /// (np. 6h) łapało niepotrzebnie odległe godziny. Godziny bez znacznika czasu wchodzą
+    /// zawsze (zgodnie z dotychczasowym zachowaniem indeksowym).
     /// </summary>
-    public double? GetMaxTemp(int hoursCount)
+    public double? GetMaxTemp(int hoursCount, DateTime nowUtc)
     {
+        var windowEnd = nowUtc.AddHours(hoursCount);
         var temps = ForecastHours
-            .Take(hoursCount)
             .Where(f => f.Temperature.HasValue)
+            .Where(f => !f.DateTime.HasValue || (f.DateTime.Value >= nowUtc && f.DateTime.Value < windowEnd))
             .Select(f => f.Temperature!.Value)
             .ToList();
 

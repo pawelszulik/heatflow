@@ -11,7 +11,10 @@ namespace HeatFlow.Core.Phases;
 /// realnego deficytu (TempDeficit > 0) i zapowiada się "ciepły dzień" (max prognozy 24h
 /// >= SummerModeWarmDayTemp).
 /// Dezaktywuje tryb lato gdy co najmniej 2 pokoje wymagają grzania z deficytem >= 1°C,
-/// ale nigdy w ciepły dzień. Bez prognozy fallback na temperaturę zewnętrzną.
+/// i nie zrobi się ciepło w najbliższych 6h (max prognozy 6h &lt; SummerModeWarmDayTemp) -
+/// krótsze okno niż przy aktywacji, bo okno 24h zawsze łapie jakieś ciepłe popołudnie
+/// (dziś albo jutro) i blokowało powrót na zimę bezterminowo. Bez prognozy fallback na
+/// temperaturę zewnętrzną.
 /// Aktywacja i dezaktywacja możliwa maksymalnie raz dziennie.
 /// Dezaktywacja możliwa nie wcześniej niż 3h po aktywacji tego samego dnia.
 /// Przez 3h od ostatniej zmiany stanu przełącznika, wykrytej przez samą Fazę 4 (nie z
@@ -28,6 +31,7 @@ public class Phase4SummerModeService : IPhaseService
     private const double DeactivationTempDelta = 1.0;
     private const int MinHoursBeforeDeactivation = 3;
     private const int WarmDayForecastHours = 24;
+    private const int WarmSoonForecastHours = 6;
     private const int SwitchChangeGraceHours = 3;
 
     private readonly IHomeAssistantClient _haClient;
@@ -213,17 +217,22 @@ public class Phase4SummerModeService : IPhaseService
     }
 
     /// <summary>
-    /// "Ciepły dzień": max temperatura z najbliższych 24 godzin prognozy >= SummerModeWarmDayTemp.
-    /// Bez prognozy (null / przestarzała / bez temperatur) fallback na BoilerState.TempExternal
-    /// (0.0 przy awarii HA = "nie jest ciepło" - bezpieczne).
+    /// "Ciepły dzień": max temperatura z najbliższych <paramref name="forecastHours"/> godzin
+    /// prognozy (licząc od teraz, po rzeczywistym znaczniku czasu - patrz
+    /// <see cref="ForecastData.GetMaxTemp"/>) >= SummerModeWarmDayTemp.
+    /// Bez prognozy (null / przestarzała / bez temperatur w oknie) fallback na
+    /// BoilerState.TempExternal (0.0 przy awarii HA = "nie jest ciepło" - bezpieczne).
+    ///
+    /// Aktywacja i dezaktywacja celowo patrzą na różne okna (24h / 6h) - patrz wywołania
+    /// w <see cref="ShouldActivate"/> i <see cref="ShouldDeactivate"/>.
     /// </summary>
-    private static bool IsWarmDay(HeatingState state, HeatingParameters parameters, out double referenceTemp, out string source)
+    private static bool IsWarmDay(HeatingState state, HeatingParameters parameters, int forecastHours, out double referenceTemp, out string source)
     {
-        var forecastMax = state.Forecast?.GetMaxTemp(WarmDayForecastHours);
+        var forecastMax = state.Forecast?.GetMaxTemp(forecastHours, DateTime.UtcNow);
         if (forecastMax.HasValue)
         {
             referenceTemp = forecastMax.Value;
-            source = "prognoza max 24h";
+            source = $"prognoza max {forecastHours}h";
         }
         else
         {
@@ -278,7 +287,7 @@ public class Phase4SummerModeService : IPhaseService
         }
 
         // Na końcu, żeby powód blokady pojawiał się tylko gdy reszta warunków pozwala na aktywację
-        if (!IsWarmDay(state, parameters, out var referenceTemp, out var source))
+        if (!IsWarmDay(state, parameters, WarmDayForecastHours, out var referenceTemp, out var source))
         {
             _logger.LogDebug("Faza 4 [aktywacja]: Brak ciepłego dnia - {Source} {Temp:F1}°C < progu {Threshold:F1}°C - nie aktywuję trybu lato",
                 source, referenceTemp, parameters.SummerModeWarmDayTemp);
@@ -295,7 +304,10 @@ public class Phase4SummerModeService : IPhaseService
     /// Sprawdza warunki dezaktywacji trybu lato:
     /// - co najmniej 2 pokoje z DeficitClassification == Max i TempActual &lt; TempTarget - 1°C
     /// - jeśli aktywowano dziś: min 3h od aktywacji
-    /// - nie jest ciepły dzień (max prognozy 24h &lt; SummerModeWarmDayTemp)
+    /// - nie zrobi się ciepło w najbliższych godzinach (max prognozy <see cref="WarmSoonForecastHours"/>h
+    ///   &lt; SummerModeWarmDayTemp) - celowo krótsze okno niż przy aktywacji (<see cref="WarmDayForecastHours"/>h):
+    ///   okno 24h zawsze łapie jakieś ciepłe popołudnie (dziś albo jutro), więc latem blokowało
+    ///   powrót na zimę bezterminowo, nawet wieczorem przy wychłodzonym domu.
     /// Powód blokady zwracany tylko gdy jest realne zapotrzebowanie na grzanie.
     /// </summary>
     private bool ShouldDeactivate(HeatingState state, HeatingParameters parameters, SummerModeLog todayLog, out string? blockReason)
@@ -328,7 +340,7 @@ public class Phase4SummerModeService : IPhaseService
             }
         }
 
-        if (IsWarmDay(state, parameters, out var referenceTemp, out var source))
+        if (IsWarmDay(state, parameters, WarmSoonForecastHours, out var referenceTemp, out var source))
         {
             _logger.LogDebug("Faza 4 [dezaktywacja]: {Count} pokojów wymaga grzania, ale ciepły dzień - {Source} {Temp:F1}°C >= progu {Threshold:F1}°C - nie dezaktywuję trybu lato",
                 coldRoomsNeedingHeat.Count, source, referenceTemp, parameters.SummerModeWarmDayTemp);

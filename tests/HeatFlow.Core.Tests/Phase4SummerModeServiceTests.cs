@@ -397,6 +397,46 @@ public class Phase4SummerModeServiceTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_ColdNowButWarmTomorrowAfternoon_ShouldDeactivate()
+    {
+        // Regresja: przed wprowadzeniem osobnego okna dla dezaktywacji (6h) ten sam test kończył
+        // się blokadą "ciepły dzień", bo okno 24h łapało jutrzejsze popołudnie (22°C, godzina 14
+        // od teraz) mimo że najbliższe 6h są chłodne. To dokładnie ten bug: latem 2026-09-26/27
+        // kocioł utknął w trybie letnim mimo wychłodzonego domu.
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        var state = BuildState(externalTemp: 9.0, rooms: BuildTwoColdRooms());
+        state.Forecast = BuildDiurnalForecast(coldTemp: 9.0, warmTemp: 22.0, hoursUntilWarm: 14);
+
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("dezaktywowany", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSummerMode_ColdRoomsButWarmWithin6h_ShouldNotDeactivate()
+    {
+        SetupSwitchState(isSummerActive: true);
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 9.0, rooms: BuildTwoColdRooms());
+        state.Forecast = BuildDiurnalForecast(coldTemp: 9.0, warmTemp: 22.0, hoursUntilWarm: 3);
+
+        var result = await _service.ExecuteAsync(state, TestParameters.Default());
+
+        Assert.True(result.Success);
+        Assert.Contains("ciepły dzień", result.Details ?? "");
+        Assert.Contains("prognoza max 6h", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_off",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenSummerMode_ForecastWithoutTemperatures_ShouldFallbackToExternalTemp()
     {
         SetupSwitchState(isSummerActive: true);
@@ -664,7 +704,11 @@ public class Phase4SummerModeServiceTests
         };
     }
 
-    /// <summary>24 godziny prognozy, max w godzinie 12, reszta 5°C niżej.</summary>
+    /// <summary>
+    /// 24 godziny prognozy, wszystkie na poziomie maxTemp - wartość jest więc "widoczna" w
+    /// każdym oknie (6h przy dezaktywacji, 24h przy aktywacji), bo te testy sprawdzają próg
+    /// ciepłego dnia, nie samo okno czasowe (na to patrz BuildDiurnalForecast).
+    /// </summary>
     private static ForecastData BuildForecast(double currentTemp, double maxTemp)
     {
         return new ForecastData
@@ -674,7 +718,30 @@ public class Phase4SummerModeServiceTests
                 .Select(i => new ForecastHour
                 {
                     DateTime = DateTime.UtcNow.AddHours(i),
-                    Temperature = i == 12 ? maxTemp : maxTemp - 5.0
+                    Temperature = maxTemp
+                })
+                .ToList()
+        };
+    }
+
+    /// <summary>
+    /// Profil dobowy z realnymi znacznikami czasu: chłodno teraz i przez najbliższe godziny,
+    /// cieplej dopiero po <paramref name="hoursUntilWarm"/> godzinach (np. jutrzejsze popołudnie).
+    /// Do testowania, że dezaktywacja patrzy tylko na najbliższe WarmSoonForecastHours (6h) -
+    /// okno 24h zawsze łapało gdzieś ciepłe popołudnie (dziś albo jutro) i blokowało powrót na
+    /// zimę bezterminowo, nawet wieczorem przy wychłodzonym domu.
+    /// </summary>
+    private static ForecastData BuildDiurnalForecast(double coldTemp, double warmTemp, int hoursUntilWarm)
+    {
+        var now = DateTime.UtcNow;
+        return new ForecastData
+        {
+            CurrentTemp = coldTemp,
+            ForecastHours = Enumerable.Range(0, 30)
+                .Select(i => new ForecastHour
+                {
+                    DateTime = now.AddHours(i),
+                    Temperature = i == hoursUntilWarm ? warmTemp : coldTemp
                 })
                 .ToList()
         };

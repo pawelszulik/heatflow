@@ -157,15 +157,18 @@ Automatyczne wyłączenie ogrzewania (przejście w tryb letni) przy ciepłej pog
 
 #### Ciepły dzień
 
-„Ciepły dzień" to sytuacja, w której **maksymalna temperatura z najbliższych 24 godzin prognozy** (cache `ForecastDataCache`, zapisywany przez Fazę 0) jest **>= `SummerModeWarmDayTemp`** (domyślnie 20°C, parametr edytowalny z HA jako „Tryb lato - próg ciepłego dnia").
+„Ciepły dzień" to sytuacja, w której **maksymalna temperatura z prognozy** (cache `ForecastDataCache`, zapisywany przez Fazę 0), policzona w oknie liczonym **od teraz** po rzeczywistym znaczniku czasu godziny prognozy (nie po pozycji na liście), jest **>= `SummerModeWarmDayTemp`** (domyślnie 20°C, parametr edytowalny z HA jako „Tryb lato - próg ciepłego dnia"). Długość okna zależy od kierunku:
 
-Gdy prognozy nie ma (pusty cache, cache starszy niż 6h, brak temperatur, brak współrzędnych) – zamiast prognozy brana jest **aktualna temperatura zewnętrzna** (`BoilerState.TempExternal`). Przy awarii odczytu z HA temperatura ta wynosi 0°C, czyli „nie jest ciepło" – bezpieczny kierunek.
+- **Aktywacja** (zima → lato): najbliższe **24 godziny**.
+- **Dezaktywacja** (lato → zima): najbliższe **6 godzin** – celowo krócej. Okno 24h przy dezaktywacji zawsze łapało jakieś ciepłe popołudnie (dzisiejsze albo jutrzejsze), więc blokowało powrót na zimę bezterminowo, nawet wieczorem przy realnie wychłodzonym domu (patrz przykład niżej).
+
+Gdy w oknie nie ma żadnej prognozowanej temperatury (pusty cache, cache starszy niż 6h, brak temperatur, brak współrzędnych) – zamiast prognozy brana jest **aktualna temperatura zewnętrzna** (`BoilerState.TempExternal`). Przy awarii odczytu z HA temperatura ta wynosi 0°C, czyli „nie jest ciepło" – bezpieczny kierunek.
 
 #### Karencja po zmianie przełącznika
 
-Przez **3 godziny** od ostatniej zmiany stanu przełącznika (wg `last_changed` z HA – niezależnie, czy zmienił go człowiek, automatyzacja, czy sama Faza 4) faza **nie robi nic**: ani nie aktywuje, ani nie dezaktywuje trybu lato. Dzięki temu ręczne przełączenie kotła na lato nie jest cofane po chwili.
+Przez **3 godziny** od chwili, gdy **sama Faza 4** zobaczyła zmianę stanu przełącznika (nie `last_changed` z HA – ten resetuje się też przy krótkim zaniku integracji kotła, bez realnej zmiany stanu) faza **nie robi nic**: ani nie aktywuje, ani nie dezaktywuje trybu lato. Dzięki temu ręczne przełączenie kotła na lato nie jest cofane po chwili.
 
-Uwaga: restart Home Assistant resetuje `last_changed` wszystkich encji, więc po restarcie Faza 4 jest wstrzymana na 3h. Gdy HA nie zwróci `last_changed`, karencja nie działa (zostaje reguła 3h z `SummerModeLog`).
+Pierwsze uruchomienie po migracji (brak zapisanego stanu) nie nakłada karencji.
 
 #### Aktywacja trybu letniego (winter → summer)
 
@@ -174,8 +177,8 @@ Warunki **wszystkie muszą być spełnione**:
 - Poza karencją po zmianie przełącznika.
 - Godzina mieści się w przedziale **06:00 – 13:59**.
 - Temperatura zewnętrzna (`BoilerState.TempExternal`) **> 10°C**.
-- **Żaden** włączony pokój nie ma klasyfikacji **Max**.
-- **Ciepły dzień** (max prognozy 24h >= `SummerModeWarmDayTemp`).
+- **Żaden** włączony pokój nie ma realnego deficytu (`TempDeficit > 0`).
+- **Ciepły dzień** (max prognozy najbliższych 24h >= `SummerModeWarmDayTemp`).
 - Dziś nie było jeszcze aktywacji.
 
 Jeśli warunki są spełnione – wywołuje usługę `turn_on` na przełączniku `switch.kociol_tryb_zima_lato` i zapisuje aktywację w `SummerModeLog`.
@@ -188,12 +191,12 @@ Warunki **wszystkie muszą być spełnione**:
 - Co najmniej **2 pokoje** mają klasyfikację **Max**.
 - Dla tych pokoi: `TempActual < TempTarget - 1°C`.
 - Jeśli dziś była aktywacja – musi minąć co najmniej **3 godziny**.
-- **Nie jest** ciepły dzień (max prognozy 24h < `SummerModeWarmDayTemp`).
+- **Nie jest** ciepły dzień (max prognozy najbliższych **6h** < `SummerModeWarmDayTemp`).
 - Dziś nie było jeszcze deaktywacji.
 
 Jeśli warunki są spełnione – wywołuje usługę `turn_off` na przełączniku i zapisuje deaktywację.
 
-Przykład: prognoza na dziś 23°C, wieczorem dwa pokoje ostygły o >1°C – kocioł **zostaje na lecie**, a w `ExecutionHistory` (pole `Details` Fazy 4) pojawia się `Brak zmian trybu lato - dezaktywacja zablokowana: ciepły dzień (prognoza max 24h 23.0°C >= 20.0°C)`. Następnego dnia z prognozą 14°C przełączy na zimę przy pierwszym cyklu z dwoma zimnymi pokojami.
+Przykład: wieczorem dwa pokoje ostygły o >1°C, temperatura w najbliższych 6h nie przekroczy 12°C, choć jutro po południu ma być 23°C – kocioł **przechodzi na zimę**, bo okno dezaktywacji nie sięga jutrzejszego popołudnia. Gdyby zamiast tego w najbliższych 6h zapowiadało się 23°C, w `ExecutionHistory` (pole `Details` Fazy 4) pojawiłoby się `Brak zmian trybu lato - dezaktywacja zablokowana: ciepły dzień (prognoza max 6h 23.0°C >= 20.0°C)`, a kocioł zostałby na lecie do najbliższego cyklu z chłodnym oknem 6h.
 
 ### Wyjście
 

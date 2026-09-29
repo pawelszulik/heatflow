@@ -120,7 +120,7 @@ public class OrchestrationServiceTests
         // Assert
         Assert.True(result.IsSuccess);
         _phase4Mock.Verify(x => x.ExecuteAsync(
-            It.Is<HeatingState>(st => st.Forecast != null && st.Forecast.GetMaxTemp(24) == 23.5),
+            It.Is<HeatingState>(st => st.Forecast != null && st.Forecast.GetMaxTemp(24, DateTime.UtcNow) == 23.5),
             It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 

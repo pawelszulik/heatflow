@@ -12,7 +12,7 @@ public class FeedChangeLog
     public long Id { get; set; }
     public DateTime TimestampUtc { get; set; }
 
-    /// <summary>czas_pracy / postoj / dmuchawa / k / trym_postoju / automat.</summary>
+    /// <summary>czas_pracy / postoj / dmuchawa / k / trym_postoju / automat / cel_domu.</summary>
     public string Parameter { get; set; } = string.Empty;
 
     public double? OldValue { get; set; }
@@ -47,6 +47,11 @@ public class FeedChangeLog
     public double? OutdoorAtPreviousChange { get; set; }
     public double? ForecastNextHour { get; set; }
     public double? K { get; set; }
+    /// <summary>Cel domu użyty w modelu [°C] i skąd („pokoje” / „stała …”).</summary>
+    public double? HouseTarget { get; set; }
+    public string? HouseTargetSource { get; set; }
+    /// <summary>Dodatek na dogrzanie domu przy rosnącym celu [s/dobę].</summary>
+    public double? StorageBonusSec { get; set; }
     public double? NeedSecPerDay { get; set; }
     public int TrimSec { get; set; }
     public double? BoilerTemp { get; set; }

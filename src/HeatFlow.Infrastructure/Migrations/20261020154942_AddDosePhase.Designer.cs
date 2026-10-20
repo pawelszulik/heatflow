@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HeatFlow.Infrastructure.Migrations
 {
     [DbContext(typeof(HeatFlowDbContext))]
-    [Migration("20261020145052_AddDosePhase")]
+    [Migration("20261020154942_AddDosePhase")]
     partial class AddDosePhase
     {
         /// <inheritdoc />
@@ -261,6 +261,19 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int?>("ControllerWork")
                         .HasColumnType("int");
 
+                    b.Property<double?>("HouseTarget")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("HouseTargetLogged")
+                        .HasColumnType("float");
+
+                    b.Property<string>("HouseTargetSource")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<double?>("HouseTargetUsed")
+                        .HasColumnType("float");
+
                     b.Property<DateTime?>("LastBoilerDataUtc")
                         .HasColumnType("datetime2");
 
@@ -323,6 +336,10 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int?>("PlannedWork")
                         .HasColumnType("int");
 
+                    b.Property<string>("RoomTargetsSnapshot")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<int?>("SavedBlower")
                         .HasColumnType("int");
 
@@ -345,6 +362,9 @@ namespace HeatFlow.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<double>("ShortfallPct")
+                        .HasColumnType("float");
+
+                    b.Property<double>("StorageBonusSec")
                         .HasColumnType("float");
 
                     b.Property<int>("TrimSec")
@@ -435,6 +455,13 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<double?>("HeatingShare2hPct")
                         .HasColumnType("float");
 
+                    b.Property<double?>("HouseTarget")
+                        .HasColumnType("float");
+
+                    b.Property<string>("HouseTargetSource")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
                     b.Property<double?>("K")
                         .HasColumnType("float");
 
@@ -479,6 +506,9 @@ namespace HeatFlow.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<double?>("StorageBonusSec")
+                        .HasColumnType("float");
 
                     b.Property<DateTime>("TimestampUtc")
                         .HasColumnType("datetime2");
@@ -604,6 +634,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int>("DoseFlueSafetyHoldHours")
                         .HasColumnType("int");
 
+                    b.Property<bool>("DoseIndoorMeasureWeighted")
+                        .HasColumnType("bit");
+
                     b.Property<int>("DoseIndoorMinSensors")
                         .HasColumnType("int");
 
@@ -612,6 +645,15 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<bool>("DoseRestoreOnDisable")
                         .HasColumnType("bit");
+
+                    b.Property<int>("DoseStorageBonusMaxSec")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("DoseTargetFromRooms")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("DoseTargetRiseKPerHour")
+                        .HasColumnType("decimal(5,3)");
 
                     b.Property<int>("DoseTrimLimitSec")
                         .HasColumnType("int");
@@ -797,6 +839,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<bool>("AutomationDisabled")
                         .HasColumnType("bit");
+
+                    b.Property<decimal>("HeatLossW")
+                        .HasColumnType("decimal(7,1)");
 
                     b.Property<string>("HeatingSchedule")
                         .IsRequired()

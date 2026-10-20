@@ -91,6 +91,10 @@ public class HeatingParametersEntity
     public double FeedKMax { get; set; } = 1.3;
     public double DoseCeilingDayHeatingHours { get; set; } = 22.5;
     public double DoseBlowerLowDuty { get; set; } = 0.034;
+    public bool DoseTargetFromRooms { get; set; } = true;
+    public double DoseTargetRiseKPerHour { get; set; } = 0.07;
+    public int DoseStorageBonusMaxSec { get; set; } = 2600;
+    public bool DoseIndoorMeasureWeighted { get; set; } = false;
     public bool DoseRestoreOnDisable { get; set; } = true;
     public int DoseBoilerColdMinutes { get; set; }
     public int DoseBoilerStaleMinutes { get; set; } = 30;
@@ -191,6 +195,10 @@ public class HeatingParametersEntity
             FeedKMax = FeedKMax,
             DoseCeilingDayHeatingHours = DoseCeilingDayHeatingHours,
             DoseBlowerLowDuty = DoseBlowerLowDuty,
+            DoseTargetFromRooms = DoseTargetFromRooms,
+            DoseTargetRiseKPerHour = DoseTargetRiseKPerHour,
+            DoseStorageBonusMaxSec = DoseStorageBonusMaxSec,
+            DoseIndoorMeasureWeighted = DoseIndoorMeasureWeighted,
             DoseRestoreOnDisable = DoseRestoreOnDisable,
             DoseBoilerColdMinutes = DoseBoilerColdMinutes,
             DoseBoilerStaleMinutes = DoseBoilerStaleMinutes,
@@ -280,6 +288,10 @@ public class HeatingParametersEntity
         FeedKMax = parameters.FeedKMax;
         DoseCeilingDayHeatingHours = parameters.DoseCeilingDayHeatingHours;
         DoseBlowerLowDuty = parameters.DoseBlowerLowDuty;
+        DoseTargetFromRooms = parameters.DoseTargetFromRooms;
+        DoseTargetRiseKPerHour = parameters.DoseTargetRiseKPerHour;
+        DoseStorageBonusMaxSec = parameters.DoseStorageBonusMaxSec;
+        DoseIndoorMeasureWeighted = parameters.DoseIndoorMeasureWeighted;
         DoseRestoreOnDisable = parameters.DoseRestoreOnDisable;
         DoseBoilerColdMinutes = parameters.DoseBoilerColdMinutes;
         DoseBoilerStaleMinutes = parameters.DoseBoilerStaleMinutes;

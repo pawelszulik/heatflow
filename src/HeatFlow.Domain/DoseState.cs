@@ -46,6 +46,22 @@ public class DoseState
     /// <summary>Potrzeba domu z modelu, z k [s pracy podajnika / dobę].</summary>
     public double? NeedSecPerDay { get; set; }
 
+    /// <summary>Cel domu z pokoi (albo stały) w ostatnim liczeniu, przed ograniczeniem wzrostu [°C].</summary>
+    public double? HouseTarget { get; set; }
+
+    /// <summary>Cel domu użyty w modelu: spada od razu, rośnie najwyżej o DoseTargetRiseKPerHour [°C].</summary>
+    public double? HouseTargetUsed { get; set; }
+
+    /// <summary>Skąd cel domu: „pokoje” albo „stała …”.</summary>
+    public string? HouseTargetSource { get; set; }
+
+    /// <summary>Dodatek na dogrzanie domu przy rosnącym celu [s/dobę] (0, gdy cel nie rośnie).</summary>
+    public double StorageBonusSec { get; set; }
+
+    /// <summary>Cel domu z ostatniego wpisu CEL_DOMU w dzienniku i cele pokoi wtedy („salon=26;hol=25”).</summary>
+    public double? HouseTargetLogged { get; set; }
+    public string? RoomTargetsSnapshot { get; set; }
+
     /// <summary>Kocioł na suficie: przy maks. czasie pracy postój wyszedłby poniżej minimum.</summary>
     public bool Ceiling { get; set; }
 

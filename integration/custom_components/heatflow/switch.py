@@ -27,6 +27,8 @@ async def async_setup_entry(
         HeatFlowSystemSwitchEntity(coordinator, entry),
         HeatFlowDoseAutomatSwitchEntity(coordinator, entry),
         HeatFlowDoseRestoreSwitchEntity(coordinator, entry),
+        HeatFlowParamBoolSwitchEntity(coordinator, entry, "doseTargetFromRooms", "Dawka cel z pokoi", "mdi:home-group"),
+        HeatFlowParamBoolSwitchEntity(coordinator, entry, "doseIndoorMeasureWeighted", "Dawka pomiar ważony", "mdi:scale-balance"),
     ]
     for room in rooms:
         name = room.get("name") or room.get("Name")
@@ -195,6 +197,54 @@ class HeatFlowDoseRestoreSwitchEntity(CoordinatorEntity, SwitchEntity):
             async with session.patch(
                 f"{self.coordinator.api_url}/api/heating-parameters",
                 json={"doseRestoreOnDisable": value},
+                headers={"X-API-Key": self.coordinator.api_key, "Content-Type": "application/json", "X-Source": "HA"},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status in (200, 204):
+                    await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._set_value(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._set_value(False)
+
+
+class HeatFlowParamBoolSwitchEntity(CoordinatorEntity, SwitchEntity):
+    """Parametr bool Fazy 5 (heating-parameters), np. cel domu z pokoi / pomiar ważony do korekty k."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, entry: ConfigEntry, key: str, name: str, icon: str) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._key = key
+        self._attr_unique_id = f"{entry.entry_id}_params_{key}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "HeatFlow",
+        }
+
+    def _value(self):
+        params = (self.coordinator.data or {}).get("heating_parameters") or {}
+        value = params.get(self._key)
+        return value if value is not None else params.get(self._key[0].upper() + self._key[1:])
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._value() is not None
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._value())
+
+    async def _set_value(self, value: bool) -> None:
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(
+                f"{self.coordinator.api_url}/api/heating-parameters",
+                json={self._key: value},
                 headers={"X-API-Key": self.coordinator.api_key, "Content-Type": "application/json", "X-Source": "HA"},
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:

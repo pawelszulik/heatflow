@@ -121,6 +121,17 @@ public static class ConfigurationSeed
         { "kuchnia", "salon", "spizarnia", "suszarnia", "edyta", "hol", "przejsciowy" };
 
     /// <summary>
+    /// Zapotrzebowanie pokoi na ciepło [W] z inwentaryzacji (plan-heatflow-algorytm.md, „Wagi pokoi
+    /// z zapotrzebowania”) - wagi celów pokoi w celu domu dla dawki (Faza 5).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, double> RoomHeatLossW = new Dictionary<string, double>
+    {
+        ["balkonowy"] = 1344, ["garaz"] = 965, ["salon"] = 626, ["jadalnia"] = 625, ["hol"] = 622,
+        ["edyta"] = 604, ["sypialnia"] = 584, ["grzes"] = 500, ["przejsciowy"] = 484, ["suszarnia"] = 448,
+        ["kuchnia"] = 430, ["sien"] = 340, ["lazienka"] = 293, ["spizarnia"] = 159, ["toaleta"] = 159
+    };
+
+    /// <summary>
     /// Encje HA Fazy 5 „Dawka” u nas (integracja ekoPiec „kociol_*”, czujnik ogrodowy, automatyzacja #24)
     /// i kanał powiadomień. Te same wartości wpisuje migracja AddDosePhase do istniejącego wiersza.
     /// </summary>
@@ -181,7 +192,11 @@ public static class ConfigurationSeed
             new RoomConfiguration { Name = "sien", TempTarget = 18.0, TempTargetActive = 17.0, TempTargetInactive = 15.0, Priority = 4, Sensitive = false, AutomationDisabled = false, UsageSchedule = "Brak", HeatingSchedule = "Brak", SensorTemperatureEntityId = "climate.zigbee_smart_trv_2", ValveEntityId = "climate.zigbee_smart_trv_2" },
             new RoomConfiguration { Name = "toaleta", TempTarget = 19.0, TempTargetActive = 22.0, TempTargetInactive = 20.0, Priority = 3, Sensitive = false, AutomationDisabled = false, UsageSchedule = "07:00-08:00,15:00-17:00,18:00-19:00|07:00-08:00,12:00-15:00,18:00-19:00", HeatingSchedule = "07:00-08:00,15:00-17:00,18:00-19:00|07:00-08:00,12:00-15:00,18:00-19:00", SensorTemperatureEntityId = "climate.zigbee_smart_trv_5", ValveEntityId = "climate.zigbee_smart_trv_5" }
         };
-        foreach (var room in rooms) room.UseForDoseIndoorMean = DoseIndoorMeanRooms.Contains(room.Name);
+        foreach (var room in rooms)
+        {
+            room.UseForDoseIndoorMean = DoseIndoorMeanRooms.Contains(room.Name);
+            room.HeatLossW = RoomHeatLossW.GetValueOrDefault(room.Name);
+        }
         return rooms;
     }
 }

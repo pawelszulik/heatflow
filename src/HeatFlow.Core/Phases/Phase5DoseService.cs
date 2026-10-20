@@ -115,7 +115,8 @@ public class Phase5DoseService : IPhaseService
             notes = run.Notes;
 
             // 1. Migawka (co przebieg) - pamięć do Tz, trymu, bezpieczników i bilansu doby.
-            var inputs = await ReadInputsAsync(entities!, parameters, now, cancellationToken);
+            var rooms = await _configurationService.GetAllRoomsAsync(cancellationToken);
+            var inputs = await ReadInputsAsync(entities!, rooms, parameters, now, cancellationToken);
             await _repository.AddSampleAsync(inputs.Sample, cancellationToken);
             await _repository.DeleteSamplesOlderThanAsync(now - SampleRetention, cancellationToken);
 
@@ -164,7 +165,7 @@ public class Phase5DoseService : IPhaseService
             // 3. Dawka z pogody - co godzinę.
             if (ds.LastCalcUtc == null || ds.ModelPause == null || now - ds.LastCalcUtc.Value >= CalcInterval)
             {
-                Calculate(ds, state, parameters, samples, now, run);
+                Calculate(ds, state, rooms, parameters, samples, now, run);
             }
             FillPlan(ctx, ds);
 
@@ -300,7 +301,7 @@ public class Phase5DoseService : IPhaseService
     }
 
     /// <summary>Krok 1-4, 6 i szybki trym - wynik do DoseState.</summary>
-    private void Calculate(DoseState ds, HeatingState state, HeatingParameters p,
+    private void Calculate(DoseState ds, HeatingState state, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
         IReadOnlyList<DoseSample> samples, DateTime now, RunLog run)
     {
         var measured = samples
@@ -315,11 +316,21 @@ public class Phase5DoseService : IPhaseService
         }
 
         var currentWork = ds.ControllerWork ?? ds.PlannedWork ?? p.FeederWorkMin;
-        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0), samples, now, p, run);
-        var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec);
+        // Cel domu: z celów pokoi ważonych stratami (albo stała), wzrost ograniczony, spadek od razu.
+        var (rawTarget, source, roomTargets) = HouseTargetFor(rooms, state, p);
+        var hours = ds.LastCalcUtc == null ? 0 : (now - ds.LastCalcUtc.Value).TotalHours;
+        var (usedTarget, bonus) = DoseCalculator.LimitTargetRise(rawTarget, ds.HouseTargetUsed, hours, p);
+        LogHouseTargetChange(ds, rawTarget, source, roomTargets, run);
+        ds.HouseTarget = Math.Round(rawTarget, 2);
+        ds.HouseTargetUsed = Math.Round(usedTarget, 3);
+        ds.HouseTargetSource = source;
+        ds.StorageBonusSec = Math.Round(bonus);
+
+        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run);
+        var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec, usedTarget, bonus);
 
         ds.OutdoorSmoothed = Math.Round(tz.Value, 2);
-        ds.NeedSecPerDay = Math.Round(DoseCalculator.Need(p, tz.Value));
+        ds.NeedSecPerDay = Math.Round(DoseCalculator.Need(p, tz.Value, usedTarget) + bonus);
         ds.PlannedWork = plan.Work;
         ds.ModelPause = Math.Round(plan.ModelPause, 1);
         ds.Ceiling = plan.Ceiling;
@@ -768,18 +779,36 @@ public class Phase5DoseService : IPhaseService
         run.Notes.Add($"korekta k za {dayText}: {reason}; trym wyzerowany");
     }
 
-    private async Task<DoseInputs> ReadInputsAsync(DoseEntities e, HeatingParameters p, DateTime now, CancellationToken ct)
+    private async Task<DoseInputs> ReadInputsAsync(DoseEntities e, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
+        DateTime now, CancellationToken ct)
     {
         var outdoorState = await _haClient.GetStateAsync(e.OutdoorTemp, ct);
         var outdoor = ParseDouble(outdoorState);
 
-        // Średnia w domu z czujników pokoi oznaczonych UseForDoseIndoorMean (u nas 7× BMx280 z modelu).
-        var indoorValues = new List<double>();
-        var rooms = await _configurationService.GetAllRoomsAsync(ct);
-        foreach (var room in rooms.Where(r => r.UseForDoseIndoorMean && !string.IsNullOrWhiteSpace(r.SensorTemperatureEntityId)))
+        // Temperatura w domu do korekty k: domyślnie średnia czujników z flagą UseForDoseIndoorMean
+        // (7× BMx280 z kalibracji modelu); przy DoseIndoorMeasureWeighted - wszystkie pokoje ważone
+        // HeatLossW, ten sam zestaw co cel domu.
+        double? indoor = null;
+        if (p.DoseIndoorMeasureWeighted)
         {
-            var v = ParseDouble(await _haClient.GetStateAsync(room.SensorTemperatureEntityId, ct));
-            if (v.HasValue) indoorValues.Add(v.Value);
+            var readings = new List<(double Value, double Weight)>();
+            foreach (var room in rooms.Where(r => r.HeatLossW > 0 && !string.IsNullOrWhiteSpace(r.SensorTemperatureEntityId)))
+            {
+                var v = await ReadRoomTemperatureAsync(room.SensorTemperatureEntityId, ct);
+                if (v.HasValue) readings.Add((v.Value, room.HeatLossW));
+            }
+            if (readings.Count >= p.DoseIndoorMinSensors)
+                indoor = Math.Round(readings.Sum(r => r.Value * r.Weight) / readings.Sum(r => r.Weight), 2);
+        }
+        else
+        {
+            var values = new List<double>();
+            foreach (var room in rooms.Where(r => r.UseForDoseIndoorMean && !string.IsNullOrWhiteSpace(r.SensorTemperatureEntityId)))
+            {
+                var v = await ReadRoomTemperatureAsync(room.SensorTemperatureEntityId, ct);
+                if (v.HasValue) values.Add(v.Value);
+            }
+            if (values.Count >= p.DoseIndoorMinSensors) indoor = Math.Round(values.Average(), 2);
         }
 
         var clock = await _haClient.GetStateAsync(e.ControllerClock, ct);
@@ -790,7 +819,7 @@ public class Phase5DoseService : IPhaseService
         {
             TimestampUtc = now,
             OutdoorTemp = outdoor,
-            IndoorTemp = indoorValues.Count >= p.DoseIndoorMinSensors ? Math.Round(indoorValues.Average(), 2) : null,
+            IndoorTemp = indoor,
             BoilerTemp = ParseDouble(await _haClient.GetStateAsync(e.BoilerTemp, ct)),
             BoilerSetpoint = ParseDouble(await _haClient.GetStateAsync(e.BoilerSetpoint, ct)),
             FlueTemp = ParseDouble(await _haClient.GetStateAsync(e.FlueTemp, ct)),
@@ -842,6 +871,73 @@ public class Phase5DoseService : IPhaseService
         return PhaseResult.ErrorResult(PhaseNumber, text, (long)(DateTime.UtcNow - startTime).TotalMilliseconds);
     }
 
+    /// <summary>Temperatura pokoju: stan sensora albo current_temperature głowicy (climate.*), jak w Fazie 1.</summary>
+    private async Task<double?> ReadRoomTemperatureAsync(string entityId, CancellationToken ct)
+    {
+        var state = await _haClient.GetStateAsync(entityId, ct);
+        var v = ParseDouble(state);
+        if (v.HasValue || state == null || !entityId.StartsWith("climate.", StringComparison.Ordinal)) return v;
+        return state.Attributes.TryGetValue("current_temperature", out var raw)
+               && raw is JsonElement { ValueKind: JsonValueKind.Number } el
+            ? el.GetDouble()
+            : null;
+    }
+
+    /// <summary>Cel domu: z pokoi (ważony HeatLossW) albo stała IndoorTargetForFeed - też awaryjnie.</summary>
+    private static (double Target, string Source, List<(string Name, double Target, double Weight)> Rooms) HouseTargetFor(
+        IReadOnlyList<RoomConfiguration> rooms, HeatingState state, HeatingParameters p)
+    {
+        if (!p.DoseTargetFromRooms)
+            return (p.IndoorTargetForFeed, "stała", new());
+        var (target, list) = DoseCalculator.HouseTarget(rooms, state.CurrentTime, state.IsWeekend);
+        return target.HasValue
+            ? (target.Value, "pokoje", list)
+            : (p.IndoorTargetForFeed, "stała - brak wag/celów pokoi", list);
+    }
+
+    /// <summary>
+    /// Zmiana celu domu o ≥ 0,3 K (albo zmiana źródła) - osobny wpis CEL_DOMU z rozbiciem, które pokoje
+    /// zmieniły cel. Pierwsze liczenie zapisuje punkt odniesienia z jednym wpisem.
+    /// </summary>
+    private static void LogHouseTargetChange(DoseState ds, double target, string source,
+        List<(string Name, double Target, double Weight)> rooms, RunLog run)
+    {
+        string Snap() => string.Join(";", rooms.OrderBy(r => r.Name)
+            .Select(r => $"{r.Name}={r.Target.ToString("0.##", CultureInfo.InvariantCulture)}"));
+        var sourceChanged = ds.HouseTargetSource != null && ds.HouseTargetSource != source;
+        if (ds.HouseTargetLogged.HasValue && Math.Abs(target - ds.HouseTargetLogged.Value) < 0.3 && !sourceChanged)
+            return;
+
+        var previous = (ds.RoomTargetsSnapshot ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Split('='))
+            .Where(x => x.Length == 2)
+            .ToDictionary(x => x[0], x => double.Parse(x[1], CultureInfo.InvariantCulture));
+        var changes = rooms
+            .Where(r => !previous.TryGetValue(r.Name, out var old) || Math.Abs(old - r.Target) > 0.01)
+            .Select(r => previous.TryGetValue(r.Name, out var old)
+                ? $"{r.Name} {DoseLog.Number(old)} → {DoseLog.Number(r.Target)}"
+                : $"{r.Name} {DoseLog.Number(r.Target)}")
+            .ToList();
+        var weightSum = rooms.Sum(r => r.Weight);
+        string why;
+        if (source != "pokoje")
+            why = $"źródło: {source} (IndoorTargetForFeed)";
+        else if (ds.HouseTargetLogged == null)
+            why = $"cel z pokoi ważony stratami ({rooms.Count} pokoi, Σ {weightSum:0} W): " +
+                  string.Join(", ", rooms.OrderByDescending(r => r.Weight).Select(r => $"{r.Name} {DoseLog.Number(r.Target)} °C × {r.Weight:0} W"));
+        else
+            why = changes.Count > 0 ? $"zmiany celów pokoi: {string.Join(", ", changes)}" : "zmiana wag pokoi";
+        var tail = ds.HouseTargetLogged.HasValue && target > ds.HouseTargetLogged.Value
+            ? $"; dawka rośnie stopniowo (≤ {DoseLog.Number(run.Ctx.Parameters.DoseTargetRiseKPerHour, "0.00")} K/h, z dodatkiem na dogrzanie domu)"
+            : ds.HouseTargetLogged.HasValue ? "; niższy cel działa od razu" : "";
+
+        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.HouseTargetParameter, ds.HouseTargetLogged ?? target, target, "CEL_DOMU",
+            DoseLog.StatusInternal,
+            $"{DoseLog.Head(DoseLog.HouseTargetParameter, ds.HouseTargetLogged ?? target, target)}: {why}{tail}."));
+        ds.HouseTargetLogged = Math.Round(target, 2);
+        ds.RoomTargetsSnapshot = Snap();
+    }
+
     private static bool IsValid(EntityState? state)
         => state != null && !string.IsNullOrWhiteSpace(state.State) && state.State != "unknown" && state.State != "unavailable";
 
@@ -878,6 +974,10 @@ public class Phase5DoseService : IPhaseService
 
     private static void FillPlan(DoseLogContext ctx, DoseState ds)
     {
+        ctx.HouseTarget = ds.HouseTargetUsed;
+        ctx.HouseTargetRaw = ds.HouseTarget;
+        ctx.HouseTargetSource = ds.HouseTargetSource;
+        ctx.StorageBonusSec = ds.StorageBonusSec;
         ctx.OutdoorSmoothed = ds.OutdoorSmoothed;
         ctx.NeedSecPerDay = ds.NeedSecPerDay;
         ctx.TrimSec = ds.TrimSec;
@@ -907,7 +1007,7 @@ public class Phase5DoseService : IPhaseService
     {
         if (ds.OutdoorSmoothed == null) return "brak planu";
         return string.Create(DoseLog.Pl,
-            $"Tz {ds.OutdoorSmoothed:F1} °C, potrzeba {ds.NeedSecPerDay:F0} s/dobę → {ds.PlannedWork}/{ds.ModelPause:F0} s{(ds.TrimSec != 0 ? $" (trym {ds.TrimSec:+0;-0} s)" : "")}{(ds.Ceiling ? $", SUFIT - brakuje {ds.ShortfallPct:F0} %" : "")}");
+            $"Tz {ds.OutdoorSmoothed:F1} °C, cel domu {ds.HouseTargetUsed:F1} °C ({ds.HouseTargetSource}), potrzeba {ds.NeedSecPerDay:F0} s/dobę → {ds.PlannedWork}/{ds.ModelPause:F0} s{(ds.TrimSec != 0 ? $" (trym {ds.TrimSec:+0;-0} s)" : "")}{(ds.Ceiling ? $", SUFIT - brakuje {ds.ShortfallPct:F0} %" : "")}");
     }
 
     private static string BuildDetails(DoseState ds, ControllerFeedSettings? controller, List<string> notes)

@@ -74,6 +74,13 @@ public sealed class DoseHarness
             Ha.Set(e.ControllerClock, (string?)null, updatedUtc);
     }
 
+    /// <summary>Czujniki wszystkich pokoi: temperatura domu + przesunięcie pokoju (brak przesunięcia = 0).</summary>
+    public void PublishRoomTemperatures(double houseTemp, IReadOnlyDictionary<string, double>? offsets, DateTime updatedUtc)
+    {
+        foreach (var room in Config.Rooms)
+            Ha.Set(room.SensorTemperatureEntityId, Math.Round(houseTemp + (offsets?.GetValueOrDefault(room.Name) ?? 0), 2), updatedUtc);
+    }
+
     public Task<Core.Phases.PhaseResult> StepAsync(DateTime utc, ForecastData? forecast)
     {
         Clock.UtcNow = utc;

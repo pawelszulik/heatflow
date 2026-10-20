@@ -73,6 +73,13 @@ public class RoomConfiguration
     public bool UseForDoseIndoorMean { get; set; }
 
     /// <summary>
+    /// Zapotrzebowanie pokoju na ciepło [W] z inwentaryzacji (plan-heatflow-algorytm.md, „Wagi pokoi
+    /// z zapotrzebowania”). Waga celu pokoju w celu domu, z którego Faza 5 liczy dawkę:
+    /// cel domu = Σ(waga · cel pokoju) / Σ wag. 0 = pokój nie wchodzi do celu domu.
+    /// </summary>
+    public double HeatLossW { get; set; }
+
+    /// <summary>
     /// Tworzy kopię konfiguracji (snapshot) do porównań np. w audit logu.
     /// Zwraca null, gdy wywołane na null.
     /// </summary>
@@ -92,7 +99,8 @@ public class RoomConfiguration
             HeatingSchedule = source.HeatingSchedule,
             SensorTemperatureEntityId = source.SensorTemperatureEntityId,
             ValveEntityId = source.ValveEntityId,
-            UseForDoseIndoorMean = source.UseForDoseIndoorMean
+            UseForDoseIndoorMean = source.UseForDoseIndoorMean,
+            HeatLossW = source.HeatLossW
         };
     }
 

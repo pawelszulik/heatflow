@@ -229,6 +229,16 @@ Brak albo błąd którejś encji: Faza 5 kończy się błędem z listą braków,
 (bilans dobowy, korekta k). U nas 7× BMx280: kuchnia, salon, spiżarnia, suszarnia, edyta, hol, przejściowy.
 W HA: switch „Dawka: średnia w domu” w urządzeniu pokoju.
 
+**`RoomConfiguration.HeatLossW`** - zapotrzebowanie pokoju [W] z inwentaryzacji = waga celu pokoju w **celu domu**,
+z którego liczona jest dawka (decyzja Pawła 2026-10-20): cel domu = Σ(waga · cel pokoju po harmonogramie) / Σ wag
+(u nas: balkonowy 1344, garaż 965, salon 626, jadalnia 625, hol 622, edyta 604, sypialnia 584, grześ 500,
+przejściowy 484, suszarnia 448, kuchnia 430, sień 340, łazienka 293, spiżarnia 159, toaleta 159 W). Pokoje z
+wyłączoną automatyką też się liczą; waga 0 = pokój nie wchodzi. W HA: liczba „Dawka: straty ciepła (W)” w pokoju.
+Spadek celu działa od razu; wzrost z szybkością `DoseTargetRiseKPerHour` (0,07 K/h ≈ 1 K w 14 h) z dodatkiem na
+dogrzanie domu `HouseCapacity · tempo` (≤ `DoseStorageBonusMaxSec`). `DoseTargetFromRooms` = wył. → stała
+`IndoorTargetForFeed` (też awaryjnie, gdy żaden pokój nie ma wagi). Pomiar do korekty k: 7 czujników z flagą
+(domyślnie) albo `DoseIndoorMeasureWeighted` = wszystkie pokoje ważone HeatLossW.
+
 **`HeatingParameters`** - wszystkie progi Fazy 5 (`Feed*`, `Dose*`, `Blower*`, `Feeder*Min/Max`), z walidacją
 w `DoseLimits.Validate` i gałkami w HA (`number.heatflow_parametry_dawka_*`).
 

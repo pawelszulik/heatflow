@@ -40,7 +40,7 @@ public sealed class VirtualPlant
     }
 
     public double TrueFactor { get; }
-    public double IndoorGoal { get; }
+    public double IndoorGoal { get; set; }
     public double Indoor { get; set; } = 24.0;
     public double Boiler { get; private set; } = 64.0;
     public double Setpoint { get; set; } = 67.0;

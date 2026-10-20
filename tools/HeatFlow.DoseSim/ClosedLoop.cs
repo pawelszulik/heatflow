@@ -19,13 +19,16 @@ public enum FaultKind
     /// <summary>Paweł wyłącza automat w chwili From.</summary>
     SwitchOffByUser,
     /// <summary>Tz spada liniowo o Value K w 6 h od From i tak zostaje do To.</summary>
-    TzDrop
+    TzDrop,
+    /// <summary>Od From cele wszystkich pokoi wyższe o Value K (Paweł podnosi nastawy).</summary>
+    TargetStep
 }
 
 public record Fault(FaultKind Kind, DateTime FromUtc, DateTime ToUtc, double Value = 0);
 
 public record HourRecord(DateTime Utc, double Outdoor, double Indoor, double Boiler, bool Heating, int Work, int Pause,
-    int Blower, double K, bool Ceiling, bool AutomatActive, int TrimSec);
+    int Blower, double K, bool Ceiling, bool AutomatActive, int TrimSec, double Goal = 24, double? HouseTargetUsed = null,
+    double StorageBonusSec = 0, double? MeasuredIndoor = null);
 
 /// <summary>Wynik przebiegu w pętli zamkniętej.</summary>
 public sealed class ClosedLoopResult
@@ -92,8 +95,8 @@ public sealed class ClosedLoopResult
     {
         var h = Hours.Where(x => x.Utc >= Start.AddDays(warmupDays) && !x.Ceiling).ToList();
         if (h.Count == 0) return (0, 1);
-        return (h.Max(x => Math.Abs(x.Indoor - Plant.IndoorGoal)),
-            h.Count(x => Math.Abs(x.Indoor - Plant.IndoorGoal) <= 0.5) / (double)h.Count);
+        return (h.Max(x => Math.Abs(x.Indoor - x.Goal)),
+            h.Count(x => Math.Abs(x.Indoor - x.Goal) <= 0.5) / (double)h.Count);
     }
 
     public IEnumerable<FeedChangeLog> SelfDisables => Log.Where(e => e.ReasonCode.StartsWith("SAMOWYLACZENIE_"));
@@ -114,7 +117,9 @@ public static class ClosedLoopRunner
         ControllerFeedSettings? initial = null,
         IReadOnlyList<Fault>? faults = null,
         bool automatOn = true,
-        bool startAtModel = false)
+        bool startAtModel = false,
+        List<RoomConfiguration>? rooms = null,
+        IReadOnlyDictionary<string, double>? roomOffsets = null)
     {
         faults ??= Array.Empty<Fault>();
         var p0 = parameters ?? new HeatingParameters();
@@ -127,10 +132,16 @@ public static class ClosedLoopRunner
         }
         initial ??= new ControllerFeedSettings(8, 120, 33);
         var harness = new DoseHarness(initial, p0);
+        if (rooms != null) harness.Config.Rooms = rooms;
+        var baseTargets = harness.Config.Rooms.ToDictionary(r => r.Name, r => r.TempTarget);
+        // Cel, do którego „ciągną” pokoje (głowice + fazy 1-3) - ten sam cel domu, co w Fazie 5.
+        double Goal() => harness.Parameters.DoseTargetFromRooms
+            ? DoseCalculator.HouseTarget(harness.Config.Rooms, DateTime.Now, false).Target ?? harness.Parameters.IndoorTargetForFeed
+            : harness.Parameters.IndoorTargetForFeed;
         harness.Repo.Switch.Enabled = automatOn;
         var plant = new VirtualPlant(trueFactor,
             (double)initial.FeederWork / (initial.FeederWork + initial.FeederPause) * 86400.0,
-            harness.Parameters.IndoorTargetForFeed);
+            Goal()) { Indoor = Goal() };
 
         var series = hourlyTz.OrderBy(x => x.Utc).ToList();
         double? BaseTz(DateTime t) => Interpolate(series, t);
@@ -155,6 +166,9 @@ public static class ClosedLoopRunner
             bool Active(FaultKind k) => faults.Any(f => f.Kind == k && t >= f.FromUtc && t < f.ToUtc);
 
             var outdoor = Tz(t) ?? 0;
+            var step = faults.Where(f => f.Kind == FaultKind.TargetStep && t >= f.FromUtc && t < f.ToUtc).Sum(f => f.Value);
+            foreach (var room in harness.Config.Rooms) room.TempTarget = baseTargets[room.Name] + step;
+            plant.IndoorGoal = Goal();
             var s = harness.Controller.Settings;
             plant.FlueOverride = Active(FaultKind.Flue210) ? 210 : null;
             plant.Step(outdoor, s.FeederWork, s.FeederPause, s.Blower);
@@ -183,6 +197,7 @@ public static class ClosedLoopRunner
                     Math.Round(outdoor, 1), Math.Round(plant.Indoor, 2), Math.Round(plant.Boiler, 2), plant.Setpoint,
                     Math.Round(plant.Flue, 1), plant.BlowerActual, (int)plant.FeederCounterSec,
                     Summer: Active(FaultKind.Summer), ControllerAuto: !Active(FaultKind.ManualMode)), t);
+                harness.PublishRoomTemperatures(plant.Indoor, roomOffsets, t);
             }
 
             await harness.StepAsync(t, DoseHarness.IdealForecast(Tz, t));
@@ -202,7 +217,8 @@ public static class ClosedLoopRunner
                 var st = harness.Repo.State!;
                 var c = harness.Controller.Settings;
                 result.Hours.Add(new HourRecord(t, outdoor, plant.Indoor, plant.Boiler, plant.Heating, c.FeederWork,
-                    c.FeederPause, c.Blower, harness.Parameters.FeedCorrectionK, st.Ceiling, st.AutomatActive, st.TrimSec));
+                    c.FeederPause, c.Blower, harness.Parameters.FeedCorrectionK, st.Ceiling, st.AutomatActive, st.TrimSec,
+                    plant.IndoorGoal, st.HouseTargetUsed, st.StorageBonusSec, harness.Repo.Samples.LastOrDefault()?.IndoorTemp));
             }
         }
 

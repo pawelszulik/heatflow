@@ -15,6 +15,16 @@ ROOM_FIELD_NAMES = {
     "tempTarget": "Temperatura docelowa",
     "tempTargetActive": "Temperatura docelowa (aktywny)",
     "tempTargetInactive": "Temperatura docelowa (nieaktywny)",
+    "heatLossW": "Dawka: straty ciepła (W)",
+}
+
+# Zakres, krok i jednostka pól pokoju (min, max, krok, jednostka).
+ROOM_FIELD_RANGES = {
+    "tempTarget": (5.0, 30.0, 0.5, "°C"),
+    "tempTargetActive": (5.0, 30.0, 0.5, "°C"),
+    "tempTargetInactive": (5.0, 30.0, 0.5, "°C"),
+    # Waga celu pokoju w celu domu dla dawki (Faza 5); 0 = pokój nie wchodzi.
+    "heatLossW": (0.0, 5000.0, 1.0, "W"),
 }
 
 
@@ -89,6 +99,8 @@ PARAM_FIELDS = [
     ("feedKMax", 1.0, 2.0, 0.05),
     ("doseCeilingDayHeatingHours", 12, 24, 0.5),
     ("doseBlowerLowDuty", 0.01, 0.09, 0.001),
+    ("doseTargetRiseKPerHour", 0.01, 1.0, 0.01),
+    ("doseStorageBonusMaxSec", 0, 8000, 100),
 ]
 
 PARAM_DISPLAY_NAMES = {
@@ -148,6 +160,8 @@ PARAM_DISPLAY_NAMES = {
     "feedKMax": "Dawka - korekta k: maksimum",
     "doseCeilingDayHeatingHours": "Dawka - doba na suficie od (h grzania)",
     "doseBlowerLowDuty": "Dawka - dmuchawa minimum przy udziale pracy",
+    "doseTargetRiseKPerHour": "Dawka - wzrost celu domu (K/h)",
+    "doseStorageBonusMaxSec": "Dawka - max dodatek na dogrzanie (s na dobę)",
 }
 
 
@@ -166,7 +180,7 @@ async def async_setup_entry(
         name = room.get("name") or room.get("Name")
         if not name:
             continue
-        for key in ["tempTarget", "tempTargetActive", "tempTargetInactive"]:
+        for key in ["tempTarget", "tempTargetActive", "tempTargetInactive", "heatLossW"]:
             val = _pole(room, key)
             if val is not None:
                 entities.append(RoomNumberEntity(coordinator, entry, name, key, float(val)))
@@ -179,13 +193,14 @@ async def async_setup_entry(
 
 class RoomNumberEntity(CoordinatorEntity, NumberEntity):
     _attr_has_entity_name = True
-    _attr_native_min_value = 5.0
-    _attr_native_max_value = 30.0
-    _attr_native_step = 0.5
-    _attr_native_unit_of_measurement = "°C"
 
     def __init__(self, coordinator, entry: ConfigEntry, room_name: str, field: str, initial: float) -> None:
         super().__init__(coordinator)
+        min_v, max_v, step, unit = ROOM_FIELD_RANGES[field]
+        self._attr_native_min_value = min_v
+        self._attr_native_max_value = max_v
+        self._attr_native_step = step
+        self._attr_native_unit_of_measurement = unit
         self._entry = entry
         self._room_name = room_name
         self._field = field

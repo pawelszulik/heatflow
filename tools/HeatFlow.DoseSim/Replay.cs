@@ -48,7 +48,8 @@ public sealed record HmsRow(DateTime Utc, IReadOnlyDictionary<string, string> Va
 
 /// <summary>Krok replayu: co sterownik miał naprawdę (Paweł) i co by miał z automatem.</summary>
 public record ReplayStep(DateTime Utc, int? ActualWork, int? ActualPause, int? ActualBlower,
-    int SimWork, int SimPause, int SimBlower, bool AutomatActive, bool Ceiling, double K, double? Outdoor);
+    int SimWork, int SimPause, int SimBlower, bool AutomatActive, bool Ceiling, double K, double? Outdoor,
+    double? HouseTarget = null, double? NeedSecPerDay = null);
 
 public sealed class ReplayResult
 {
@@ -80,7 +81,8 @@ public static class ReplayRunner
     /// </param>
     public static async Task<ReplayResult> RunAsync(IReadOnlyList<HmsRow> rows, bool automatOn,
         TimeSpan? reEnableAfter = null, HeatingParameters? parameters = null, DateTime? fromUtc = null, DateTime? toUtc = null,
-        bool neutralBoiler = false)
+        bool neutralBoiler = false,
+        IReadOnlyList<(DateTime FromUtc, Dictionary<string, double> Targets)>? roomTargets = null)
     {
         reEnableAfter ??= TimeSpan.FromHours(6);
         var hourlyTz = HourlyOutdoor(rows);
@@ -90,6 +92,9 @@ public static class ReplayRunner
         var first = selected.First(r => r.Num("praca") != null && r.Num("postoj") != null && r.Num("dmuchawa") != null);
         var initial = new ControllerFeedSettings((int)first.Num("praca")!, (int)first.Num("postoj")!, (int)first.Num("dmuchawa")!);
         var h = new DoseHarness(initial, parameters);
+        // Cele pokoi: z historii (tygodniowe średnie z RoomState), wagi z inwentaryzacji. Bez historii -
+        // pokoje bez wag, czyli cel stały IndoorTargetForFeed (jak przed decyzją Pawła).
+        if (roomTargets is { Count: > 0 }) h.Config.Rooms = SimDefaults.AllRooms(roomTargets[0].Targets);
         h.Repo.Switch.Enabled = automatOn;
         var result = new ReplayResult { Harness = h };
 
@@ -106,6 +111,13 @@ public static class ReplayRunner
             if (row.Utc - lastStep < TimeSpan.FromMinutes(4.5)) continue;
             lastStep = row.Utc;
             var t = row.Utc;
+
+            if (roomTargets is { Count: > 0 })
+            {
+                var week = roomTargets.LastOrDefault(x => x.FromUtc <= t);
+                var targets = (week.Targets ?? roomTargets[0].Targets);
+                foreach (var room in h.Config.Rooms) room.TempTarget = targets.GetValueOrDefault(room.Name, room.TempTarget);
+            }
 
             PublishLatest(h, latest, t);
             if (neutralBoiler && latest.TryGetValue("nastawa", out var z)
@@ -148,7 +160,7 @@ public static class ReplayRunner
             result.Steps.Add(new ReplayStep(t,
                 ToInt(latest, "praca"), ToInt(latest, "postoj"), ToInt(latest, "dmuchawa"),
                 c.FeederWork, c.FeederPause, c.Blower, st.AutomatActive, st.Ceiling, h.Parameters.FeedCorrectionK,
-                st.OutdoorSmoothed));
+                st.OutdoorSmoothed, st.HouseTargetUsed, st.NeedSecPerDay));
         }
 
         return result;
@@ -192,6 +204,16 @@ public static class ReplayRunner
             .Where(x => x.Tz.HasValue)
             .GroupBy(x => x.Hour)
             .ToDictionary(g => g.Key, g => g.Average(x => x.Tz!.Value));
+
+    /// <summary>Czytnik cele-pokoi.csv: „tydzien,cele” z celami „pokój=°C” rozdzielonymi spacją.</summary>
+    public static List<(DateTime FromUtc, Dictionary<string, double> Targets)> ReadRoomTargets(string path)
+        => File.ReadAllLines(path).Skip(1).Where(l => l.Contains(','))
+            .Select(l => l.Split(',', 2))
+            .Select(c => (DateTime.SpecifyKind(DateTime.ParseExact(c[0], "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc),
+                c[1].Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split('='))
+                    .ToDictionary(x => x[0], x => double.Parse(x[1], CultureInfo.InvariantCulture))))
+            .OrderBy(x => x.Item1)
+            .ToList();
 
     private static DateTime Floor(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
 

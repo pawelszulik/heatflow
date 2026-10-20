@@ -87,8 +87,37 @@ public class HeatingParameters
     /// <summary>Pojemność cieplna domu [s pracy podajnika na 1 K] - do bilansu netto w korekcie k (§ 4a).</summary>
     public double HouseCapacity { get; set; } = 1549.0;
 
-    /// <summary>Temperatura w domu, na którą liczona jest dawka [°C] - „pierwsze pokrętło” (§ 5).</summary>
+    /// <summary>
+    /// Cel domu ze stałej [°C]: używany, gdy DoseTargetFromRooms = wył., i awaryjnie, gdy żaden pokój
+    /// nie ma wagi (HeatLossW) ani celu.
+    /// </summary>
     public double IndoorTargetForFeed { get; set; } = 24.0;
+
+    /// <summary>
+    /// Cel domu dla dawki z celów pokoi ważonych stratami (decyzja Pawła 2026-10-20) - ten sam cel
+    /// pokoju (po harmonogramie), którego używają fazy 1-3. Wył. = stała IndoorTargetForFeed.
+    /// </summary>
+    public bool DoseTargetFromRooms { get; set; } = true;
+
+    /// <summary>
+    /// Jak szybko może rosnąć cel domu użyty w modelu [K/h]. Spadek celu działa od razu (dom stygnie
+    /// sam), wzrost - z tą szybkością, żeby dawka nie skakała na sufit. 0,07 K/h ≈ 1 K w 14 h, tyle ile
+    /// przy 0 °C daje nadwyżka kotła ponad straty (analiza § 7: 37 kWh/K, nadwyżka 2,6 kW).
+    /// </summary>
+    public double DoseTargetRiseKPerHour { get; set; } = 0.07;
+
+    /// <summary>
+    /// Górna granica dodatku na dogrzanie domu przy rosnącym celu [s podajnika / dobę]:
+    /// dodatek = HouseCapacity · tempo wzrostu celu. 2600 ≈ nadwyżka sufitu 10/100 ponad potrzebę przy 0 °C.
+    /// </summary>
+    public int DoseStorageBonusMaxSec { get; set; } = 2600;
+
+    /// <summary>
+    /// Pomiar do korekty k: wył. (domyślnie) = średnia czujników z flagą UseForDoseIndoorMean (7× BMx280,
+    /// na nich kalibrowany model); wł. = średnia wszystkich pokoi ważona HeatLossW - ten sam zestaw co cel
+    /// domu, więc w równowadze ważona temperatura domu dochodzi do celu domu (patrz raport symulacji).
+    /// </summary>
+    public bool DoseIndoorMeasureWeighted { get; set; }
 
     /// <summary>Współczynnik korekty modelu, uczony raz na dobę z bilansu (0,6-1,3).</summary>
     public double FeedCorrectionK { get; set; } = 1.0;

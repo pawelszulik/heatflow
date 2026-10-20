@@ -426,7 +426,7 @@ public class Phase5DoseServiceTests
 
         await Run();
 
-        var cut = _repo.Log[0];
+        var cut = _repo.Log.First(e => e.ReasonCode == "SPALINY_200");
         Assert.Equal((DoseLog.Blower, 33.0, 31.0, "w dół", "SPALINY_200", DoseLog.StatusWritten),
             (cut.Parameter, cut.OldValue!.Value, cut.NewValue!.Value, cut.Direction, cut.ReasonCode, cut.Status));
         Assert.Equal("Dmuchawa 33 → 31 % (w dół = mniej powietrza): spaliny 205 °C > 200; zapis potwierdzony w mapperze.", cut.Message);
@@ -478,7 +478,9 @@ public class Phase5DoseServiceTests
         await Run();
         await Run();
 
-        var blocked = Assert.Single(_repo.Log);
+        // Pierwsze liczenie zapisuje też punkt odniesienia celu domu (CEL_DOMU) - raz.
+        Assert.Single(_repo.Log, e => e.ReasonCode == "CEL_DOMU");
+        var blocked = Assert.Single(_repo.Log, e => e.ReasonCode != "CEL_DOMU");
         Assert.Equal((DoseLog.Pause, "ODSTEP", DoseLog.StatusBlocked, 160.0, 140.0),
             (blocked.Parameter, blocked.ReasonCode, blocked.Status, blocked.OldValue!.Value, blocked.NewValue!.Value));
         Assert.StartsWith("Chciałbym: Postój 160 → 140 s (w dół = więcej węgla), ale od poprzedniej zmiany minęło dopiero 70 min (min. 2 h).", blocked.Message);

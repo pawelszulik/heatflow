@@ -117,6 +117,7 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.HeatingSchedule).HasMaxLength(500);
             entity.Property(e => e.SensorTemperatureEntityId).HasMaxLength(200);
             entity.Property(e => e.ValveEntityId).HasMaxLength(200);
+            entity.Property(e => e.HeatLossW).HasColumnType("decimal(7,1)");
             entity.HasIndex(e => e.Name);
         });
 
@@ -191,6 +192,7 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.FeedKMax).HasColumnType("decimal(5,3)");
             entity.Property(e => e.DoseCeilingDayHeatingHours).HasColumnType("decimal(5,2)");
             entity.Property(e => e.DoseBlowerLowDuty).HasColumnType("decimal(6,4)");
+            entity.Property(e => e.DoseTargetRiseKPerHour).HasColumnType("decimal(5,3)");
             entity.Property(e => e.ValveTolerance).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveRetryDelay).HasColumnType("decimal(5,2)");
             entity.Property(e => e.MinReturnTemp).HasColumnType("decimal(5,2)");
@@ -275,6 +277,8 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.LastReason).HasMaxLength(1000);
             entity.Property(e => e.LastSelfDisableReason).HasMaxLength(500);
+            entity.Property(e => e.HouseTargetSource).HasMaxLength(60);
+            entity.Property(e => e.RoomTargetsSnapshot).HasMaxLength(1000);
             entity.Property(e => e.LastKCorrectionDate).HasColumnType("date");
         });
 
@@ -298,6 +302,7 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.ReasonCode).HasMaxLength(60);
             entity.Property(e => e.Status).HasMaxLength(20);
             entity.Property(e => e.Message).HasMaxLength(1000);
+            entity.Property(e => e.HouseTargetSource).HasMaxLength(60);
             entity.Property(e => e.MapperConfirmation).HasMaxLength(20);
             entity.HasIndex(e => e.TimestampUtc);
         });

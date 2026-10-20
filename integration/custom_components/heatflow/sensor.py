@@ -33,6 +33,7 @@ async def async_setup_entry(
         HeatFlowDoseSensor(coordinator, entry, "plannedPause", "Dawka postój", "s", "mdi:timer-pause-outline"),
         HeatFlowDoseSensor(coordinator, entry, "plannedBlower", "Dawka dmuchawa", "%", "mdi:fan"),
         HeatFlowDoseSensor(coordinator, entry, "k", "Dawka k", None, "mdi:tune-variant"),
+        HeatFlowDoseSensor(coordinator, entry, "houseTargetUsed", "Dawka cel domu", "°C", "mdi:home-thermometer"),
         HeatFlowDoseLastChangeSensor(coordinator, entry),
     ])
 
@@ -199,6 +200,10 @@ class HeatFlowDoseSensor(CoordinatorEntity, SensorEntity):
             "postoj_z_modelu": dose.get("modelPause"),
             "tz_wygladzona": dose.get("outdoorSmoothed"),
             "potrzeba_s_na_dobe": dose.get("needSecPerDay"),
+            "cel_domu_z_pokoi": dose.get("houseTarget"),
+            "cel_domu_uzyty": dose.get("houseTargetUsed"),
+            "cel_domu_zrodlo": dose.get("houseTargetSource"),
+            "dogrzewanie_domu_s_na_dobe": dose.get("storageBonusSec"),
             "trym_s": dose.get("trimSec"),
             "sufit": dose.get("ceiling"),
             "brakuje_proc": dose.get("shortfallPct"),
@@ -264,6 +269,9 @@ class HeatFlowDoseLastChangeSensor(CoordinatorEntity, SensorEntity):
             "tz_przy_poprzedniej_zmianie": last.get("outdoorAtPreviousChange"),
             "prognoza_1h": last.get("forecastNextHour"),
             "k": last.get("k"),
+            "cel_domu": last.get("houseTarget"),
+            "cel_domu_zrodlo": last.get("houseTargetSource"),
+            "dogrzewanie_domu_s_na_dobe": last.get("storageBonusSec"),
             "potrzeba_s_na_dobe": last.get("needSecPerDay"),
             "trym_s": last.get("trimSec"),
             "kociol": last.get("boilerTemp"),

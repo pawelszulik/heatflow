@@ -232,6 +232,13 @@ namespace HeatFlow.Infrastructure.Migrations
                 nullable: false,
                 defaultValue: "");
 
+            migrationBuilder.AddColumn<decimal>(
+                name: "HeatLossW",
+                table: "RoomConfiguration",
+                type: "decimal(7,1)",
+                nullable: false,
+                defaultValue: 0m);
+
             migrationBuilder.AddColumn<bool>(
                 name: "UseForDoseIndoorMean",
                 table: "RoomConfiguration",
@@ -309,6 +316,13 @@ namespace HeatFlow.Infrastructure.Migrations
                 nullable: false,
                 defaultValue: 6);
 
+            migrationBuilder.AddColumn<bool>(
+                name: "DoseIndoorMeasureWeighted",
+                table: "HeatingParameters",
+                type: "bit",
+                nullable: false,
+                defaultValue: false);
+
             migrationBuilder.AddColumn<int>(
                 name: "DoseIndoorMinSensors",
                 table: "HeatingParameters",
@@ -329,6 +343,27 @@ namespace HeatFlow.Infrastructure.Migrations
                 type: "bit",
                 nullable: false,
                 defaultValue: true);
+
+            migrationBuilder.AddColumn<int>(
+                name: "DoseStorageBonusMaxSec",
+                table: "HeatingParameters",
+                type: "int",
+                nullable: false,
+                defaultValue: 2600);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "DoseTargetFromRooms",
+                table: "HeatingParameters",
+                type: "bit",
+                nullable: false,
+                defaultValue: true);
+
+            migrationBuilder.AddColumn<decimal>(
+                name: "DoseTargetRiseKPerHour",
+                table: "HeatingParameters",
+                type: "decimal(5,3)",
+                nullable: false,
+                defaultValue: 0.07m);
 
             migrationBuilder.AddColumn<int>(
                 name: "DoseTrimLimitSec",
@@ -526,6 +561,12 @@ namespace HeatFlow.Infrastructure.Migrations
                     ModelPause = table.Column<double>(type: "float", nullable: true),
                     OutdoorSmoothed = table.Column<double>(type: "float", nullable: true),
                     NeedSecPerDay = table.Column<double>(type: "float", nullable: true),
+                    HouseTarget = table.Column<double>(type: "float", nullable: true),
+                    HouseTargetUsed = table.Column<double>(type: "float", nullable: true),
+                    HouseTargetSource = table.Column<string>(type: "nvarchar(60)", maxLength: 60, nullable: true),
+                    StorageBonusSec = table.Column<double>(type: "float", nullable: false),
+                    HouseTargetLogged = table.Column<double>(type: "float", nullable: true),
+                    RoomTargetsSnapshot = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
                     Ceiling = table.Column<bool>(type: "bit", nullable: false),
                     ShortfallPct = table.Column<double>(type: "float", nullable: false),
                     TrimSec = table.Column<int>(type: "int", nullable: false),
@@ -572,6 +613,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     OutdoorAtPreviousChange = table.Column<double>(type: "float", nullable: true),
                     ForecastNextHour = table.Column<double>(type: "float", nullable: true),
                     K = table.Column<double>(type: "float", nullable: true),
+                    HouseTarget = table.Column<double>(type: "float", nullable: true),
+                    HouseTargetSource = table.Column<string>(type: "nvarchar(60)", maxLength: 60, nullable: true),
+                    StorageBonusSec = table.Column<double>(type: "float", nullable: true),
                     NeedSecPerDay = table.Column<double>(type: "float", nullable: true),
                     TrimSec = table.Column<int>(type: "int", nullable: false),
                     BoilerTemp = table.Column<double>(type: "float", nullable: true),
@@ -603,9 +647,9 @@ namespace HeatFlow.Infrastructure.Migrations
             // BoilerRetry*, BoilerTempTolerance, FeederTimeEntityId) to pozostalosci po usunietej fazie
             // kotla ekopiec - nic ich nie czyta. Celowo Drop+Add, nie Rename (EF zgadywal zmiany nazw
             // i przenioslby np. FeederBoostThreshold = 5 do FeederWorkMax).
+            // Dane w EXEC, bo skrypt idempotentny to jedna paczka - bez niego SQL Server nie zna nowych kolumn.
 
             // Encje HA Fazy 5 i kanal powiadomien u nas (= ConfigurationSeed.DoseEntityDefaults).
-            // EXEC, bo skrypt idempotentny to jedna paczka - bez niego SQL Server nie zna jeszcze nowych kolumn.
             migrationBuilder.Sql(@"EXEC(N'
 UPDATE SystemConfiguration SET
     BoilerTempEntityId = COALESCE(NULLIF(BoilerTempEntityId, ''''), ''sensor.kociol_temperatura_kotla''),
@@ -629,6 +673,11 @@ WHERE Id = 1;')");
             migrationBuilder.Sql(@"EXEC(N'
 UPDATE RoomConfiguration SET UseForDoseIndoorMean = 1
 WHERE Name IN (''kuchnia'', ''salon'', ''spizarnia'', ''suszarnia'', ''edyta'', ''hol'', ''przejsciowy'');')");
+
+            // Wagi celow pokoi w celu domu dla dawki = zapotrzebowanie pokoi [W] z inwentaryzacji
+            // (plan-heatflow-algorytm.md, „Wagi pokoi z zapotrzebowania”).
+            migrationBuilder.Sql(@"EXEC(N'
+UPDATE RoomConfiguration SET HeatLossW = CASE Name WHEN ''balkonowy'' THEN 1344 WHEN ''garaz'' THEN 965 WHEN ''salon'' THEN 626 WHEN ''jadalnia'' THEN 625 WHEN ''hol'' THEN 622 WHEN ''edyta'' THEN 604 WHEN ''sypialnia'' THEN 584 WHEN ''grzes'' THEN 500 WHEN ''przejsciowy'' THEN 484 WHEN ''suszarnia'' THEN 448 WHEN ''kuchnia'' THEN 430 WHEN ''sien'' THEN 340 WHEN ''lazienka'' THEN 293 WHEN ''spizarnia'' THEN 159 WHEN ''toaleta'' THEN 159 ELSE 0 END;')");
         }
 
 
@@ -704,6 +753,10 @@ WHERE Name IN (''kuchnia'', ''salon'', ''spizarnia'', ''suszarnia'', ''edyta'', 
                 table: "SystemConfiguration");
 
             migrationBuilder.DropColumn(
+                name: "HeatLossW",
+                table: "RoomConfiguration");
+
+            migrationBuilder.DropColumn(
                 name: "UseForDoseIndoorMean",
                 table: "RoomConfiguration");
 
@@ -748,6 +801,10 @@ WHERE Name IN (''kuchnia'', ''salon'', ''spizarnia'', ''suszarnia'', ''edyta'', 
                 table: "HeatingParameters");
 
             migrationBuilder.DropColumn(
+                name: "DoseIndoorMeasureWeighted",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
                 name: "DoseIndoorMinSensors",
                 table: "HeatingParameters");
 
@@ -757,6 +814,18 @@ WHERE Name IN (''kuchnia'', ''salon'', ''spizarnia'', ''suszarnia'', ''edyta'', 
 
             migrationBuilder.DropColumn(
                 name: "DoseRestoreOnDisable",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseStorageBonusMaxSec",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseTargetFromRooms",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseTargetRiseKPerHour",
                 table: "HeatingParameters");
 
             migrationBuilder.DropColumn(

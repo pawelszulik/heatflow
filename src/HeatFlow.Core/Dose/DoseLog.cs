@@ -25,6 +25,11 @@ public class DoseLogContext
     public double? HeatingShare2hPct { get; set; }
     public int? StandbyEntries6h { get; set; }
     public double? HoursSinceFlueSafety { get; set; }
+    /// <summary>Cel domu użyty w modelu, cel z pokoi przed ograniczeniem wzrostu, źródło, dodatek na dogrzanie.</summary>
+    public double? HouseTarget { get; set; }
+    public double? HouseTargetRaw { get; set; }
+    public string? HouseTargetSource { get; set; }
+    public double StorageBonusSec { get; set; }
     /// <summary>Parametry przebiegu - progi w zdaniach (3 K, 185 °C …) zgodne z tym, co faktycznie działa.</summary>
     public HeatingParameters Parameters { get; set; } = new();
     public ControllerFeedSettingsSnapshot? Controller { get; set; }
@@ -48,6 +53,7 @@ public static class DoseLog
     public const string K = "k";
     public const string Trim = "trym_postoju";
     public const string Automat = "automat";
+    public const string HouseTargetParameter = "cel_domu";
 
     public const string StatusWritten = "ZAPISANE";
     public const string StatusUnconfirmed = "NIEPOTWIERDZONE";
@@ -65,6 +71,7 @@ public static class DoseLog
         Blower => "Dmuchawa",
         K => "k",
         Trim => "Trym postoju",
+        HouseTargetParameter => "Cel domu",
         _ => "Automat"
     };
 
@@ -72,6 +79,7 @@ public static class DoseLog
     {
         Work or Pause or Trim => " s",
         Blower => " %",
+        HouseTargetParameter => " °C",
         _ => ""
     };
 
@@ -87,7 +95,7 @@ public static class DoseLog
         var up = direction == "w górę";
         return parameter switch
         {
-            Work or K => $"{direction} = {(up ? "więcej" : "mniej")} węgla",
+            Work or K or HouseTargetParameter => $"{direction} = {(up ? "więcej" : "mniej")} węgla",
             Pause or Trim => $"{direction} = {(up ? "mniej" : "więcej")} węgla",
             Blower => $"{direction} = {(up ? "więcej" : "mniej")} powietrza",
             _ => direction
@@ -99,7 +107,7 @@ public static class DoseLog
     /// <summary>„Postój 160 → 140 s (w dół = więcej węgla)”.</summary>
     public static string Head(string parameter, double? oldValue, double? newValue)
     {
-        var format = parameter == K ? "0.000" : "0.#";
+        var format = parameter == K ? "0.000" : parameter == HouseTargetParameter ? "0.0" : "0.#";
         var dir = Direction(oldValue, newValue);
         return $"{ParameterName(parameter)} {Number(oldValue, format)} → {Number(newValue, format)}{Unit(parameter)} ({DirectionMeaning(parameter, dir)})";
     }
@@ -111,7 +119,13 @@ public static class DoseLog
                  && Math.Abs(c.OutdoorAtPreviousChange.Value - c.OutdoorSmoothed.Value) >= 0.05
             ? $"średnia Tz z 3 h {(c.OutdoorSmoothed < c.OutdoorAtPreviousChange ? "spadła" : "wzrosła")} z {Number(c.OutdoorAtPreviousChange, "0.0")} do {Number(c.OutdoorSmoothed, "0.0")} °C"
             : $"średnia Tz z 3 h {Number(c.OutdoorSmoothed, "0.0")} °C";
-        var need = $"potrzeba {Number(c.NeedSecPerDay, "#,##0")} s/dobę przy k {Number(c.K, "0.00")}";
+        var target = c.HouseTarget.HasValue
+            ? $", cel domu {Number(c.HouseTarget, "0.0")} °C ({c.HouseTargetSource})" +
+              (c.StorageBonusSec > 0
+                  ? $" rośnie do {Number(c.HouseTargetRaw, "0.0")} °C - w tym +{Number(c.StorageBonusSec, "#,##0")} s/dobę na dogrzanie domu"
+                  : "")
+            : "";
+        var need = $"potrzeba {Number(c.NeedSecPerDay, "#,##0")} s/dobę przy k {Number(c.K, "0.00")}{target}";
         var trim = c.TrimSec != 0 ? $", trym {c.TrimSec.ToString("+0;-0", Pl)} s" : "";
         var boiler = $"kocioł {Number(c.BoilerTemp, "0.0")} °C przy nastawie {Number(c.BoilerSetpoint, "0")} °C";
         var p = c.Parameters;
@@ -164,6 +178,9 @@ public static class DoseLog
             ForecastNextHour = c.ForecastNextHour,
             K = c.K,
             NeedSecPerDay = c.NeedSecPerDay,
+            HouseTarget = c.HouseTarget,
+            HouseTargetSource = c.HouseTargetSource,
+            StorageBonusSec = c.StorageBonusSec,
             TrimSec = c.TrimSec,
             BoilerTemp = c.BoilerTemp,
             BoilerSetpoint = c.BoilerSetpoint,

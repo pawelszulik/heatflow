@@ -69,9 +69,56 @@ public static class DoseCalculator
         return window.Average();
     }
 
-    /// <summary>Krok 2: potrzeba domu = k · (FeedPerKelvin · (T_wewn docelowa − Tz) + FeedOffset) [s/dobę].</summary>
-    public static double Need(HeatingParameters p, double outdoor)
-        => p.FeedCorrectionK * (p.FeedPerKelvin * (p.IndoorTargetForFeed - outdoor) + p.FeedOffset);
+    /// <summary>
+    /// Krok 2: potrzeba domu = k · (FeedPerKelvin · (cel domu − Tz) + FeedOffset) [s/dobę].
+    /// Cel domu: z pokoi (<see cref="HouseTarget"/>, po ograniczeniu wzrostu) albo stała IndoorTargetForFeed.
+    /// </summary>
+    public static double Need(HeatingParameters p, double outdoor, double? houseTarget = null)
+        => p.FeedCorrectionK * (p.FeedPerKelvin * ((houseTarget ?? p.IndoorTargetForFeed) - outdoor) + p.FeedOffset);
+
+    /// <summary>
+    /// Cel domu = Σ(HeatLossW · cel pokoju) / Σ HeatLossW po pokojach z wagą &gt; 0. Cel pokoju tak jak
+    /// w fazach 1-3: <see cref="Room.GetTargetTemperature"/> po harmonogramie grzania. Pokoje z wyłączoną
+    /// automatyką też wchodzą - ich cel to wciąż temperatura, której Paweł chce, a straty liczą się tak samo.
+    /// Null, gdy żaden pokój nie ma wagi.
+    /// </summary>
+    public static (double? Target, List<(string Name, double Target, double Weight)> Rooms) HouseTarget(
+        IEnumerable<RoomConfiguration> rooms, DateTime localTime, bool isWeekend)
+    {
+        var list = rooms
+            .Where(r => r.HeatLossW > 0)
+            .Select(r =>
+            {
+                var room = r.ToRoom();
+                var active = Utils.ScheduleHelper.IsTimeInRange(localTime, room.HeatingSchedule, isWeekend);
+                return (r.Name, Target: room.GetTargetTemperature(active), Weight: r.HeatLossW);
+            })
+            .Where(x => x.Target > 0)
+            .ToList();
+        if (list.Count == 0) return (null, list);
+        return (list.Sum(x => x.Target * x.Weight) / list.Sum(x => x.Weight), list);
+    }
+
+    /// <summary>
+    /// Cel użyty w modelu: spadek od razu (dom stygnie sam), wzrost najwyżej o DoseTargetRiseKPerHour
+    /// na godzinę. Zwraca też dodatek na dogrzanie domu: HouseCapacity · tempo wzrostu [K/dobę],
+    /// najwyżej DoseStorageBonusMaxSec - bez niego dawka liczona dla wyższego celu pokrywałaby tylko
+    /// straty, a nie podniesienie temperatury murów (37 kWh/K, analiza § 7).
+    /// </summary>
+    public static (double Used, double StorageBonusSec) LimitTargetRise(
+        double target, double? previousUsed, double hoursSinceLast, HeatingParameters p)
+    {
+        // Tolerancja 0,005 K: zapamiętany cel jest zaokrąglany - bez niej „dogrzewanie” wisiałoby
+        // w nieskończoność o ułamki kelwina (wirtualne testy: wieczne +12 s/dobę).
+        if (previousUsed == null || target <= previousUsed.Value + 0.005)
+            return (target, 0);
+        var hours = Math.Clamp(hoursSinceLast, 0, 2);
+        var used = Math.Min(target, previousUsed.Value + p.DoseTargetRiseKPerHour * hours);
+        var ratePerDay = hours > 0 ? (used - previousUsed.Value) / hours * 24.0 : 0;
+        // Cel nadal poniżej żądanego - dogrzewanie trwa, dodatek w pełnym tempie wzrostu.
+        if (used < target) ratePerDay = p.DoseTargetRiseKPerHour * 24.0;
+        return (used, Math.Min(p.DoseStorageBonusMaxSec, p.HouseCapacity * ratePerDay));
+    }
 
     /// <summary>Krok 4: postój dający potrzebę przy danym czasie pracy: praca · 86400 / potrzeba − praca.</summary>
     public static double PauseFor(int work, double need) => work * 86400.0 / Math.Max(need, 1.0) - work;
@@ -91,10 +138,11 @@ public static class DoseCalculator
     }
 
     /// <summary>Kroki 2-4 i 6: czas pracy, postój z modelu (z trymem), sufit.</summary>
-    public static DosePlan Plan(HeatingParameters p, double outdoor, int currentWork, int trimSec)
+    public static DosePlan Plan(HeatingParameters p, double outdoor, int currentWork, int trimSec,
+        double? houseTarget = null, double storageBonusSec = 0)
     {
         var (_, workMax, pauseMin, pauseMax) = Bounds(p);
-        var need = Need(p, outdoor);
+        var need = Need(p, outdoor, houseTarget) + storageBonusSec;
         var work = WorkWithHysteresis(currentWork, need, p);
         var rawPause = PauseFor(work, need);
 

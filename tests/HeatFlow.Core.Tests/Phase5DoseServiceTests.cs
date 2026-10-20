@@ -93,7 +93,7 @@ public class Phase5DoseServiceTests
         Assert.Equal(new ControllerFeedSettings(9, 110, 34), _controller.Settings);
         Assert.Equal(Now, s.LastChangeUtc);
         Assert.Contains(_messages, m => m.Title.Contains("włączony"));
-        Assert.Contains(_messages, m => m.Message.Contains("Potwierdzone w mapperze"));
+        Assert.Contains(_messages, m => m.Message.Contains("zapis potwierdzony w mapperze"));
     }
 
     [Fact]
@@ -325,6 +325,260 @@ public class Phase5DoseServiceTests
         Assert.Equal(model - 20, _repo.State.ModelPause!.Value, 0);
     }
 
+    // --- Dziennik decyzji (FeedChangeLog): co, z ilu na ile, w którą stronę, dlaczego ---
+
+    [Fact]
+    public async Task Log_WeatherChange_EachRegisterWithDirectionCauseAndMapperConfirmation()
+    {
+        _repo.Switch.Enabled = true;
+
+        await Run();
+
+        var on = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Automat);
+        Assert.Equal("WLACZENIE_RECZNE", on.ReasonCode);
+        Assert.Contains("Zapamiętane nastawy: praca 7 s, postój 160 s, dmuchawa 35 %", on.Message);
+
+        var work = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Work);
+        Assert.Equal((7.0, 9.0, "w górę", "POGODA", DoseLog.StatusWritten, "OK"),
+            (work.OldValue!.Value, work.NewValue!.Value, work.Direction, work.ReasonCode, work.Status, work.MapperConfirmation));
+        Assert.StartsWith("Czas pracy 7 → 9 s (w górę = więcej węgla): średnia Tz z 3 h -5,0 °C, potrzeba", work.Message);
+        Assert.EndsWith("zapis potwierdzony w mapperze.", work.Message);
+
+        var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause);
+        Assert.Equal((160.0, 110.0, "w dół"), (pause.OldValue!.Value, pause.NewValue!.Value, pause.Direction));
+        Assert.StartsWith("Postój 160 → 110 s (w dół = więcej węgla)", pause.Message);
+        Assert.Contains("przy k 1", pause.Message);
+
+        var blower = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Blower);
+        Assert.Equal((35.0, 34.0, "w dół", "POGODA"), (blower.OldValue!.Value, blower.NewValue!.Value, blower.Direction, blower.ReasonCode));
+        Assert.Contains("dmuchawa idzie za dawką", blower.Message);
+
+        // Dane wejściowe w chwili decyzji
+        Assert.Equal(-5.0, pause.OutdoorSmoothed);
+        Assert.Equal(66, pause.BoilerTemp);
+        Assert.Equal(67, pause.BoilerSetpoint);
+        Assert.Equal(140, pause.FlueTemp);
+        Assert.Equal(100, pause.HeatingShare2hPct);
+        Assert.Equal(1.0, pause.K);
+        Assert.True(pause.AutomatActive);
+
+        // Discord: jedna linia na każdą zmienioną nastawę - te same zdania co w dzienniku
+        var discord = Assert.Single(_messages, m => m.Title.StartsWith("Kocioł: dawka"));
+        Assert.Equal(new[] { work.Message, pause.Message, blower.Message }, discord.Message.Split('\n'));
+    }
+
+    [Fact]
+    public async Task Log_PreviousTzIsQuoted_WhenWeatherMovedSinceLastChange()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _repo.State.LastChangeOutdoorSmoothed = 4.1;
+
+        await Run();
+
+        var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause);
+        Assert.Contains("średnia Tz z 3 h spadła z 4,1 do -5,0 °C", pause.Message);
+        Assert.Equal(4.1, pause.OutdoorAtPreviousChange);
+    }
+
+    [Fact]
+    public async Task Log_Flue205_BlowerDownThenSelfDisableThenRestore()
+    {
+        _repo.Switch.Enabled = true;
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        SetEnvironment(outdoor: -5.0, flue: 205);
+
+        await Run();
+
+        var cut = _repo.Log[0];
+        Assert.Equal((DoseLog.Blower, 33.0, 31.0, "w dół", "SPALINY_200", DoseLog.StatusWritten),
+            (cut.Parameter, cut.OldValue!.Value, cut.NewValue!.Value, cut.Direction, cut.ReasonCode, cut.Status));
+        Assert.Equal("Dmuchawa 33 → 31 % (w dół = mniej powietrza): spaliny 205 °C > 200; zapis potwierdzony w mapperze.", cut.Message);
+
+        var off = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Automat);
+        Assert.Equal("SAMOWYLACZENIE_SPALINY_200", off.ReasonCode);
+
+        var restored = _repo.Log.Where(e => e.ReasonCode == "PRZYWROCENIE_NASTAW").ToList();
+        Assert.Equal(new[] { (DoseLog.Work, 9.0, 7.0, "w dół"), (DoseLog.Pause, 110.0, 160.0, "w górę") },
+            restored.Select(e => (e.Parameter, e.OldValue!.Value, e.NewValue!.Value, e.Direction)));
+        Assert.All(restored, e => Assert.Equal("OK", e.MapperConfirmation));
+    }
+
+    [Fact]
+    public async Task Log_ManualOff_LoggedAsWylaczenieReczne_WithRestore()
+    {
+        _repo.Switch.Enabled = false;
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        _repo.State = ActiveState(saved: (7, 160, 35));
+
+        await Run();
+
+        Assert.Contains(_repo.Log, e => e.Parameter == DoseLog.Automat && e.ReasonCode == "WYLACZENIE_RECZNE" && e.NewValue == 0);
+        Assert.Equal(3, _repo.Log.Count(e => e.ReasonCode == "PRZYWROCENIE_NASTAW" && e.Status == DoseLog.StatusWritten));
+        Assert.Contains(_repo.Log, e => e.Message.StartsWith("Dmuchawa 33 → 35 % (w górę = więcej powietrza): przywrócenie nastaw"));
+    }
+
+    [Fact]
+    public async Task Log_UnconfirmedWrite_HasRozjazdAndSelfDisableCode()
+    {
+        _repo.Switch.Enabled = true;
+        _controller.DropWritesTo = DoseControllerWriter.PauseEntityId;
+
+        await Run();
+
+        var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause && e.ReasonCode == "POGODA");
+        Assert.Equal((DoseLog.StatusUnconfirmed, "ROZJAZD"), (pause.Status, pause.MapperConfirmation));
+        Assert.Contains("zapisu NIE potwierdzono - sterownik ma 160", pause.Message);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY");
+    }
+
+    [Fact]
+    public async Task Log_BlockedByInterval_LoggedOnce_NotEveryRun()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _repo.State.LastChangeUtc = Now.AddMinutes(-70);
+
+        await Run();
+        await Run();
+
+        var blocked = Assert.Single(_repo.Log);
+        Assert.Equal((DoseLog.Work, "ODSTEP", DoseLog.StatusBlocked, 7.0, 9.0),
+            (blocked.Parameter, blocked.ReasonCode, blocked.Status, blocked.OldValue!.Value, blocked.NewValue!.Value));
+        Assert.StartsWith("Chciałbym: Czas pracy 7 → 9 s (w górę = więcej węgla), ale od poprzedniej zmiany minęło dopiero 70 min (min. 2 h).", blocked.Message);
+        Assert.Empty(_controller.Writes);
+    }
+
+    [Fact]
+    public async Task Log_AutomatOff_SuggestionLoggedOnce()
+    {
+        await Run();
+        await Run();
+
+        var suggestions = _repo.Log.Where(e => e.Status == DoseLog.StatusSuggestion).ToList();
+        Assert.Equal(new[] { DoseLog.Work, DoseLog.Pause, DoseLog.Blower }, suggestions.Select(e => e.Parameter));
+        Assert.All(suggestions, e => Assert.StartsWith("Automat wyłączony - ustawiłbym:", e.Message));
+        Assert.Empty(_controller.Writes);
+    }
+
+    [Fact]
+    public async Task Log_BlowerRaiseBlockedByFlue185()
+    {
+        _repo.Switch.Enabled = true;
+        _controller.Settings = new ControllerFeedSettings(7, 200, 30);
+        _repo.State = ActiveState(saved: (7, 200, 30));
+        SetEnvironment(outdoor: -5.0, flue: 190);
+
+        await Run();
+
+        Assert.Equal(30, _controller.Settings.Blower);
+        var blocked = Assert.Single(_repo.Log, e => e.Status == DoseLog.StatusBlocked);
+        Assert.Equal((DoseLog.Blower, "SPALINY_185", 30.0, 34.0), (blocked.Parameter, blocked.ReasonCode, blocked.OldValue!.Value, blocked.NewValue!.Value));
+        Assert.Contains("ale spaliny 190 °C ≥ 185", blocked.Message);
+    }
+
+    [Fact]
+    public async Task Log_ChangeCausedByTrim_HasTrimCode()
+    {
+        // +5 °C: model 7 s / 148 s, sterownik 7/150 - bez trymu nic by się nie zmieniło.
+        // Kocioł 2 h pod nastawą − 3 K przy ciągłej dmuchawie → trym −20 s → postój 150 → 130 s.
+        _repo.Switch.Enabled = true;
+        _controller.Settings = new ControllerFeedSettings(7, 150, 30);
+        _repo.State = ActiveState(saved: (7, 150, 30));
+        foreach (var s in _repo.Samples) { s.BoilerTemp = 60; s.BlowerActual = 35; s.OutdoorTemp = 5.0; }
+        SetEnvironment(outdoor: 5.0, boiler: 60);
+
+        await Run();
+
+        var trim = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Trim);
+        Assert.Equal(("TRYM_KOCIOL_PONIZEJ_NASTAWY", 0.0, -20.0, "w dół"), (trim.ReasonCode, trim.OldValue!.Value, trim.NewValue!.Value, trim.Direction));
+        Assert.Contains("od 2 h dmuchawa chodzi 100 % czasu, a kocioł 60,0 °C przy nastawie 67 °C", trim.Message);
+
+        var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause);
+        Assert.Equal(("TRYM_KOCIOL_PONIZEJ_NASTAWY", 150.0, 130.0), (pause.ReasonCode, pause.OldValue!.Value, pause.NewValue!.Value));
+        Assert.StartsWith("Postój 150 → 130 s (w dół = więcej węgla): od 2 h dmuchawa chodzi", pause.Message);
+    }
+
+    [Fact]
+    public async Task Log_StandbyTrim_PauseUp()
+    {
+        // Dwa wejścia w podtrzymanie w 6 h → trym +20 s.
+        _repo.Samples.Clear();
+        var temps = new[] { 64.0, 67.5, 65.0, 67.2, 66.0 };
+        for (var i = 0; i < 36; i++)
+        {
+            _repo.Samples.Add(new DoseSample
+            {
+                TimestampUtc = Now.AddMinutes(-5 * (36 - i)), OutdoorTemp = 5.0, IndoorTemp = 24,
+                BoilerTemp = temps[Math.Min(i / 7, 4)], BoilerSetpoint = 67, BlowerActual = 35, FeederCounterSec = 1000
+            });
+        }
+        SetEnvironment(outdoor: 5.0);
+
+        await Run();
+
+        var trim = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Trim);
+        Assert.Equal(("TRYM_PODTRZYMANIA", 20.0, "w górę"), (trim.ReasonCode, trim.NewValue!.Value, trim.Direction));
+        Assert.StartsWith("Trym postoju 0 → 20 s (w górę = mniej węgla): 2 wejścia w podtrzymanie w ostatnich 6 h", trim.Message);
+    }
+
+    [Fact]
+    public async Task Log_Ceiling_ChangeToMaxDoseHasSufitCode()
+    {
+        _repo.Switch.Enabled = true;
+        _controller.Settings = new ControllerFeedSettings(10, 120, 35);
+        _repo.State = ActiveState(saved: (10, 120, 35));
+        foreach (var s in _repo.Samples) s.OutdoorTemp = -20.0;
+        SetEnvironment(outdoor: -20.0);
+
+        await Run();
+
+        var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause);
+        Assert.Equal(("SUFIT", 120.0, 100.0), (pause.ReasonCode, pause.OldValue!.Value, pause.NewValue!.Value));
+        Assert.Contains("kocioł nie nadąża - przy maks. pracy i min. postoju brakuje 24 %", pause.Message);
+    }
+
+    [Fact]
+    public async Task Log_KCorrection_EntryWithDirectionAndBalance()
+    {
+        _repo.State = new DoseState { LastKCorrectionDate = Now.Date.AddDays(-2) };
+        _repo.Samples.Clear();
+        var counter = 0;
+        var i = 0;
+        for (var t = Now.Date.AddDays(-2); t < Now; t = t.AddMinutes(5), i++)
+        {
+            counter += 14;
+            _repo.Samples.Add(new DoseSample
+            {
+                TimestampUtc = t, OutdoorTemp = 0, IndoorTemp = 24, BoilerTemp = 66, BoilerSetpoint = 67,
+                BlowerActual = i % 4 == 0 ? 0 : 35, FeederCounterSec = counter, SummerMode = false
+            });
+        }
+        _config.Setup(x => x.SaveHeatingParametersAsync(It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await Run();
+
+        var k = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.K);
+        Assert.Equal(("KOREKTA_K", 1.0, 0.95, "w dół"), (k.ReasonCode, k.OldValue!.Value, k.NewValue!.Value, k.Direction));
+        Assert.StartsWith("k 1,000 → 0,950 (w dół = mniej węgla): bilans doby", k.Message);
+        Assert.Contains("podajnik 4032 s", k.Message);
+    }
+
+    [Fact]
+    public async Task Log_ActivationRefused_HasSelfDisableCode()
+    {
+        _repo.Switch.Enabled = true;
+        SetEnvironment(outdoor: -5.0, summer: true);
+
+        await Run();
+
+        var refused = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Automat);
+        Assert.Equal("SAMOWYLACZENIE_TRYB_LATO", refused.ReasonCode);
+        Assert.StartsWith("Automatu nie włączono: kocioł przełączony na tryb lato", refused.Message);
+    }
+
     // --- Helpers ---
 
     private Task<PhaseResult> Run(HeatingParameters? p = null)
@@ -441,5 +695,16 @@ public class Phase5DoseServiceTests
             Samples.RemoveAll(s => s.TimestampUtc < olderThanUtc);
             return Task.CompletedTask;
         }
+
+        public List<FeedChangeLog> Log { get; } = new();
+
+        public Task AddChangeLogAsync(IEnumerable<FeedChangeLog> entries, CancellationToken ct = default)
+        {
+            Log.AddRange(entries);
+            return Task.CompletedTask;
+        }
+
+        public Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken ct = default)
+            => Task.FromResult(Log.AsEnumerable().Reverse().Take(limit).ToList());
     }
 }

@@ -33,6 +33,7 @@ public class DoseController : ControllerBase
         var automat = await _repository.GetAutomatSwitchAsync(ct);
         var state = await _repository.GetStateAsync(ct) ?? new DoseState();
         var parameters = await _config.GetHeatingParametersAsync(ct);
+        var recent = await _repository.GetChangeLogAsync(10, ct);
 
         return Ok(new
         {
@@ -61,8 +62,19 @@ public class DoseController : ControllerBase
             lastKCorrectionDate = state.LastKCorrectionDate,
             lastReason = state.LastReason,
             lastSelfDisableReason = state.LastSelfDisableReason,
-            lastSelfDisableUtc = state.LastSelfDisableUtc
+            lastSelfDisableUtc = state.LastSelfDisableUtc,
+            // Dziennik decyzji: ostatni wpis w całości (sensor.heatflow_dawka_ostatnia_zmiana)
+            // i 10 ostatnich zdań.
+            lastChange = recent.FirstOrDefault(),
+            recentChanges = recent.Select(e => $"{e.TimestampUtc:yyyy-MM-dd HH:mm} UTC [{e.Status}] {e.Message}").ToList()
         });
+    }
+
+    /// <summary>Dziennik decyzji Fazy 5 (FeedChangeLog), od najnowszego: co, z ilu na ile, dlaczego.</summary>
+    [HttpGet("log")]
+    public async Task<ActionResult<List<FeedChangeLog>>> GetLog([FromQuery] int limit = 50, CancellationToken ct = default)
+    {
+        return Ok(await _repository.GetChangeLogAsync(Math.Clamp(limit, 1, 500), ct));
     }
 
     [HttpPut("automat")]

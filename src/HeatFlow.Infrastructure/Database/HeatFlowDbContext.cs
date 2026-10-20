@@ -32,6 +32,7 @@ public class HeatFlowDbContext : DbContext
     public DbSet<DoseAutomatSwitch> DoseAutomatSwitches { get; set; }
     public DbSet<DoseState> DoseStates { get; set; }
     public DbSet<DoseSample> DoseSamples { get; set; }
+    public DbSet<FeedChangeLog> FeedChangeLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -274,6 +275,21 @@ public class HeatFlowDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.Property(e => e.TimestampUtc).HasColumnType("datetime2");
+            entity.HasIndex(e => e.TimestampUtc);
+        });
+
+        modelBuilder.Entity<FeedChangeLog>(entity =>
+        {
+            entity.ToTable("FeedChangeLog");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.TimestampUtc).HasColumnType("datetime2");
+            entity.Property(e => e.Parameter).HasMaxLength(30);
+            entity.Property(e => e.Direction).HasMaxLength(20);
+            entity.Property(e => e.ReasonCode).HasMaxLength(60);
+            entity.Property(e => e.Status).HasMaxLength(20);
+            entity.Property(e => e.Message).HasMaxLength(1000);
+            entity.Property(e => e.MapperConfirmation).HasMaxLength(20);
             entity.HasIndex(e => e.TimestampUtc);
         });
 

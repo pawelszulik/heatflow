@@ -261,11 +261,17 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<DateTime?>("LastCalcUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<double?>("LastChangeOutdoorSmoothed")
+                        .HasColumnType("float");
+
                     b.Property<DateTime?>("LastChangeUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("LastKCorrectionDate")
                         .HasColumnType("date");
+
+                    b.Property<string>("LastLoggedBlockKey")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("LastMapperOkUtc")
                         .HasColumnType("datetime2");
@@ -283,6 +289,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<DateTime?>("LastSelfDisableUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("LastTrimCode")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("LastTrimUtc")
                         .HasColumnType("datetime2");
@@ -363,6 +372,104 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.HasIndex("Phase");
 
                     b.ToTable("ExecutionHistory", (string)null);
+                });
+
+            modelBuilder.Entity("HeatFlow.Domain.FeedChangeLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("AutomatActive")
+                        .HasColumnType("bit");
+
+                    b.Property<double?>("BoilerSetpoint")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("BoilerTemp")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("ControllerBlower")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ControllerPause")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ControllerWork")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<double?>("FlueTemp")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("ForecastNextHour")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("HeatingShare2hPct")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("K")
+                        .HasColumnType("float");
+
+                    b.Property<string>("MapperConfirmation")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<double?>("NeedSecPerDay")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("NewValue")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("OldValue")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("OutdoorAtPreviousChange")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("OutdoorSmoothed")
+                        .HasColumnType("float");
+
+                    b.Property<string>("Parameter")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("ReasonCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<int?>("StandbyEntries6h")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("TimestampUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("TrimSec")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TimestampUtc");
+
+                    b.ToTable("FeedChangeLog", (string)null);
                 });
 
             modelBuilder.Entity("HeatFlow.Domain.ForecastDataEntity", b =>

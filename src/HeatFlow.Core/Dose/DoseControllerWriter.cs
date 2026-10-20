@@ -16,8 +16,14 @@ public enum DoseRegister
     Blower
 }
 
-/// <summary>Wynik zapisu nastaw: czy wszystko potwierdził mapper, co sterownik ma na końcu, opis.</summary>
-public record DoseWriteResult(bool Confirmed, ControllerFeedSettings? Last, string Report);
+/// <summary>Zapis jednego rejestru: z ilu na ile i co powiedział mapper (OK / BRAK / ROZJAZD).</summary>
+public record DoseRegisterWrite(DoseRegister Register, int From, int To, string Confirmation, int? Seen);
+
+/// <summary>Wynik zapisu nastaw: czy wszystko potwierdził mapper, co sterownik ma na końcu, opis, zapisy po kolei.</summary>
+public record DoseWriteResult(bool Confirmed, ControllerFeedSettings? Last, string Report)
+{
+    public IReadOnlyList<DoseRegisterWrite> Writes { get; init; } = Array.Empty<DoseRegisterWrite>();
+}
 
 /// <summary>
 /// Zapis nastaw do sterownika przez HA (number.set_value) z potwierdzeniem w eSterownikMapperze
@@ -77,24 +83,27 @@ public class DoseControllerWriter
         ControllerFeedSettings current, int work, int pause, int blower, CancellationToken cancellationToken = default)
     {
         var report = new List<string>();
+        var writes = new List<DoseRegisterWrite>();
         var last = current;
         foreach (var (register, value) in new[] { (DoseRegister.Work, work), (DoseRegister.Pause, pause), (DoseRegister.Blower, blower) })
         {
-            if (Value(last, register) == value)
+            var from = Value(last, register);
+            if (from == value)
             {
                 continue;
             }
 
             var result = await WriteAsync(register, value, cancellationToken);
             report.Add(result.Report);
+            writes.Add(result.Writes.Count > 0 ? result.Writes[0] with { From = from } : new DoseRegisterWrite(register, from, value, "BRAK", null));
             last = result.Last ?? last;
             if (!result.Confirmed)
             {
-                return new DoseWriteResult(false, result.Last, string.Join("; ", report));
+                return new DoseWriteResult(false, result.Last, string.Join("; ", report)) { Writes = writes };
             }
         }
 
-        return new DoseWriteResult(true, last, report.Count == 0 ? "bez zmian" : string.Join("; ", report));
+        return new DoseWriteResult(true, last, report.Count == 0 ? "bez zmian" : string.Join("; ", report)) { Writes = writes };
     }
 
     /// <summary>Zapis jednego rejestru: set_value → potwierdzenie w mapperze; jedna ponowna próba.</summary>
@@ -104,7 +113,10 @@ public class DoseControllerWriter
         if (!WithinHardLimits(register, value))
         {
             _logger.LogError("Faza 5: odmowa zapisu {Entity} = {Value} - poza twardymi granicami", entityId, value);
-            return new DoseWriteResult(false, null, $"{entityId} = {value} poza twardymi granicami - nie wysłano");
+            return new DoseWriteResult(false, null, $"{entityId} = {value} poza twardymi granicami - nie wysłano")
+            {
+                Writes = new[] { new DoseRegisterWrite(register, value, value, "ODMOWA", null) }
+            };
         }
 
         ControllerFeedSettings? lastSeen = null;
@@ -119,7 +131,10 @@ public class DoseControllerWriter
                 (var confirmed, lastSeen) = await ConfirmAsync(register, value, cancellationToken);
                 if (confirmed)
                 {
-                    return new DoseWriteResult(true, lastSeen, $"{entityId} = {value} potwierdzone w mapperze");
+                    return new DoseWriteResult(true, lastSeen, $"{entityId} = {value} potwierdzone w mapperze")
+                    {
+                        Writes = new[] { new DoseRegisterWrite(register, value, value, "OK", value) }
+                    };
                 }
             }
 
@@ -130,7 +145,14 @@ public class DoseControllerWriter
         }
 
         var seen = lastSeen == null ? "mapper nie odpowiada" : $"sterownik ma {Value(lastSeen, register)}";
-        return new DoseWriteResult(false, lastSeen, $"{entityId} = {value} NIEPOTWIERDZONE ({seen})");
+        return new DoseWriteResult(false, lastSeen, $"{entityId} = {value} NIEPOTWIERDZONE ({seen})")
+        {
+            Writes = new[]
+            {
+                new DoseRegisterWrite(register, value, value, lastSeen == null ? "BRAK" : "ROZJAZD",
+                    lastSeen == null ? null : Value(lastSeen, register))
+            }
+        };
     }
 
     private async Task<(bool Confirmed, ControllerFeedSettings? Last)> ConfirmAsync(

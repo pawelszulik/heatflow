@@ -62,6 +62,18 @@ public class DoseState
     /// <summary>Kiedy automat ostatnio zmienił nastawy w sterowniku (odstęp min. 2 h).</summary>
     public DateTime? LastChangeUtc { get; set; }
 
+    /// <summary>Tz wygładzona przy ostatniej zmianie nastaw - do zdania „Tz spadła z … do …” w dzienniku.</summary>
+    public double? LastChangeOutdoorSmoothed { get; set; }
+
+    /// <summary>Kod ostatniego trymu (TRYM_KOCIOL_PONIZEJ_NASTAWY / TRYM_PODTRZYMANIA) - przyczyna zmiany w dzienniku.</summary>
+    public string? LastTrimCode { get; set; }
+
+    /// <summary>
+    /// Klucz ostatniego wpisu „zablokowane / sugestia” w dzienniku - ten sam wpis nie jest
+    /// powtarzany co przebieg. Zerowany przy każdej faktycznej zmianie.
+    /// </summary>
+    public string? LastLoggedBlockKey { get; set; }
+
     public DateTime? LastCalcUtc { get; set; }
 
     /// <summary>Doba (lokalna), za którą ostatnio policzono korektę k.</summary>

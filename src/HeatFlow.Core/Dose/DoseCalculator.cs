@@ -10,8 +10,12 @@ namespace HeatFlow.Core.Dose;
 /// <param name="ShortfallPct">O ile procent sufit nie pokrywa potrzeby (0, gdy nie na suficie).</param>
 public record DosePlan(int Work, double ModelPause, bool Ceiling, double ShortfallPct);
 
-/// <summary>Decyzja o zmianie nastaw (krok 5 specyfikacji).</summary>
-public record DoseDecision(bool Change, int Work, int Pause, string Reason);
+/// <summary>
+/// Decyzja o zmianie nastaw (krok 5 specyfikacji). Przy <paramref name="WaitingForInterval"/>
+/// Work/Pause to wartości, które automat chciałby ustawić po upływie odstępu.
+/// </summary>
+public record DoseDecision(bool Change, int Work, int Pause, string Reason,
+    bool WaitingForInterval = false, double MinutesSinceLastChange = 0);
 
 /// <summary>Bilans jednej doby do korekty k.</summary>
 /// <param name="FeedSec">Sekundy pracy podajnika z licznika (null = dziura w danych).</param>
@@ -164,7 +168,8 @@ public static class DoseCalculator
         {
             var left = TimeSpan.FromHours(p.FeedMinIntervalHours) - (nowUtc - lastChangeUtc.Value);
             return new DoseDecision(false, targetWork, newPause,
-                $"czeka na odstęp {p.FeedMinIntervalHours} h (jeszcze {left.TotalMinutes:F0} min): {reason}");
+                $"czeka na odstęp {p.FeedMinIntervalHours} h (jeszcze {left.TotalMinutes:F0} min): {reason}",
+                WaitingForInterval: true, MinutesSinceLastChange: (nowUtc - lastChangeUtc.Value).TotalMinutes);
         }
 
         return new DoseDecision(true, targetWork, newPause, reason);
@@ -191,30 +196,36 @@ public static class DoseCalculator
     /// bezpieczniku spalin w HA (#24); przy &gt; 200 °C −2 pkt (nie niżej niż BlowerMin).
     /// Nigdy poza twarde 28-35 %.
     /// </summary>
-    public static (int Blower, string? Note) LimitBlower(
+    /// <returns>Dmuchawa po ograniczeniach, opis i kod przyczyny (SPALINY_200 / SPALINY_185 /
+    /// PO_AUTOMATYZACJI_24) - null, gdy nic nie ograniczyło.</returns>
+    public static (int Blower, string? Note, string? Code) LimitBlower(
         int target, int current, double? flueTemp, bool safetyAutomationRecent, HeatingParameters p)
     {
         var (blowerMin, _) = BlowerBounds(p);
         string? note = null;
+        string? code = null;
         var result = target;
 
         if (flueTemp > 200)
         {
             result = current > blowerMin ? Math.Max(blowerMin, current - 2) : current;
             note = $"spaliny {flueTemp:F0} °C > 200 → dmuchawa −2 pkt";
+            code = "SPALINY_200";
         }
         else if (result > current && flueTemp >= 185)
         {
             result = current;
             note = $"spaliny {flueTemp:F0} °C ≥ 185 → dmuchawy nie podnoszę";
+            code = "SPALINY_185";
         }
         else if (result > current && safetyAutomationRecent)
         {
             result = current;
             note = "bezpiecznik spalin (#24) w ostatnich 6 h → dmuchawy nie podnoszę";
+            code = "PO_AUTOMATYZACJI_24";
         }
 
-        return (Math.Clamp(result, DoseLimits.BlowerMin, DoseLimits.BlowerMax), note);
+        return (Math.Clamp(result, DoseLimits.BlowerMin, DoseLimits.BlowerMax), note, code);
     }
 
     /// <summary>
@@ -237,7 +248,8 @@ public static class DoseCalculator
         var net = day.FeedSec!.Value - p.HouseCapacity * dIndoor;
         var newK = Math.Clamp(k + Math.Clamp(0.3 * (net / model - k), -0.05, 0.05), 0.6, 1.3);
         newK = Math.Round(newK, 3);
-        return (newK, $"podajnik {day.FeedSec:F0} s, ΔT_wewn {dIndoor:+0.00;-0.00} K → netto {net:F0} s, model {model:F0} s → k {k:F3} → {newK:F3}");
+        return (newK, string.Create(System.Globalization.CultureInfo.GetCultureInfo("pl-PL"),
+            $"podajnik {day.FeedSec:F0} s, Tz {day.OutdoorMean:F1} °C, w domu {day.IndoorMean:F2} °C (ΔT_wewn {dIndoor:+0.00;-0.00} K) → netto {net:F0} s = {net / model:F2} × model {model:F0} s → k {k:F3} → {newK:F3}"));
     }
 
     /// <summary>

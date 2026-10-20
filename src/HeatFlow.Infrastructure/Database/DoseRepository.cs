@@ -92,4 +92,21 @@ public class DoseRepository : IDoseRepository
             .Where(s => s.TimestampUtc < olderThanUtc)
             .ExecuteDeleteAsync(cancellationToken);
     }
+
+    public async Task AddChangeLogAsync(IEnumerable<FeedChangeLog> entries, CancellationToken cancellationToken = default)
+    {
+        var list = entries.ToList();
+        if (list.Count == 0) return;
+        _context.FeedChangeLogs.AddRange(list);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken cancellationToken = default)
+    {
+        return await _context.FeedChangeLogs
+            .AsNoTracking()
+            .OrderByDescending(e => e.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
 }

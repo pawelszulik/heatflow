@@ -215,6 +215,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     TrimSec = table.Column<int>(type: "int", nullable: false),
                     LastTrimUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     LastChangeUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastChangeOutdoorSmoothed = table.Column<double>(type: "float", nullable: true),
+                    LastTrimCode = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    LastLoggedBlockKey = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     LastCalcUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     LastKCorrectionDate = table.Column<DateTime>(type: "date", nullable: true),
                     LastReason = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
@@ -227,9 +230,50 @@ namespace HeatFlow.Infrastructure.Migrations
                     table.PrimaryKey("PK_DoseState", x => x.Id);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "FeedChangeLog",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    TimestampUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    Parameter = table.Column<string>(type: "nvarchar(30)", maxLength: 30, nullable: false),
+                    OldValue = table.Column<double>(type: "float", nullable: true),
+                    NewValue = table.Column<double>(type: "float", nullable: true),
+                    Direction = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    ReasonCode = table.Column<string>(type: "nvarchar(60)", maxLength: 60, nullable: false),
+                    Status = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    Message = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: false),
+                    MapperConfirmation = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: true),
+                    AutomatActive = table.Column<bool>(type: "bit", nullable: false),
+                    OutdoorSmoothed = table.Column<double>(type: "float", nullable: true),
+                    OutdoorAtPreviousChange = table.Column<double>(type: "float", nullable: true),
+                    ForecastNextHour = table.Column<double>(type: "float", nullable: true),
+                    K = table.Column<double>(type: "float", nullable: true),
+                    NeedSecPerDay = table.Column<double>(type: "float", nullable: true),
+                    TrimSec = table.Column<int>(type: "int", nullable: false),
+                    BoilerTemp = table.Column<double>(type: "float", nullable: true),
+                    BoilerSetpoint = table.Column<double>(type: "float", nullable: true),
+                    FlueTemp = table.Column<double>(type: "float", nullable: true),
+                    HeatingShare2hPct = table.Column<double>(type: "float", nullable: true),
+                    StandbyEntries6h = table.Column<int>(type: "int", nullable: true),
+                    ControllerWork = table.Column<int>(type: "int", nullable: true),
+                    ControllerPause = table.Column<int>(type: "int", nullable: true),
+                    ControllerBlower = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FeedChangeLog", x => x.Id);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_DoseSample_TimestampUtc",
                 table: "DoseSample",
+                column: "TimestampUtc");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_FeedChangeLog_TimestampUtc",
+                table: "FeedChangeLog",
                 column: "TimestampUtc");
         }
 
@@ -244,6 +288,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "DoseState");
+
+            migrationBuilder.DropTable(
+                name: "FeedChangeLog");
 
             migrationBuilder.DropColumn(
                 name: "BlowerMax",

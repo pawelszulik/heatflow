@@ -87,6 +87,12 @@ public class DoseApiTests
         _doseRepoMock.Setup(r => r.GetAutomatSwitchAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DoseAutomatSwitch { Enabled = false });
         _doseRepoMock.Setup(r => r.GetStateAsync(It.IsAny<CancellationToken>())).ReturnsAsync((DoseState?)null);
+        _doseRepoMock.Setup(r => r.GetChangeLogAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<FeedChangeLog>
+            {
+                new() { Parameter = "postoj", OldValue = 160, NewValue = 140, Status = "ZAPISANE",
+                        Message = "Postój 160 → 140 s (w dół = więcej węgla): …" }
+            });
         var controller = new DoseController(_doseRepoMock.Object, _configMock.Object, _errorLoggerMock.Object);
 
         var result = await controller.Get(default);
@@ -95,5 +101,7 @@ public class DoseApiTests
         var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
         Assert.Contains("\"automatEnabled\":false", json);
         Assert.Contains("\"k\":1", json);
+        var last = (FeedChangeLog?)ok.Value!.GetType().GetProperty("lastChange")!.GetValue(ok.Value);
+        Assert.StartsWith("Postój 160 → 140 s", last!.Message);
     }
 }

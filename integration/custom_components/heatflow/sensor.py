@@ -33,6 +33,7 @@ async def async_setup_entry(
         HeatFlowDoseSensor(coordinator, entry, "plannedPause", "Dawka postój", "s", "mdi:timer-pause-outline"),
         HeatFlowDoseSensor(coordinator, entry, "plannedBlower", "Dawka dmuchawa", "%", "mdi:fan"),
         HeatFlowDoseSensor(coordinator, entry, "k", "Dawka k", None, "mdi:tune-variant"),
+        HeatFlowDoseLastChangeSensor(coordinator, entry),
     ])
 
 
@@ -205,4 +206,73 @@ class HeatFlowDoseSensor(CoordinatorEntity, SensorEntity):
             "ostatnia_zmiana": dose.get("lastChangeUtc"),
             "korekta_k_za_dobe": dose.get("lastKCorrectionDate"),
             "decyzja": dose.get("lastReason"),
+        }
+
+
+class HeatFlowDoseLastChangeSensor(CoordinatorEntity, SensorEntity):
+    """sensor.heatflow_dawka_ostatnia_zmiana - ostatni wpis dziennika decyzji Fazy 5.
+
+    Stan = zdanie po polsku (co, z ilu na ile, w którą stronę, dlaczego), np. „Postój 160 → 140 s
+    (w dół = więcej węgla): średnia Tz z 3 h spadła z 4,1 do 1,2 °C, …”. HA przycina stan do
+    255 znaków - pełne zdanie i dane wejściowe są w atrybutach, 10 ostatnich w `ostatnie`.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:text-box-search-outline"
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_dose_last_change"
+        self._attr_name = "Dawka ostatnia zmiana"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "HeatFlow",
+        }
+
+    def _last(self) -> dict:
+        dose = (self.coordinator.data or {}).get("dose") or {}
+        return dose.get("lastChange") or {}
+
+    @property
+    def available(self) -> bool:
+        return super().available and (self.coordinator.data or {}).get("dose") is not None
+
+    @property
+    def native_value(self) -> str | None:
+        message = self._last().get("message")
+        if not message:
+            return None
+        return message if len(message) <= 255 else message[:254] + "…"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        last = self._last()
+        dose = (self.coordinator.data or {}).get("dose") or {}
+        return {
+            "kiedy": last.get("timestampUtc"),
+            "parametr": last.get("parameter"),
+            "przed": last.get("oldValue"),
+            "po": last.get("newValue"),
+            "kierunek": last.get("direction"),
+            "przyczyna": last.get("reasonCode"),
+            "status": last.get("status"),
+            "potwierdzenie_mappera": last.get("mapperConfirmation"),
+            "zdanie": last.get("message"),
+            "automat": last.get("automatActive"),
+            "tz_3h": last.get("outdoorSmoothed"),
+            "tz_przy_poprzedniej_zmianie": last.get("outdoorAtPreviousChange"),
+            "prognoza_1h": last.get("forecastNextHour"),
+            "k": last.get("k"),
+            "potrzeba_s_na_dobe": last.get("needSecPerDay"),
+            "trym_s": last.get("trimSec"),
+            "kociol": last.get("boilerTemp"),
+            "nastawa_kotla": last.get("boilerSetpoint"),
+            "spaliny": last.get("flueTemp"),
+            "grzanie_2h_proc": last.get("heatingShare2hPct"),
+            "podtrzymania_6h": last.get("standbyEntries6h"),
+            "sterownik_praca": last.get("controllerWork"),
+            "sterownik_postoj": last.get("controllerPause"),
+            "sterownik_dmuchawa": last.get("controllerBlower"),
+            "ostatnie": dose.get("recentChanges") or [],
         }

@@ -25,4 +25,10 @@ public interface IDoseRepository
 
     /// <summary>Kasuje migawki starsze niż podana chwila (UTC).</summary>
     Task DeleteSamplesOlderThanAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Dopisuje wpisy do dziennika decyzji (FeedChangeLog).</summary>
+    Task AddChangeLogAsync(IEnumerable<FeedChangeLog> entries, CancellationToken cancellationToken = default);
+
+    /// <summary>Ostatnie wpisy dziennika decyzji, od najnowszego.</summary>
+    Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken cancellationToken = default);
 }

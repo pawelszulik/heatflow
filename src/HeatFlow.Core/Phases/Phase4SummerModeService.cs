@@ -8,12 +8,12 @@ namespace HeatFlow.Core.Phases;
 /// <summary>
 /// Faza 4 - Zarządzanie trybem letnim kotła (switch.kociol_tryb_zima_lato).
 /// Aktywuje tryb lato gdy temperatura zewnętrzna jest wysoka, żaden włączony pokój nie ma
-/// realnego deficytu (TempDeficit > 0) i zapowiada się "ciepły dzień" (max prognozy 24h
-/// >= SummerModeWarmDayTemp).
+/// realnego deficytu (TempDeficit > 0) i w najbliższych godzinach zrobi się ciepło (max
+/// prognozy z SummerModeForecastHours, domyślnie 6h, >= SummerModeWarmDayTemp).
 /// Dezaktywuje tryb lato gdy co najmniej 2 pokoje wymagają grzania z deficytem >= 1°C,
-/// i nie zrobi się ciepło w najbliższych 6h (max prognozy 6h &lt; SummerModeWarmDayTemp) -
-/// krótsze okno niż przy aktywacji, bo okno 24h zawsze łapie jakieś ciepłe popołudnie
-/// (dziś albo jutro) i blokowało powrót na zimę bezterminowo. Bez prognozy fallback na
+/// i nie zrobi się ciepło w tym samym oknie (max prognozy &lt; SummerModeWarmDayTemp).
+/// Okno 24h łapało ciepłe popołudnie jutra: blokowało powrót na zimę bezterminowo, a
+/// 2026-10-20 o 12:09 włączyło lato przy 12-15 °C w ogrodzie. Bez prognozy fallback na
 /// temperaturę zewnętrzną.
 /// Aktywacja i dezaktywacja możliwa maksymalnie raz dziennie.
 /// Dezaktywacja możliwa nie wcześniej niż 3h po aktywacji tego samego dnia.
@@ -30,14 +30,14 @@ public class Phase4SummerModeService : IPhaseService
     private const int MinRoomsForDeactivation = 2;
     private const double DeactivationTempDelta = 1.0;
     private const int MinHoursBeforeDeactivation = 3;
-    private const int WarmDayForecastHours = 24;
-    private const int WarmSoonForecastHours = 6;
+    private const int DefaultForecastHours = 6;
     private const int SwitchChangeGraceHours = 3;
 
     private readonly IHomeAssistantClient _haClient;
     private readonly ISummerModeRepository _summerModeRepository;
     private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase4SummerModeService> _logger;
+    private readonly TimeProvider _time;
 
     public int PhaseNumber => 4;
 
@@ -45,13 +45,20 @@ public class Phase4SummerModeService : IPhaseService
         IHomeAssistantClient haClient,
         ISummerModeRepository summerModeRepository,
         IApplicationErrorLogger errorLogger,
-        ILogger<Phase4SummerModeService> logger)
+        ILogger<Phase4SummerModeService> logger,
+        TimeProvider? time = null)
     {
         _haClient = haClient;
         _summerModeRepository = summerModeRepository;
         _errorLogger = errorLogger;
         _logger = logger;
+        // Zegar do decyzji (godzina okna aktywacji, data logu, karencja, okno prognozy) - w testach
+        // stały; czas trwania fazy dalej z DateTime.UtcNow.
+        _time = time ?? TimeProvider.System;
     }
+
+    private DateTime NowUtc => _time.GetUtcNow().UtcDateTime;
+    private DateTime NowLocal => _time.GetLocalNow().DateTime;
 
     public async Task<PhaseResult> ExecuteAsync(
         HeatingState state,
@@ -91,7 +98,7 @@ public class Phase4SummerModeService : IPhaseService
             }
 
             // 3. Załaduj log dla dzisiejszego dnia
-            var today = DateTime.Now.Date;
+            var today = NowLocal.Date;
             var todayLog = await _summerModeRepository.GetLogForDateAsync(today, cancellationToken)
                            ?? new SummerModeLog { Date = today };
 
@@ -115,7 +122,7 @@ public class Phase4SummerModeService : IPhaseService
                     if (activated)
                     {
                         todayLog.WasActivated = true;
-                        todayLog.ActivatedAt = DateTime.Now;
+                        todayLog.ActivatedAt = NowLocal;
                         await _summerModeRepository.SaveLogAsync(todayLog, cancellationToken);
                         _logger.LogInformation("Faza 4: Tryb lato aktywowany o {Time}", todayLog.ActivatedAt);
                         var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
@@ -147,7 +154,7 @@ public class Phase4SummerModeService : IPhaseService
                     if (deactivated)
                     {
                         todayLog.WasDeactivated = true;
-                        todayLog.DeactivatedAt = DateTime.Now;
+                        todayLog.DeactivatedAt = NowLocal;
                         await _summerModeRepository.SaveLogAsync(todayLog, cancellationToken);
                         _logger.LogInformation("Faza 4: Tryb lato dezaktywowany o {Time}", todayLog.DeactivatedAt);
                         var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
@@ -195,14 +202,14 @@ public class Phase4SummerModeService : IPhaseService
 
         if (previous == null)
         {
-            sinceUtc = DateTime.UtcNow.AddHours(-SwitchChangeGraceHours);
+            sinceUtc = NowUtc.AddHours(-SwitchChangeGraceHours);
             await _summerModeRepository.SaveSwitchStateAsync(
                 new SummerModeSwitchState { IsSummer = isSummerModeActive, SinceUtc = sinceUtc },
                 cancellationToken);
         }
         else if (previous.IsSummer != isSummerModeActive)
         {
-            sinceUtc = DateTime.UtcNow;
+            sinceUtc = NowUtc;
             await _summerModeRepository.SaveSwitchStateAsync(
                 new SummerModeSwitchState { IsSummer = isSummerModeActive, SinceUtc = sinceUtc },
                 cancellationToken);
@@ -213,22 +220,22 @@ public class Phase4SummerModeService : IPhaseService
         }
 
         // Zegar może minimalnie wahać się między przebiegami - ujemna wartość to wciąż "przed chwilą"
-        return Math.Max(0, (DateTime.UtcNow - sinceUtc).TotalHours);
+        return Math.Max(0, (NowUtc - sinceUtc).TotalHours);
     }
 
     /// <summary>
-    /// "Ciepły dzień": max temperatura z najbliższych <paramref name="forecastHours"/> godzin
-    /// prognozy (licząc od teraz, po rzeczywistym znaczniku czasu - patrz
-    /// <see cref="ForecastData.GetMaxTemp"/>) >= SummerModeWarmDayTemp.
+    /// "Ciepły dzień": max temperatura z najbliższych SummerModeForecastHours godzin prognozy
+    /// (licząc od teraz, po rzeczywistym znaczniku czasu - patrz <see cref="ForecastData.GetMaxTemp"/>)
+    /// >= SummerModeWarmDayTemp. To samo okno przy aktywacji i dezaktywacji.
+    /// Znaczniki godzin prognozy są w UTC (Faza 0: DateTimeOffset.FromUnixTimeSeconds(...).DateTime,
+    /// w JSON bez strefy), więc porównanie z DateTime.UtcNow jest poprawne.
     /// Bez prognozy (null / przestarzała / bez temperatur w oknie) fallback na
     /// BoilerState.TempExternal (0.0 przy awarii HA = "nie jest ciepło" - bezpieczne).
-    ///
-    /// Aktywacja i dezaktywacja celowo patrzą na różne okna (24h / 6h) - patrz wywołania
-    /// w <see cref="ShouldActivate"/> i <see cref="ShouldDeactivate"/>.
     /// </summary>
-    private static bool IsWarmDay(HeatingState state, HeatingParameters parameters, int forecastHours, out double referenceTemp, out string source)
+    private bool IsWarmDay(HeatingState state, HeatingParameters parameters, out double referenceTemp, out string source)
     {
-        var forecastMax = state.Forecast?.GetMaxTemp(forecastHours, DateTime.UtcNow);
+        var forecastHours = ForecastHours(parameters);
+        var forecastMax = state.Forecast?.GetMaxTemp(forecastHours, NowUtc);
         if (forecastMax.HasValue)
         {
             referenceTemp = forecastMax.Value;
@@ -243,12 +250,17 @@ public class Phase4SummerModeService : IPhaseService
         return referenceTemp >= parameters.SummerModeWarmDayTemp;
     }
 
+    /// <summary>SummerModeForecastHours; spoza 1-48 (np. 0 z niepełnego PUT) - 6h.</summary>
+    private static int ForecastHours(HeatingParameters parameters)
+        => parameters.SummerModeForecastHours is >= 1 and <= 48 ? parameters.SummerModeForecastHours : DefaultForecastHours;
+
     /// <summary>
     /// Sprawdza warunki aktywacji trybu lato:
     /// - godzina lokalna między 6:00 a 13:59
     /// - temperatura zewnętrzna powyżej 10°C
     /// - żaden włączony pokój nie ma realnego deficytu (TempDeficit > 0)
-    /// - ciepły dzień (max prognozy 24h >= SummerModeWarmDayTemp)
+    /// - ciepło w najbliższych godzinach (max prognozy z SummerModeForecastHours, domyślnie 6h,
+    ///   >= SummerModeWarmDayTemp) - nie ciepłe popołudnie jutra
     ///
     /// Celowo patrzy na TempDeficit, nie na DeficitClassification: Faza 2 zawsze trzyma co
     /// najmniej jeden pokój w klasyfikacji Max (pokój bezpieczeństwa przy minValvesOpen, albo
@@ -259,7 +271,7 @@ public class Phase4SummerModeService : IPhaseService
     {
         blockReason = null;
 
-        var currentHour = DateTime.Now.Hour;
+        var currentHour = NowLocal.Hour;
         if (currentHour < ActivationHourStart || currentHour >= ActivationHourEnd)
         {
             _logger.LogDebug("Faza 4 [aktywacja]: Godzina {Hour} poza oknem {Start}-{End}",
@@ -287,7 +299,7 @@ public class Phase4SummerModeService : IPhaseService
         }
 
         // Na końcu, żeby powód blokady pojawiał się tylko gdy reszta warunków pozwala na aktywację
-        if (!IsWarmDay(state, parameters, WarmDayForecastHours, out var referenceTemp, out var source))
+        if (!IsWarmDay(state, parameters, out var referenceTemp, out var source))
         {
             _logger.LogDebug("Faza 4 [aktywacja]: Brak ciepłego dnia - {Source} {Temp:F1}°C < progu {Threshold:F1}°C - nie aktywuję trybu lato",
                 source, referenceTemp, parameters.SummerModeWarmDayTemp);
@@ -304,10 +316,9 @@ public class Phase4SummerModeService : IPhaseService
     /// Sprawdza warunki dezaktywacji trybu lato:
     /// - co najmniej 2 pokoje z DeficitClassification == Max i TempActual &lt; TempTarget - 1°C
     /// - jeśli aktywowano dziś: min 3h od aktywacji
-    /// - nie zrobi się ciepło w najbliższych godzinach (max prognozy <see cref="WarmSoonForecastHours"/>h
-    ///   &lt; SummerModeWarmDayTemp) - celowo krótsze okno niż przy aktywacji (<see cref="WarmDayForecastHours"/>h):
-    ///   okno 24h zawsze łapie jakieś ciepłe popołudnie (dziś albo jutro), więc latem blokowało
-    ///   powrót na zimę bezterminowo, nawet wieczorem przy wychłodzonym domu.
+    /// - nie zrobi się ciepło w najbliższych godzinach (max prognozy z SummerModeForecastHours,
+    ///   domyślnie 6h, &lt; SummerModeWarmDayTemp): okno 24h zawsze łapało jakieś ciepłe popołudnie
+    ///   (dziś albo jutro), więc latem blokowało powrót na zimę bezterminowo.
     /// Powód blokady zwracany tylko gdy jest realne zapotrzebowanie na grzanie.
     /// </summary>
     private bool ShouldDeactivate(HeatingState state, HeatingParameters parameters, SummerModeLog todayLog, out string? blockReason)
@@ -330,9 +341,9 @@ public class Phase4SummerModeService : IPhaseService
         // Jeśli tryb lato został aktywowany dzisiaj, sprawdź czy minęły co najmniej 3h
         if (todayLog.WasActivated && todayLog.ActivatedAt.HasValue)
         {
-            if (DateTime.Now < todayLog.ActivatedAt.Value.AddHours(MinHoursBeforeDeactivation))
+            if (NowLocal < todayLog.ActivatedAt.Value.AddHours(MinHoursBeforeDeactivation))
             {
-                var elapsedHours = (DateTime.Now - todayLog.ActivatedAt.Value).TotalHours;
+                var elapsedHours = (NowLocal - todayLog.ActivatedAt.Value).TotalHours;
                 _logger.LogDebug("Faza 4 [dezaktywacja]: Za wcześnie na dezaktywację - minęło {Elapsed:F1}h z wymaganych {Required}h od aktywacji",
                     elapsedHours, MinHoursBeforeDeactivation);
                 blockReason = $"dezaktywacja zablokowana: {elapsedHours:F1}h z {MinHoursBeforeDeactivation}h od aktywacji";
@@ -340,7 +351,7 @@ public class Phase4SummerModeService : IPhaseService
             }
         }
 
-        if (IsWarmDay(state, parameters, WarmSoonForecastHours, out var referenceTemp, out var source))
+        if (IsWarmDay(state, parameters, out var referenceTemp, out var source))
         {
             _logger.LogDebug("Faza 4 [dezaktywacja]: {Count} pokojów wymaga grzania, ale ciepły dzień - {Source} {Temp:F1}°C >= progu {Threshold:F1}°C - nie dezaktywuję trybu lato",
                 coldRoomsNeedingHeat.Count, source, referenceTemp, parameters.SummerModeWarmDayTemp);

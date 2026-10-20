@@ -31,6 +31,11 @@ public class HeatingParametersController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> Put([FromBody] HeatingParameters body, CancellationToken ct)
     {
+        // Twarde granice Fazy 5 (praca 7-10 s, postój 100-320 s, dmuchawa 28-35 %) - nie zapisujemy
+        // niczego, co by je przekroczyło.
+        var doseErrors = DoseLimits.Validate(body);
+        if (doseErrors.Count > 0) return BadRequest(new { error = "Parametry dawki poza granicami.", details = doseErrors });
+
         HeatingParameters? oldParams = null;
         try { oldParams = await _config.GetHeatingParametersAsync(ct); } catch { /* ignore */ }
 
@@ -80,6 +85,9 @@ public class HeatingParametersController : ControllerBase
             var updated = ShallowCopy.Of(current);
             ApplyPartialHeatingParameters(updated, root);
 
+            var doseErrors = DoseLimits.Validate(updated);
+            if (doseErrors.Count > 0) return BadRequest(new { error = "Parametry dawki poza granicami.", details = doseErrors });
+
             var source = Request.Headers["X-Source"].FirstOrDefault();
             try
             {
@@ -110,6 +118,7 @@ public class HeatingParametersController : ControllerBase
             {
                 if (pi.PropertyType == typeof(int)) pi.SetValue(target, prop.Value.GetInt32());
                 else if (pi.PropertyType == typeof(double)) pi.SetValue(target, prop.Value.GetDouble());
+                else if (pi.PropertyType == typeof(bool)) pi.SetValue(target, prop.Value.GetBoolean());
             }
             catch { /* skip invalid */ }
         }

@@ -300,6 +300,8 @@ Pliki z hasłami i kluczami API **nie są** commitowane do repozytorium (są w `
 
 Następnie uzupełnij w nich prawdziwe wartości (hasło bazy, klucze API, token Home Assistant). Plik `appsettings.json` zostaje tylko na Twoim dysku i nie trafia do Git.
 
+W Console ustaw też `EsterownikMapper:BaseUrl` (u nas `http://172.17.137.33:5000/`) - z mappera Faza 5 „Dawka” czyta nastawy kotła i potwierdza zapisy. Bez niego w logu startu jest ostrzeżenie, a automat dawki się nie włączy.
+
 1. Otwórz plik: `src/HeatFlow.Console/appsettings.json` (po skopiowaniu szablonu)
 
 2. Zaktualizuj konfigurację Home Assistant:

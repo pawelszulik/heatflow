@@ -24,6 +24,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeatFlow.Core\HeatFlow.Core.csproj" />
+    <ProjectReference Include="..\..\tools\HeatFlow.DoseSim\HeatFlow.DoseSim.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Godzinowa Tz z HMS (luty, marzec, październik 2026) do testów pętli zamkniętej Fazy 5. -->
+    <None Include="Data\*.csv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

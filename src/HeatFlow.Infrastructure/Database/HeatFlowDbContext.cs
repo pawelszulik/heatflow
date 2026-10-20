@@ -29,6 +29,10 @@ public class HeatFlowDbContext : DbContext
     public DbSet<ApplicationErrorLog> ApplicationErrorLogs { get; set; }
     public DbSet<SummerModeLog> SummerModeLogs { get; set; }
     public DbSet<SummerModeSwitchState> SummerModeSwitchStates { get; set; }
+    public DbSet<DoseAutomatSwitch> DoseAutomatSwitches { get; set; }
+    public DbSet<DoseState> DoseStates { get; set; }
+    public DbSet<DoseSample> DoseSamples { get; set; }
+    public DbSet<FeedChangeLog> FeedChangeLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -113,6 +117,7 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.HeatingSchedule).HasMaxLength(500);
             entity.Property(e => e.SensorTemperatureEntityId).HasMaxLength(200);
             entity.Property(e => e.ValveEntityId).HasMaxLength(200);
+            entity.Property(e => e.HeatLossW).HasColumnType("decimal(7,1)");
             entity.HasIndex(e => e.Name);
         });
 
@@ -127,7 +132,19 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.TempReturnEntityId).HasMaxLength(200);
             entity.Property(e => e.Mixer4DPositionEntityId).HasMaxLength(200);
             entity.Property(e => e.BoilerTempEntityId).HasMaxLength(200);
-            entity.Property(e => e.FeederTimeEntityId).HasMaxLength(200);
+            foreach (var name in new[]
+                     {
+                         nameof(SystemConfiguration.DoseOutdoorTempEntityId), nameof(SystemConfiguration.DoseBoilerSetpointEntityId),
+                         nameof(SystemConfiguration.DoseFlueTempEntityId), nameof(SystemConfiguration.DoseBlowerActualEntityId),
+                         nameof(SystemConfiguration.DoseFeederCounterEntityId), nameof(SystemConfiguration.DoseSummerSwitchEntityId),
+                         nameof(SystemConfiguration.DoseControllerModeEntityId), nameof(SystemConfiguration.DoseControllerClockEntityId),
+                         nameof(SystemConfiguration.DoseFlueSafetyAutomationEntityId), nameof(SystemConfiguration.DoseFeederWorkEntityId),
+                         nameof(SystemConfiguration.DoseFeederPauseEntityId), nameof(SystemConfiguration.DoseBlowerEntityId),
+                         nameof(SystemConfiguration.DoseNotifyService), nameof(SystemConfiguration.DoseNotifyTarget)
+                     })
+            {
+                entity.Property(name).HasMaxLength(200);
+            }
             entity.Property(e => e.Latitude).HasColumnType("decimal(9,6)");
             entity.Property(e => e.Longitude).HasColumnType("decimal(9,6)");
         });
@@ -159,21 +176,29 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.ScoreThresholdMax).HasColumnType("decimal(10,2)");
             entity.Property(e => e.ScoreThresholdDisabled).HasColumnType("decimal(10,2)");
             entity.Property(e => e.SummerModeWarmDayTemp).HasColumnType("decimal(5,2)");
+            // Faza 5 „Dawka”. Wartości domyślne dla istniejącego wiersza nadaje migracja AddDosePhase
+            // (jak przy SummerModeWarmDayTemp) - nie HasDefaultValue tutaj, bo EF przy insercie
+            // podmieniłby wtedy jawne false/0 na wartość domyślną z bazy.
+            entity.Property(e => e.FeedPerKelvin).HasColumnType("decimal(7,2)");
+            entity.Property(e => e.FeedOffset).HasColumnType("decimal(8,2)");
+            entity.Property(e => e.HouseCapacity).HasColumnType("decimal(8,2)");
+            entity.Property(e => e.IndoorTargetForFeed).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.FeedCorrectionK).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.DoseTrimUnderpowerK).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.DoseBoilerColdK).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.FeedKGain).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.FeedKMaxStep).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.FeedKMin).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.FeedKMax).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.DoseCeilingDayHeatingHours).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.DoseBlowerLowDuty).HasColumnType("decimal(6,4)");
+            entity.Property(e => e.DoseTargetRiseKPerHour).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.DoseActualSmoothingHours).HasColumnType("decimal(5,1)");
+            entity.Property(e => e.DoseActualMaxAboveTargetsK).HasColumnType("decimal(4,2)");
             entity.Property(e => e.ValveTolerance).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveRetryDelay).HasColumnType("decimal(5,2)");
             entity.Property(e => e.MinReturnTemp).HasColumnType("decimal(5,2)");
             entity.Property(e => e.BoilerNominalTemp).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FrostCompensationFactor).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.Mixer4DDefault).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederTimeDefault).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederBoostMultiplier).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederEconomyMultiplier).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederNormalMultiplier).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.BoilerTempTolerance).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederTimeTolerance).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.BoilerRetryDelay).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.MinTempDiff).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.MinMixer4D).HasColumnType("decimal(5,2)");
             entity.Property(e => e.Hysteresis).HasColumnType("decimal(5,2)");
             entity.Property(e => e.HysteresisSafetyThreshold).HasColumnType("decimal(5,2)");
             entity.Property(e => e.TempValidationMin).HasColumnType("decimal(5,2)");
@@ -235,6 +260,56 @@ public class HeatFlowDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.SinceUtc).HasColumnType("datetime2");
+        });
+
+        // Faza 5 „Dawka”
+        modelBuilder.Entity<DoseAutomatSwitch>(entity =>
+        {
+            entity.ToTable("DoseAutomatSwitch");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.ChangedAtUtc).HasColumnType("datetime2");
+            entity.Property(e => e.ChangedBy).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<DoseState>(entity =>
+        {
+            entity.ToTable("DoseState");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.LastReason).HasMaxLength(1000);
+            entity.Property(e => e.LastSelfDisableReason).HasMaxLength(500);
+            entity.Property(e => e.HouseTargetSource).HasMaxLength(60);
+            entity.Property(e => e.RoomTargetsSnapshot).HasMaxLength(1000);
+            entity.Property(e => e.RoomActualSmoothed).HasMaxLength(1000);
+            entity.Property(e => e.RoomTargetsLastCalc).HasMaxLength(1000);
+            entity.Property(e => e.HouseTargetActualRooms).HasMaxLength(500);
+            entity.Property(e => e.LastKCorrectionDate).HasColumnType("date");
+        });
+
+        modelBuilder.Entity<DoseSample>(entity =>
+        {
+            entity.ToTable("DoseSample");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.TimestampUtc).HasColumnType("datetime2");
+            entity.HasIndex(e => e.TimestampUtc);
+        });
+
+        modelBuilder.Entity<FeedChangeLog>(entity =>
+        {
+            entity.ToTable("FeedChangeLog");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.TimestampUtc).HasColumnType("datetime2");
+            entity.Property(e => e.Parameter).HasMaxLength(30);
+            entity.Property(e => e.Direction).HasMaxLength(20);
+            entity.Property(e => e.ReasonCode).HasMaxLength(60);
+            entity.Property(e => e.Status).HasMaxLength(20);
+            entity.Property(e => e.Message).HasMaxLength(1000);
+            entity.Property(e => e.HouseTargetSource).HasMaxLength(60);
+            entity.Property(e => e.MapperConfirmation).HasMaxLength(20);
+            entity.HasIndex(e => e.TimestampUtc);
         });
 
         // ApplicationErrorLog

@@ -51,6 +51,7 @@ builder.Services.AddScoped<IHeatFlowRepository, HeatFlowRepository>();
 builder.Services.AddScoped<IApplicationErrorLogger, ApplicationErrorLogger>();
 builder.Services.AddScoped<IConfigurationService, ConfigurationService>();
 builder.Services.AddScoped<IConfigurationAuditService, ConfigurationAuditService>();
+builder.Services.AddScoped<IDoseRepository, DoseRepository>();
 
 builder.Services.AddControllers();
 

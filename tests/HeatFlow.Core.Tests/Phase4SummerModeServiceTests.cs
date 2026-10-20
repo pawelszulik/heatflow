@@ -501,6 +501,112 @@ public class Phase4SummerModeServiceTests
             It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    // --- Okno prognozy ciepłego dnia przy aktywacji (SummerModeForecastHours, domyślnie 6h) ---
+
+    /// <summary>
+    /// 2026-10-20 12:09:40 lokalnie (10:09:40 UTC): w ogrodzie ~12,5 °C, max dnia 15 °C, ciepło
+    /// (≥ 18 °C) dopiero jutro przed południem. Okno 24h złapało jutro i Faza 4 włączyła lato
+    /// (SummerModeLog Id 14); okno 6h widzi tylko dzisiejsze 12-15 °C - brak aktywacji.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_Today20Oct_CoolNext6h_WarmOnlyTomorrow_ShouldNotActivate()
+    {
+        var now = new DateTime(2026, 10, 20, 10, 9, 40, DateTimeKind.Utc);
+        var service = ServiceAt(now);
+        SetupSwitchState(isSummerActive: false, new SummerModeSwitchState { IsSummer = false, SinceUtc = now.AddDays(-1) });
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var state = BuildState(externalTemp: 12.5, rooms: BuildAllStayRooms(3));
+        state.Forecast = BuildForecast20Oct(now);
+        var result = await service.ExecuteAsync(state, new HeatingParameters { SummerModeWarmDayTemp = 18.0 });
+
+        Assert.True(result.Success);
+        Assert.Contains("brak ciepłego dnia", result.Details ?? "");
+        Assert.Contains("prognoza max 6h", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>Ten sam stan z oknem 24h (zachowanie sprzed poprawki) - lato się włącza.</summary>
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_Today20Oct_With24hWindow_ActivatesLikeBefore()
+    {
+        var now = new DateTime(2026, 10, 20, 10, 9, 40, DateTimeKind.Utc);
+        var service = ServiceAt(now);
+        SetupSwitchState(isSummerActive: false, new SummerModeSwitchState { IsSummer = false, SinceUtc = now.AddDays(-1) });
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var state = BuildState(externalTemp: 12.5, rooms: BuildAllStayRooms(3));
+        state.Forecast = BuildForecast20Oct(now);
+        var result = await service.ExecuteAsync(state,
+            new HeatingParameters { SummerModeWarmDayTemp = 18.0, SummerModeForecastHours = 24 });
+
+        Assert.Contains("aktywowany", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_WarmWithinNext6h_ShouldActivate()
+    {
+        var now = new DateTime(2026, 6, 15, 7, 30, 0, DateTimeKind.Utc); // 9:30 lokalnie
+        var service = ServiceAt(now);
+        SetupSwitchState(isSummerActive: false, new SummerModeSwitchState { IsSummer = false, SinceUtc = now.AddDays(-1) });
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var state = BuildState(externalTemp: 16.0, rooms: BuildAllStayRooms(3));
+        state.Forecast = BuildDiurnalForecastAt(now, coldTemp: 16.0, warmTemp: 22.0, hoursUntilWarm: 4);
+        var result = await service.ExecuteAsync(state, new HeatingParameters { SummerModeWarmDayTemp = 18.0 });
+
+        Assert.Contains("aktywowany", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _repoMock.Verify(x => x.SaveLogAsync(
+            It.Is<SummerModeLog>(l => l.WasActivated && l.ActivatedAt == new DateTime(2026, 6, 15, 9, 30, 0)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenWinterMode_WarmOnlyIn8h_ShouldNotActivate()
+    {
+        var now = new DateTime(2026, 6, 15, 4, 30, 0, DateTimeKind.Utc); // 6:30 lokalnie
+        var service = ServiceAt(now);
+        SetupSwitchState(isSummerActive: false, new SummerModeSwitchState { IsSummer = false, SinceUtc = now.AddDays(-1) });
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 16.0, rooms: BuildAllStayRooms(3));
+        state.Forecast = BuildDiurnalForecastAt(now, coldTemp: 16.0, warmTemp: 22.0, hoursUntilWarm: 8);
+        var result = await service.ExecuteAsync(state, new HeatingParameters { SummerModeWarmDayTemp = 18.0 });
+
+        Assert.Contains("brak ciepłego dnia", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(1000)]
+    public async Task ExecuteAsync_ForecastHoursOutOfRange_FallsBackTo6h(int hours)
+    {
+        var now = new DateTime(2026, 10, 20, 10, 9, 40, DateTimeKind.Utc);
+        var service = ServiceAt(now);
+        SetupSwitchState(isSummerActive: false, new SummerModeSwitchState { IsSummer = false, SinceUtc = now.AddDays(-1) });
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 12.5, rooms: BuildAllStayRooms(3));
+        state.Forecast = BuildForecast20Oct(now);
+        var result = await service.ExecuteAsync(state,
+            new HeatingParameters { SummerModeWarmDayTemp = 18.0, SummerModeForecastHours = hours });
+
+        Assert.Contains("prognoza max 6h", result.Details ?? "");
+        _haClientMock.Verify(x => x.CallServiceAsync("switch", "turn_on",
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // --- Karencja po zmianie przełącznika (własna pamięć Fazy 4, nie last_changed HA) ---
 
     [Fact]
@@ -669,6 +775,42 @@ public class Phase4SummerModeServiceTests
             .Returns(Task.CompletedTask);
     }
 
+    /// <summary>Faza 4 z zegarem zatrzymanym na <paramref name="utcNow"/>, czas lokalny Europe/Warsaw.</summary>
+    private Phase4SummerModeService ServiceAt(DateTime utcNow)
+        => new(_haClientMock.Object, _repoMock.Object, _errorLoggerMock.Object,
+            new Mock<ILogger<Phase4SummerModeService>>().Object, new FixedTimeProvider(utcNow));
+
+    private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(utcNow, TimeSpan.Zero);
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
+    }
+
+    /// <summary>
+    /// Prognoza jak 2026-10-20 (godziny w UTC, jak zapisuje Faza 0): dziś 10-15 UTC 12,5-15 °C,
+    /// wieczór i noc ~11 °C, jutro rano rośnie do 18,7 °C o 10:00 UTC (w oknie 24h od 10:09).
+    /// </summary>
+    private static ForecastData BuildForecast20Oct(DateTime nowUtc)
+    {
+        var start = new DateTime(nowUtc.Year, nowUtc.Month, nowUtc.Day, nowUtc.Hour, 0, 0, DateTimeKind.Unspecified);
+        var temps = new[] { 12.5, 13.5, 14.5, 15.0, 14.5, 13.0, 11.3, 11.2, 11.0, 10.9, 10.5, 10.5, 11.2, 10.9,
+            11.2, 11.4, 11.4, 11.5, 11.7, 11.4, 10.3, 11.8, 13.6, 18.2, 18.7, 18.2, 18.7, 18.2, 17.5, 15.3 };
+        return new ForecastData
+        {
+            CurrentTemp = 12.5,
+            ForecastHours = temps.Select((t, i) => new ForecastHour { DateTime = start.AddHours(i), Temperature = t }).ToList()
+        };
+    }
+
+    private static ForecastData BuildDiurnalForecastAt(DateTime nowUtc, double coldTemp, double warmTemp, int hoursUntilWarm)
+        => new()
+        {
+            CurrentTemp = coldTemp,
+            ForecastHours = Enumerable.Range(0, 30)
+                .Select(i => new ForecastHour { DateTime = nowUtc.AddHours(i), Temperature = i == hoursUntilWarm ? warmTemp : coldTemp })
+                .ToList()
+        };
+
     /// <summary>Godzina poza oknem aktywacji 6-14 - testy aktywacji wtedy nic nie sprawdzają.</summary>
     private static bool OutsideActivationWindow()
     {
@@ -706,7 +848,7 @@ public class Phase4SummerModeServiceTests
 
     /// <summary>
     /// 24 godziny prognozy, wszystkie na poziomie maxTemp - wartość jest więc "widoczna" w
-    /// każdym oknie (6h przy dezaktywacji, 24h przy aktywacji), bo te testy sprawdzają próg
+    /// każdym oknie (domyślnie 6h, parametr do 24h), bo te testy sprawdzają próg
     /// ciepłego dnia, nie samo okno czasowe (na to patrz BuildDiurnalForecast).
     /// </summary>
     private static ForecastData BuildForecast(double currentTemp, double maxTemp)
@@ -727,7 +869,7 @@ public class Phase4SummerModeServiceTests
     /// <summary>
     /// Profil dobowy z realnymi znacznikami czasu: chłodno teraz i przez najbliższe godziny,
     /// cieplej dopiero po <paramref name="hoursUntilWarm"/> godzinach (np. jutrzejsze popołudnie).
-    /// Do testowania, że dezaktywacja patrzy tylko na najbliższe WarmSoonForecastHours (6h) -
+    /// Do testowania, że Faza 4 patrzy tylko na najbliższe SummerModeForecastHours (6h) -
     /// okno 24h zawsze łapało gdzieś ciepłe popołudnie (dziś albo jutro) i blokowało powrót na
     /// zimę bezterminowo, nawet wieczorem przy wychłodzonym domu.
     /// </summary>

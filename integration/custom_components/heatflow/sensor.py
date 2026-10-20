@@ -29,6 +29,12 @@ async def async_setup_entry(
         HeatFlowStatusSensor(coordinator, entry),
         HeatFlowLastRunSensor(coordinator, entry),
         HeatFlowConfigurationChangesSensor(coordinator, entry),
+        HeatFlowDoseSensor(coordinator, entry, "plannedWork", "Dawka praca", "s", "mdi:timer-play-outline"),
+        HeatFlowDoseSensor(coordinator, entry, "plannedPause", "Dawka postój", "s", "mdi:timer-pause-outline"),
+        HeatFlowDoseSensor(coordinator, entry, "plannedBlower", "Dawka dmuchawa", "%", "mdi:fan"),
+        HeatFlowDoseSensor(coordinator, entry, "k", "Dawka k", None, "mdi:tune-variant"),
+        HeatFlowDoseSensor(coordinator, entry, "houseTargetUsed", "Dawka cel domu", "°C", "mdi:home-thermometer"),
+        HeatFlowDoseLastChangeSensor(coordinator, entry),
     ])
 
 
@@ -148,3 +154,135 @@ class HeatFlowConfigurationChangesSensor(CoordinatorEntity, SensorEntity):
             new = c.get("newValue", c.get("NewValue", ""))
             lines.append(f"{ts} | {eid} | {field} | {old} → {new}")
         return {"last_changes": lines, "changes_count": len(changes)}
+
+
+class HeatFlowDoseSensor(CoordinatorEntity, SensorEntity):
+    """Faza 5 „Dawka”: nastawa, którą automat ustawia (albo sugeruje, gdy jest wyłączony).
+
+    sensor.heatflow_dawka_praca / _postoj / _dmuchawa / _k. Atrybuty: co jest teraz w sterowniku
+    (odczyt z mappera), Tz wygładzona, potrzeba z modelu, sufit, ostatnia decyzja.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, entry: ConfigEntry, field: str, name: str, unit: str | None, icon: str) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._field = field
+        self._attr_unique_id = f"{entry.entry_id}_dose_{field}"
+        self._attr_name = name
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        if unit is not None:
+            self._attr_state_class = "measurement"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "HeatFlow",
+        }
+
+    @property
+    def available(self) -> bool:
+        return super().available and (self.coordinator.data or {}).get("dose") is not None
+
+    @property
+    def native_value(self):
+        dose = (self.coordinator.data or {}).get("dose") or {}
+        return dose.get(self._field)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        dose = (self.coordinator.data or {}).get("dose") or {}
+        return {
+            "automat": dose.get("automatEnabled"),
+            "sterownik_praca": dose.get("controllerWork"),
+            "sterownik_postoj": dose.get("controllerPause"),
+            "sterownik_dmuchawa": dose.get("controllerBlower"),
+            "postoj_z_modelu": dose.get("modelPause"),
+            "tz_wygladzona": dose.get("outdoorSmoothed"),
+            "potrzeba_s_na_dobe": dose.get("needSecPerDay"),
+            "cel_domu_z_pokoi": dose.get("houseTarget"),
+            "cel_domu_uzyty": dose.get("houseTargetUsed"),
+            "cel_domu_zrodlo": dose.get("houseTargetSource"),
+            "cel_domu_z_samych_celow": dose.get("houseTargetBase"),
+            "pokoje_po_faktycznej": dose.get("houseTargetActualRooms"),
+            "dogrzewanie_domu_s_na_dobe": dose.get("storageBonusSec"),
+            "trym_s": dose.get("trimSec"),
+            "sufit": dose.get("ceiling"),
+            "brakuje_proc": dose.get("shortfallPct"),
+            "ostatnie_liczenie": dose.get("lastCalcUtc"),
+            "ostatnia_zmiana": dose.get("lastChangeUtc"),
+            "korekta_k_za_dobe": dose.get("lastKCorrectionDate"),
+            "decyzja": dose.get("lastReason"),
+        }
+
+
+class HeatFlowDoseLastChangeSensor(CoordinatorEntity, SensorEntity):
+    """sensor.heatflow_dawka_ostatnia_zmiana - ostatni wpis dziennika decyzji Fazy 5.
+
+    Stan = zdanie po polsku (co, z ilu na ile, w którą stronę, dlaczego), np. „Postój 160 → 140 s
+    (w dół = więcej węgla): średnia Tz z 3 h spadła z 4,1 do 1,2 °C, …”. HA przycina stan do
+    255 znaków - pełne zdanie i dane wejściowe są w atrybutach, 10 ostatnich w `ostatnie`.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:text-box-search-outline"
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_dose_last_change"
+        self._attr_name = "Dawka ostatnia zmiana"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "HeatFlow",
+        }
+
+    def _last(self) -> dict:
+        dose = (self.coordinator.data or {}).get("dose") or {}
+        return dose.get("lastChange") or {}
+
+    @property
+    def available(self) -> bool:
+        return super().available and (self.coordinator.data or {}).get("dose") is not None
+
+    @property
+    def native_value(self) -> str | None:
+        message = self._last().get("message")
+        if not message:
+            return None
+        return message if len(message) <= 255 else message[:254] + "…"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        last = self._last()
+        dose = (self.coordinator.data or {}).get("dose") or {}
+        return {
+            "kiedy": last.get("timestampUtc"),
+            "parametr": last.get("parameter"),
+            "przed": last.get("oldValue"),
+            "po": last.get("newValue"),
+            "kierunek": last.get("direction"),
+            "przyczyna": last.get("reasonCode"),
+            "status": last.get("status"),
+            "potwierdzenie_mappera": last.get("mapperConfirmation"),
+            "zdanie": last.get("message"),
+            "automat": last.get("automatActive"),
+            "tz_3h": last.get("outdoorSmoothed"),
+            "tz_przy_poprzedniej_zmianie": last.get("outdoorAtPreviousChange"),
+            "prognoza_1h": last.get("forecastNextHour"),
+            "k": last.get("k"),
+            "cel_domu": last.get("houseTarget"),
+            "cel_domu_zrodlo": last.get("houseTargetSource"),
+            "dogrzewanie_domu_s_na_dobe": last.get("storageBonusSec"),
+            "potrzeba_s_na_dobe": last.get("needSecPerDay"),
+            "trym_s": last.get("trimSec"),
+            "kociol": last.get("boilerTemp"),
+            "nastawa_kotla": last.get("boilerSetpoint"),
+            "spaliny": last.get("flueTemp"),
+            "grzanie_2h_proc": last.get("heatingShare2hPct"),
+            "podtrzymania_6h": last.get("standbyEntries6h"),
+            "sterownik_praca": last.get("controllerWork"),
+            "sterownik_postoj": last.get("controllerPause"),
+            "sterownik_dmuchawa": last.get("controllerBlower"),
+            "ostatnie": dose.get("recentChanges") or [],
+        }

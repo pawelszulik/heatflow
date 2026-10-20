@@ -97,6 +97,7 @@ Wybrane parametry z `HeatingParameters` sa udostepniane jako globalne suwaki:
 - `hysteresis`, `hysteresisSafetyThreshold`
 - `scoreThresholdMax`, `scoreThresholdDisabled`, `minDwellMinutes`
 - `summerModeWarmDayTemp` – **Tryb lato - prog cieplego dnia (°C)**, 0–40, krok 0.5
+- `summerModeForecastHours` – **Tryb lato - okno prognozy cieplego dnia (h)**, 1–48, krok 1
 
 Kazdy ma wlasny zakres, krok i jednostke. Zmiana wysyla `PATCH /api/heating-parameters`.
 

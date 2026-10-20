@@ -134,14 +134,34 @@ public class DoseCalculatorTests
     }
 
     [Fact]
-    public void Decide_WorkChanges_PauseGoesStraightToModel()
+    public void Decide_SmallWorkChange_PauseGoesToModel()
     {
-        // Jak w symulacji: 9 → 10 s z postojem z modelu, nie z krokiem 20 s od starego postoju.
+        // 9/105 → model 10/102: zmiana dawki mieści się w jednym kroku - jak w symulacji, od razu do modelu.
+        var plan = new DosePlan(10, 101.7, false, 0);
+        var d = DoseCalculator.Decide(9, 105, plan, null, Now, P());
+        Assert.True(d.Change);
+        Assert.Equal((10, 100), (d.Work, d.Pause));
+    }
+
+    [Fact]
+    public void Decide_LargeWorkChange_DoseLimitedToOneStep_WorkChosenForLimitedDose()
+    {
+        // 9/150 → model 10/102 to +40 % dawki naraz. Najwyżej tyle, co krok 20 s postoju przy 9 s
+        // (9/130); czas pracy dobrany do tej dawki histerezą - zostaje 9 s.
         var plan = new DosePlan(10, 101.7, false, 0);
         var d = DoseCalculator.Decide(9, 150, plan, null, Now, P());
         Assert.True(d.Change);
-        Assert.Equal(10, d.Work);
-        Assert.Equal(100, d.Pause);
+        Assert.Equal((9, 130), (d.Work, d.Pause));
+        Assert.Contains("krok w stronę 10/102", d.Reason);
+    }
+
+    [Fact]
+    public void Decide_ActivationAtWarmerSettings_FirstStepKeepsWork()
+    {
+        // 7/160 → model 9/111 (−5 °C): najpierw 7/140, a nie 9/180 (ta sama dawka, dziwny czas pracy).
+        var plan = DoseCalculator.Plan(P(), -5.0, currentWork: 7, trimSec: 0);
+        var d = DoseCalculator.Decide(7, 160, plan, null, Now, P());
+        Assert.Equal((7, 140), (d.Work, d.Pause));
     }
 
     // --- Sufit i anti-windup ---

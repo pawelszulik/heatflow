@@ -74,6 +74,24 @@ public class DoseState
     /// </summary>
     public string? LastLoggedBlockKey { get; set; }
 
+    /// <summary>
+    /// Kierunek ostatniej zmiany dawki: +1 = więcej węgla, −1 = mniej. Gdy następny krok tej samej
+    /// rampy czeka na odstęp, nie piszemy „zablokowane” do dziennika - to oczywiste; piszemy tylko,
+    /// gdy reguła blokuje zmianę w drugą stronę albo zmianę czasu pracy.
+    /// </summary>
+    public int LastChangeDirection { get; set; }
+
+    /// <summary>Ostrzeżenie „kocioł zimny” (DoseBoilerColdMinutes = 0) już wysłane w tym epizodzie.</summary>
+    public bool BoilerColdWarned { get; set; }
+
+    // Tryb cienia (automat wyłączony): co automat by ustawił, gdyby był włączony - te same reguły
+    // (odstęp, martwa strefa, krok) liczone od jego własnych wirtualnych nastaw, nie od sterownika.
+    // Dzięki temu dziennik SUGESTIA czyta się jak dziennik automatu (najwyżej co 2 h).
+    public int? ShadowWork { get; set; }
+    public int? ShadowPause { get; set; }
+    public int? ShadowBlower { get; set; }
+    public DateTime? ShadowLastChangeUtc { get; set; }
+
     public DateTime? LastCalcUtc { get; set; }
 
     /// <summary>Doba (lokalna), za którą ostatnio policzono korektę k.</summary>

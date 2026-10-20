@@ -68,6 +68,7 @@ PARAM_FIELDS = [
     ("feedMaxStepSec", 5, 60, 1),
     ("feedWorkUpHysteresisSec", 100, 320, 5),
     ("doseBoilerStaleMinutes", 10, 120, 1),
+    ("doseBoilerColdMinutes", 0, 360, 5),
     ("doseOutdoorStaleMinutes", 30, 360, 5),
 ]
 
@@ -107,6 +108,7 @@ PARAM_DISPLAY_NAMES = {
     "feedMaxStepSec": "Dawka - max krok postoju (s)",
     "feedWorkUpHysteresisSec": "Dawka - histereza czasu pracy (s)",
     "doseBoilerStaleMinutes": "Dawka - brak danych kotła (min)",
+    "doseBoilerColdMinutes": "Dawka - kocioł zimny wyłącza po (min, 0 = tylko ostrzega)",
     "doseOutdoorStaleMinutes": "Dawka - brak temp. zewn. (min)",
 }
 

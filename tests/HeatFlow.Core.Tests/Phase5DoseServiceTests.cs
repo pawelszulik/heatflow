@@ -70,7 +70,7 @@ public class Phase5DoseServiceTests
         var result = await Run();
 
         Assert.True(result.Success, result.ErrorMessage);
-        Assert.Contains("sugestia 9/", result.Details);
+        Assert.Contains("cień 7/160 → 7/140 s", result.Details);
         _ha.Verify(x => x.SetNumberValueAsync(It.IsAny<string>(), It.IsAny<double>(), It.IsAny<CancellationToken>()), Times.Never);
         Assert.Equal(9, _repo.State!.PlannedWork);
         Assert.False(_repo.State.AutomatActive);
@@ -88,9 +88,9 @@ public class Phase5DoseServiceTests
         var s = _repo.State!;
         Assert.True(s.AutomatActive);
         Assert.Equal((7, 160, 35), (s.SavedWork!.Value, s.SavedPause!.Value, s.SavedBlower!.Value));
-        // -5 °C: model 9 s / 111 s → zmiana czasu pracy, postój od razu z modelu; dmuchawa
-        // z udziału pracy 9/119 = 7,6 % → 30 + 0,73 · 5 ≈ 34 %
-        Assert.Equal(new ControllerFeedSettings(9, 110, 34), _controller.Settings);
+        // -5 °C: model 9 s / 111 s, ale dawka najwyżej o krok 20 s postoju → 7/140; dmuchawa
+        // z udziału pracy 7/147 = 4,8 % → 30 + 0,24 · 5 ≈ 31 %
+        Assert.Equal(new ControllerFeedSettings(7, 140, 31), _controller.Settings);
         Assert.Equal(Now, s.LastChangeUtc);
         Assert.Contains(_messages, m => m.Title.Contains("włączony"));
         Assert.Contains(_messages, m => m.Message.Contains("zapis potwierdzony w mapperze"));
@@ -202,9 +202,10 @@ public class Phase5DoseServiceTests
         Assert.False(_repo.Switch.Enabled);
         Assert.False(_repo.State!.AutomatActive);
         Assert.Contains(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ") && m.Message.Contains("nie potwierdził"));
-        // Dwie próby zapisu postoju (limiter ekoPieca), potem przywrócenie pracy na 7 s.
-        Assert.Equal(2, _controller.Writes.Count(w => w.Entity == DoseControllerWriter.PauseEntityId && w.Value == 110));
-        Assert.Equal(7, _controller.Settings.FeederWork);
+        // Dwie próby zapisu postoju (limiter ekoPieca), dmuchawa już nie wysłana, sterownik bez zmian.
+        Assert.Equal(2, _controller.Writes.Count(w => w.Entity == DoseControllerWriter.PauseEntityId && w.Value == 140));
+        Assert.DoesNotContain(_controller.Writes, w => w.Entity == DoseControllerWriter.BlowerEntityId);
+        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
     }
 
     [Fact]
@@ -338,19 +339,19 @@ public class Phase5DoseServiceTests
         Assert.Equal("WLACZENIE_RECZNE", on.ReasonCode);
         Assert.Contains("Zapamiętane nastawy: praca 7 s, postój 160 s, dmuchawa 35 %", on.Message);
 
-        var work = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Work);
-        Assert.Equal((7.0, 9.0, "w górę", "POGODA", DoseLog.StatusWritten, "OK"),
-            (work.OldValue!.Value, work.NewValue!.Value, work.Direction, work.ReasonCode, work.Status, work.MapperConfirmation));
-        Assert.StartsWith("Czas pracy 7 → 9 s (w górę = więcej węgla): średnia Tz z 3 h -5,0 °C, potrzeba", work.Message);
-        Assert.EndsWith("zapis potwierdzony w mapperze.", work.Message);
+        // Model chce 9/111, krok ogranicza do 7/140 - czas pracy bez zmian, więc bez wpisu.
+        Assert.DoesNotContain(_repo.Log, e => e.Parameter == DoseLog.Work);
 
         var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause);
-        Assert.Equal((160.0, 110.0, "w dół"), (pause.OldValue!.Value, pause.NewValue!.Value, pause.Direction));
-        Assert.StartsWith("Postój 160 → 110 s (w dół = więcej węgla)", pause.Message);
+        Assert.Equal((160.0, 140.0, "w dół", "POGODA", DoseLog.StatusWritten, "OK"),
+            (pause.OldValue!.Value, pause.NewValue!.Value, pause.Direction, pause.ReasonCode, pause.Status, pause.MapperConfirmation));
+        Assert.StartsWith("Postój 160 → 140 s (w dół = więcej węgla): średnia Tz z 3 h -5,0 °C, potrzeba", pause.Message);
         Assert.Contains("przy k 1", pause.Message);
+        Assert.Contains("cel z modelu 9/111 s", pause.Message);
+        Assert.EndsWith("zapis potwierdzony w mapperze.", pause.Message);
 
         var blower = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Blower);
-        Assert.Equal((35.0, 34.0, "w dół", "POGODA"), (blower.OldValue!.Value, blower.NewValue!.Value, blower.Direction, blower.ReasonCode));
+        Assert.Equal((35.0, 31.0, "w dół", "POGODA"), (blower.OldValue!.Value, blower.NewValue!.Value, blower.Direction, blower.ReasonCode));
         Assert.Contains("dmuchawa idzie za dawką", blower.Message);
 
         // Dane wejściowe w chwili decyzji
@@ -364,7 +365,7 @@ public class Phase5DoseServiceTests
 
         // Discord: jedna linia na każdą zmienioną nastawę - te same zdania co w dzienniku
         var discord = Assert.Single(_messages, m => m.Title.StartsWith("Kocioł: dawka"));
-        Assert.Equal(new[] { work.Message, pause.Message, blower.Message }, discord.Message.Split('\n'));
+        Assert.Equal(new[] { pause.Message, blower.Message }, discord.Message.Split('\n'));
     }
 
     [Fact]
@@ -444,9 +445,9 @@ public class Phase5DoseServiceTests
         await Run();
 
         var blocked = Assert.Single(_repo.Log);
-        Assert.Equal((DoseLog.Work, "ODSTEP", DoseLog.StatusBlocked, 7.0, 9.0),
+        Assert.Equal((DoseLog.Pause, "ODSTEP", DoseLog.StatusBlocked, 160.0, 140.0),
             (blocked.Parameter, blocked.ReasonCode, blocked.Status, blocked.OldValue!.Value, blocked.NewValue!.Value));
-        Assert.StartsWith("Chciałbym: Czas pracy 7 → 9 s (w górę = więcej węgla), ale od poprzedniej zmiany minęło dopiero 70 min (min. 2 h).", blocked.Message);
+        Assert.StartsWith("Chciałbym: Postój 160 → 140 s (w dół = więcej węgla), ale od poprzedniej zmiany minęło dopiero 70 min (min. 2 h).", blocked.Message);
         Assert.Empty(_controller.Writes);
     }
 
@@ -457,7 +458,7 @@ public class Phase5DoseServiceTests
         await Run();
 
         var suggestions = _repo.Log.Where(e => e.Status == DoseLog.StatusSuggestion).ToList();
-        Assert.Equal(new[] { DoseLog.Work, DoseLog.Pause, DoseLog.Blower }, suggestions.Select(e => e.Parameter));
+        Assert.Equal(new[] { DoseLog.Pause, DoseLog.Blower }, suggestions.Select(e => e.Parameter));
         Assert.All(suggestions, e => Assert.StartsWith("Automat wyłączony - ustawiłbym:", e.Message));
         Assert.Empty(_controller.Writes);
     }
@@ -466,15 +467,16 @@ public class Phase5DoseServiceTests
     public async Task Log_BlowerRaiseBlockedByFlue185()
     {
         _repo.Switch.Enabled = true;
-        _controller.Settings = new ControllerFeedSettings(7, 200, 30);
-        _repo.State = ActiveState(saved: (7, 200, 30));
+        _controller.Settings = new ControllerFeedSettings(7, 150, 30);
+        _repo.State = ActiveState(saved: (7, 150, 30));
         SetEnvironment(outdoor: -5.0, flue: 190);
 
         await Run();
 
         Assert.Equal(30, _controller.Settings.Blower);
         var blocked = Assert.Single(_repo.Log, e => e.Status == DoseLog.StatusBlocked);
-        Assert.Equal((DoseLog.Blower, "SPALINY_185", 30.0, 34.0), (blocked.Parameter, blocked.ReasonCode, blocked.OldValue!.Value, blocked.NewValue!.Value));
+        // 7/150 → 7/130 (krok), dmuchawa za dawką chciałaby 30 → 32 %
+        Assert.Equal((DoseLog.Blower, "SPALINY_185", 30.0, 32.0), (blocked.Parameter, blocked.ReasonCode, blocked.OldValue!.Value, blocked.NewValue!.Value));
         Assert.Contains("ale spaliny 190 °C ≥ 185", blocked.Message);
     }
 

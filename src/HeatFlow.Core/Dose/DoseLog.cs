@@ -52,6 +52,7 @@ public static class DoseLog
     public const string StatusInternal = "WEWNETRZNE";
     public const string StatusBlocked = "ZABLOKOWANE";
     public const string StatusSuggestion = "SUGESTIA";
+    public const string StatusWarning = "OSTRZEZENIE";
 
     public static readonly CultureInfo Pl = CultureInfo.GetCultureInfo("pl-PL");
 

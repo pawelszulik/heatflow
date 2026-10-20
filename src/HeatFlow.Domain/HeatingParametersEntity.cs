@@ -73,6 +73,7 @@ public class HeatingParametersEntity
     public int FeedMaxStepSec { get; set; } = 20;
     public int FeedWorkUpHysteresisSec { get; set; } = 130;
     public bool DoseRestoreOnDisable { get; set; } = true;
+    public int DoseBoilerColdMinutes { get; set; } = 60;
     public int DoseBoilerStaleMinutes { get; set; } = 30;
     public int DoseOutdoorStaleMinutes { get; set; } = 120;
 
@@ -167,6 +168,7 @@ public class HeatingParametersEntity
             FeedMaxStepSec = FeedMaxStepSec,
             FeedWorkUpHysteresisSec = FeedWorkUpHysteresisSec,
             DoseRestoreOnDisable = DoseRestoreOnDisable,
+            DoseBoilerColdMinutes = DoseBoilerColdMinutes,
             DoseBoilerStaleMinutes = DoseBoilerStaleMinutes,
             DoseOutdoorStaleMinutes = DoseOutdoorStaleMinutes,
             ValveTolerance = ValveTolerance,
@@ -250,6 +252,7 @@ public class HeatingParametersEntity
         FeedMaxStepSec = parameters.FeedMaxStepSec;
         FeedWorkUpHysteresisSec = parameters.FeedWorkUpHysteresisSec;
         DoseRestoreOnDisable = parameters.DoseRestoreOnDisable;
+        DoseBoilerColdMinutes = parameters.DoseBoilerColdMinutes;
         DoseBoilerStaleMinutes = parameters.DoseBoilerStaleMinutes;
         DoseOutdoorStaleMinutes = parameters.DoseOutdoorStaleMinutes;
         ValveTolerance = parameters.ValveTolerance;

@@ -62,7 +62,6 @@ public class Phase5DoseService : IPhaseService
     private static readonly TimeSpan CalcInterval = TimeSpan.FromMinutes(55);
     private static readonly TimeSpan UnderpowerWindow = TimeSpan.FromHours(2);
     private static readonly TimeSpan StandbyWindow = TimeSpan.FromHours(6);
-    private static readonly TimeSpan BoilerColdWindow = TimeSpan.FromHours(1);
     private static readonly TimeSpan FlueSafetyHold = TimeSpan.FromHours(6);
     private const int StandbyEntriesForTrim = 2;
 
@@ -169,7 +168,8 @@ public class Phase5DoseService : IPhaseService
             await CorrectKIfDueAsync(ds, parameters, now, run, cancellationToken);
             ctx.K = parameters.FeedCorrectionK;
 
-            var windowStart = now - TimeSpan.FromHours(Math.Max(StandbyWindow.TotalHours, parameters.FeedSmoothingPastHours));
+            var windowStart = now - TimeSpan.FromHours(Math.Max(Math.Max(StandbyWindow.TotalHours, parameters.FeedSmoothingPastHours),
+            Math.Max(1, parameters.DoseBoilerColdMinutes / 60.0)));
             var samples = await _repository.GetSamplesSinceAsync(windowStart, cancellationToken);
             var last2h = samples.Where(s => s.TimestampUtc > now - UnderpowerWindow && s.BlowerActual.HasValue).ToList();
             ctx.HeatingShare2hPct = last2h.Count > 0 ? Math.Round(100.0 * last2h.Count(s => s.BlowerActual > 0) / last2h.Count) : null;
@@ -231,6 +231,8 @@ public class Phase5DoseService : IPhaseService
                     ds.LastChangeOutdoorSmoothed = ds.OutdoorSmoothed;
                     ctx.OutdoorAtPreviousChange = ds.OutdoorSmoothed;
                     ds.LastLoggedBlockKey = null;
+                    ds.LastChangeDirection = 0;
+                    ResetShadow(ds);
                     var remembered = $"praca {controller.FeederWork} s, postój {controller.FeederPause} s, dmuchawa {controller.Blower} %";
                     notes.Add($"automat włączony, zapamiętane {remembered}");
                     run.Entries.Add(DoseLog.Entry(ctx, DoseLog.Automat, 0, 1, "WLACZENIE_RECZNE", DoseLog.StatusInternal,
@@ -272,11 +274,13 @@ public class Phase5DoseService : IPhaseService
                 }
                 else if (decision is { Change: true } && controller != null && blower.HasValue)
                 {
+                    await WarnBoilerColdAsync(ds, samples, now, parameters, run, cancellationToken);
                     await ApplyAsync(ds, controller, decision, blower.Value, blowerWanted!.Value, blowerNote, blowerCode,
                         parameters, now, run, cancellationToken);
                 }
                 else if (decision != null)
                 {
+                    await WarnBoilerColdAsync(ds, samples, now, parameters, run, cancellationToken);
                     notes.Add(decision.Reason);
                     if (decision.WaitingForInterval && controller != null)
                     {
@@ -288,13 +292,9 @@ public class Phase5DoseService : IPhaseService
                     notes.Add(controller == null ? "mapper nie odpowiada - bez zmian" : "brak planu - bez zmian");
                 }
             }
-            else if (decision != null && controller != null)
+            else if (controller != null && ds.ModelPause.HasValue && ds.PlannedWork.HasValue)
             {
-                notes.Add($"automat wyłączony - sugestia {decision.Work}/{decision.Pause} s, dmuchawa {blower} % ({decision.Reason})");
-                if (decision.Change)
-                {
-                    LogSuggestion(ds, controller, decision, blower!.Value, parameters, now, run);
-                }
+                ShadowStep(ds, controller, inputs.Sample.FlueTemp, flueSafetyRecent, parameters, now, run);
             }
 
             ds.LastReason = Truncate(string.Join(" | ", notes.Prepend(DescribePlan(ds))), 1000);
@@ -374,9 +374,11 @@ public class Phase5DoseService : IPhaseService
                 && ds.TrimSec - DoseCalculator.TrimStepSec >= -DoseCalculator.TrimLimitSec)
                 step = -DoseCalculator.TrimStepSec;
             else
-                blockedText = planWithoutTrim.Ceiling || effective - DoseCalculator.TrimStepSec < pauseMin
-                    ? "postój już na minimum (sufit) - trym nie zbiera"
-                    : $"trym już na granicy −{DoseCalculator.TrimLimitSec} s";
+                blockedText = planWithoutTrim.Ceiling
+                    ? "kocioł na suficie dawki - trym nie zbiera"
+                    : effective - DoseCalculator.TrimStepSec < pauseMin
+                        ? $"postój z trymem zszedłby poniżej minimum {pauseMin} s - trym nie zbiera"
+                        : $"trym już na granicy −{DoseCalculator.TrimLimitSec} s";
         }
         else if (DoseCalculator.StandbyEntries(last6h) >= StandbyEntriesForTrim)
         {
@@ -419,6 +421,7 @@ public class Phase5DoseService : IPhaseService
         int blowerWanted, string? blowerNote, string? blowerCode, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct)
     {
         var cause = DoseCause(ds, controller, decision, p, now);
+        var stepNote = StepLimitNote(ds, decision, p);
         var result = await _writer.WriteSettingsAsync(controller, decision.Work, decision.Pause, blower, ct);
         if (result.Last != null) SetController(ds, result.Last);
 
@@ -428,7 +431,7 @@ public class Phase5DoseService : IPhaseService
             var (parameter, code, extra) = w.Register switch
             {
                 DoseRegister.Work => (DoseLog.Work, cause, (string?)null),
-                DoseRegister.Pause => (DoseLog.Pause, cause, null),
+                DoseRegister.Pause => (DoseLog.Pause, cause, stepNote),
                 _ => (DoseLog.Blower, blowerCode ?? cause,
                     blowerCode == null ? $"dmuchawa idzie za dawką ({decision.Work}/{decision.Pause} s = {100.0 * decision.Work / (decision.Work + decision.Pause):0.0} % pracy podajnika)" : null)
             };
@@ -459,6 +462,7 @@ public class Phase5DoseService : IPhaseService
 
         ds.LastChangeUtc = now;
         ds.LastChangeOutdoorSmoothed = ds.OutdoorSmoothed;
+        ds.LastChangeDirection = DoseDirection(controller.FeederWork, controller.FeederPause, decision.Work, decision.Pause);
         ds.LastLoggedBlockKey = null;
         var what = $"{controller.FeederWork}/{controller.FeederPause} s → {decision.Work}/{decision.Pause} s, " +
                    $"dmuchawa {controller.Blower} → {blower} %";
@@ -494,6 +498,11 @@ public class Phase5DoseService : IPhaseService
     private static void LogWaitingForInterval(DoseState ds, ControllerFeedSettings controller, DoseDecision decision,
         HeatingParameters p, DateTime now, RunLog run)
     {
+        // Następny krok tej samej rampy (ten sam kierunek, ten sam czas pracy) czeka na odstęp z definicji -
+        // to widać we wpisie zmiany („cel z modelu …”), więc nie dublujemy go wpisem ZABLOKOWANE.
+        var wanted = DoseDirection(controller.FeederWork, controller.FeederPause, decision.Work, decision.Pause);
+        if (decision.Work == controller.FeederWork && wanted == ds.LastChangeDirection) return;
+
         var key = $"ODSTEP|{decision.Work}|{decision.Pause}";
         if (ds.LastLoggedBlockKey == key) return;
         ds.LastLoggedBlockKey = key;
@@ -507,28 +516,74 @@ public class Phase5DoseService : IPhaseService
             $"{decision.MinutesSinceLastChange:0} min (min. {p.FeedMinIntervalHours} h). Dlaczego: {DoseLog.Why(cause, run.Ctx)}."));
     }
 
-    /// <summary>Automat wyłączony: co by ustawił - raz na daną sugestię, nie co godzinę.</summary>
-    private static void LogSuggestion(DoseState ds, ControllerFeedSettings controller, DoseDecision decision, int blower,
+    /// <summary>
+    /// Tryb cienia (automat wyłączony): te same reguły co automat (odstęp, martwa strefa, krok,
+    /// dmuchawa), ale od wirtualnych nastaw „gdyby automat był włączony”, startujących od tego, co
+    /// jest w sterowniku. Wpis SUGESTIA tylko przy wirtualnej zmianie - jak w dzienniku automatu.
+    /// </summary>
+    private static void ShadowStep(DoseState ds, ControllerFeedSettings controller, double? flue, bool flueSafetyRecent,
         HeatingParameters p, DateTime now, RunLog run)
     {
-        var key = $"SUGESTIA|{decision.Work}|{decision.Pause}|{blower}";
-        if (ds.LastLoggedBlockKey == key) return;
-        ds.LastLoggedBlockKey = key;
+        if (ds.ShadowWork == null || ds.ShadowPause == null || ds.ShadowBlower == null)
+        {
+            ds.ShadowWork = controller.FeederWork;
+            ds.ShadowPause = controller.FeederPause;
+            ds.ShadowBlower = controller.Blower;
+            ds.ShadowLastChangeUtc = null;
+        }
 
-        var cause = DoseCause(ds, controller, decision, p, now);
+        var shadow = new ControllerFeedSettings(ds.ShadowWork.Value, ds.ShadowPause.Value, ds.ShadowBlower.Value);
+        var plan = new DosePlan(ds.PlannedWork!.Value, ds.ModelPause!.Value, ds.Ceiling, ds.ShortfallPct);
+        var decision = DoseCalculator.Decide(shadow.FeederWork, shadow.FeederPause, plan, ds.ShadowLastChangeUtc, now, p);
+        var (blower, _, blowerCode) = DoseCalculator.LimitBlower(
+            DoseCalculator.BlowerFor(decision.Work, decision.Pause, p), shadow.Blower, flue, flueSafetyRecent, p);
+
+        ds.PlannedPause = decision.Change ? decision.Pause : shadow.FeederPause;
+        ds.PlannedBlower = decision.Change ? blower : shadow.Blower;
+        if (!decision.Change)
+        {
+            run.Notes.Add($"automat wyłączony - cień {shadow.FeederWork}/{shadow.FeederPause} s, {shadow.Blower} % ({decision.Reason})");
+            return;
+        }
+
+        var cause = DoseCause(ds, shadow, decision, p, now);
+        var stepNote = StepLimitNote(ds, decision, p);
         foreach (var (parameter, from, to) in new[]
                  {
-                     (DoseLog.Work, controller.FeederWork, decision.Work),
-                     (DoseLog.Pause, controller.FeederPause, decision.Pause),
-                     (DoseLog.Blower, controller.Blower, blower)
+                     (DoseLog.Work, shadow.FeederWork, decision.Work),
+                     (DoseLog.Pause, shadow.FeederPause, decision.Pause),
+                     (DoseLog.Blower, shadow.Blower, blower)
                  })
         {
             if (from == to) continue;
-            var why = parameter == DoseLog.Blower ? "dmuchawa idzie za dawką" : DoseLog.Why(cause, run.Ctx);
-            run.Entries.Add(DoseLog.Entry(run.Ctx, parameter, from, to, cause, DoseLog.StatusSuggestion,
-                $"Automat wyłączony - ustawiłbym: {DoseLog.Head(parameter, from, to)}: {why}."));
+            var why = parameter == DoseLog.Blower
+                ? DoseLog.Why(blowerCode ?? "", run.Ctx, blowerCode == null ? "dmuchawa idzie za dawką" : null)
+                : DoseLog.Why(cause, run.Ctx, parameter == DoseLog.Pause ? stepNote : null);
+            run.Entries.Add(DoseLog.Entry(run.Ctx, parameter, from, to, parameter == DoseLog.Blower ? blowerCode ?? cause : cause,
+                DoseLog.StatusSuggestion, $"Automat wyłączony - ustawiłbym: {DoseLog.Head(parameter, from, to)}: {why}."));
         }
+
+        run.Notes.Add($"automat wyłączony - cień {shadow.FeederWork}/{shadow.FeederPause} → {decision.Work}/{decision.Pause} s, {blower} %");
+        ds.ShadowWork = decision.Work;
+        ds.ShadowPause = decision.Pause;
+        ds.ShadowBlower = blower;
+        ds.ShadowLastChangeUtc = now;
     }
+
+    /// <summary>„cel z modelu 112 s - dalej krokami ≤ 20 s co 2 h”, gdy krok ograniczył zmianę postoju.</summary>
+    private static string? StepLimitNote(DoseState ds, DoseDecision decision, HeatingParameters p)
+    {
+        if (ds.ModelPause == null || ds.PlannedWork == null) return null;
+        if (ds.PlannedWork != decision.Work)
+            return $"cel z modelu {ds.PlannedWork}/{ds.ModelPause.Value:0} s - dalej krokami co {p.FeedMinIntervalHours} h";
+        return Math.Abs(ds.ModelPause.Value - decision.Pause) >= 5
+            ? $"cel z modelu {ds.ModelPause.Value:0} s - dalej krokami ≤ {p.FeedMaxStepSec} s co {p.FeedMinIntervalHours} h"
+            : null;
+    }
+
+    /// <summary>+1 = więcej węgla (większy udział pracy podajnika), −1 = mniej.</summary>
+    private static int DoseDirection(int fromWork, int fromPause, int toWork, int toPause)
+        => Math.Sign((double)toWork / (toWork + toPause) - (double)fromWork / (fromWork + fromPause));
 
     /// <summary>
     /// Wyłączenie automatu - ręczne (przełącznik w HA) albo samowyłączenie. Przywraca nastawy zastane
@@ -567,6 +622,7 @@ public class Phase5DoseService : IPhaseService
 
         ds.AutomatActive = false;
         run.Ctx.AutomatActive = false;
+        ResetShadow(ds);
         ds.SavedWork = null;
         ds.SavedPause = null;
         ds.SavedBlower = null;
@@ -615,9 +671,8 @@ public class Phase5DoseService : IPhaseService
         if (inputs.Sample.FlueTemp > FlueSelfDisableTemp)
             return new("SPALINY_200", $"spaliny {inputs.Sample.FlueTemp:F0} °C > {FlueSelfDisableTemp:F0} °C");
 
-        var lastHour = samples.Where(s => s.TimestampUtc > now - BoilerColdWindow).ToList();
-        if (DoseCalculator.BoilerColdFor(lastHour, BoilerColdWindow))
-            return new("KOCIOL_ZIMNY", "kocioł poniżej nastawy − 10 K od godziny");
+        if (p.DoseBoilerColdMinutes > 0 && BoilerCold(samples, now, p.DoseBoilerColdMinutes))
+            return new("KOCIOL_ZIMNY", $"kocioł poniżej nastawy − 10 K od {p.DoseBoilerColdMinutes} min");
 
         var boilerStale = TimeSpan.FromMinutes(p.DoseBoilerStaleMinutes);
         if (ds.LastBoilerDataUtc == null || now - ds.LastBoilerDataUtc.Value > boilerStale)
@@ -633,6 +688,35 @@ public class Phase5DoseService : IPhaseService
             return new("TRYB_RECZNY", "sterownik w trybie ręcznym");
 
         return null;
+    }
+
+    private static bool BoilerCold(IReadOnlyList<DoseSample> samples, DateTime now, int minutes)
+    {
+        var window = TimeSpan.FromMinutes(minutes);
+        return DoseCalculator.BoilerColdFor(samples.Where(s => s.TimestampUtc > now - window).ToList(), window);
+    }
+
+    /// <summary>
+    /// DoseBoilerColdMinutes = 0: kocioł zimny nie wyłącza automatu, tylko ostrzega - raz na epizod
+    /// (wpis OSTRZEZENIE w dzienniku + Discord), po 60 min poniżej nastawy − 10 K.
+    /// </summary>
+    private async Task WarnBoilerColdAsync(DoseState ds, IReadOnlyList<DoseSample> samples, DateTime now,
+        HeatingParameters p, RunLog run, CancellationToken ct)
+    {
+        if (p.DoseBoilerColdMinutes != 0) return;
+        if (!BoilerCold(samples, now, 60))
+        {
+            ds.BoilerColdWarned = false;
+            return;
+        }
+        if (ds.BoilerColdWarned) return;
+        ds.BoilerColdWarned = true;
+        var text = $"kocioł {DoseLog.Number(run.Ctx.BoilerTemp, "0.0")} °C, nastawa {DoseLog.Number(run.Ctx.BoilerSetpoint, "0")} °C - od godziny poniżej nastawy − 10 K " +
+                   $"(spaliny {DoseLog.Number(run.Ctx.FlueTemp, "0")} °C, dmuchawa {DoseLog.Number(run.Ctx.HeatingShare2hPct, "0")} % czasu). " +
+                   "Automat zostaje włączony (DoseBoilerColdMinutes = 0).";
+        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "KOCIOL_ZIMNY", DoseLog.StatusWarning, $"Ostrzeżenie: {text}"));
+        run.Notes.Add($"ostrzeżenie: {text}");
+        await _notifier.NotifyAsync("HeatFlow: kocioł zimny", text, ct);
     }
 
     private static SafetyIssue? ParametersReason(HeatingParameters p)
@@ -776,6 +860,14 @@ public class Phase5DoseService : IPhaseService
         ctx.TrimSec = ds.TrimSec;
         ctx.Ceiling = ds.Ceiling;
         ctx.ShortfallPct = ds.ShortfallPct;
+    }
+
+    private static void ResetShadow(DoseState ds)
+    {
+        ds.ShadowWork = null;
+        ds.ShadowPause = null;
+        ds.ShadowBlower = null;
+        ds.ShadowLastChangeUtc = null;
     }
 
     private static ControllerFeedSettingsSnapshot? Snapshot(ControllerFeedSettings? s)

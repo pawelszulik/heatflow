@@ -29,6 +29,13 @@ namespace HeatFlow.Infrastructure.Migrations
                 defaultValue: 30);
 
             migrationBuilder.AddColumn<int>(
+                name: "DoseBoilerColdMinutes",
+                table: "HeatingParameters",
+                type: "int",
+                nullable: false,
+                defaultValue: 60);
+
+            migrationBuilder.AddColumn<int>(
                 name: "DoseBoilerStaleMinutes",
                 table: "HeatingParameters",
                 type: "int",
@@ -218,6 +225,12 @@ namespace HeatFlow.Infrastructure.Migrations
                     LastChangeOutdoorSmoothed = table.Column<double>(type: "float", nullable: true),
                     LastTrimCode = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     LastLoggedBlockKey = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    LastChangeDirection = table.Column<int>(type: "int", nullable: false),
+                    BoilerColdWarned = table.Column<bool>(type: "bit", nullable: false),
+                    ShadowWork = table.Column<int>(type: "int", nullable: true),
+                    ShadowPause = table.Column<int>(type: "int", nullable: true),
+                    ShadowBlower = table.Column<int>(type: "int", nullable: true),
+                    ShadowLastChangeUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     LastCalcUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     LastKCorrectionDate = table.Column<DateTime>(type: "date", nullable: true),
                     LastReason = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
@@ -298,6 +311,10 @@ namespace HeatFlow.Infrastructure.Migrations
 
             migrationBuilder.DropColumn(
                 name: "BlowerMin",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseBoilerColdMinutes",
                 table: "HeatingParameters");
 
             migrationBuilder.DropColumn(

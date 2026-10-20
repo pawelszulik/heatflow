@@ -142,8 +142,24 @@ public static class DoseCalculator
         string reason;
         if (targetWork != currentWork)
         {
-            newPause = Round5(target, pauseMin, pauseMax);
-            reason = $"czas pracy {currentWork} → {targetWork} s";
+            // Czas pracy się zmienia: dawka (udział pracy podajnika) najwyżej tyle, ile dałby krok
+            // FeedMaxStepSec postoju przy obecnym czasie pracy - inaczej np. 8/120 → 7/175 to −38 %
+            // dawki naraz (wirtualny kocioł schodził wtedy pod nastawę − 10 K w godzinę). Czas pracy
+            // dobierany histerezą do tej ograniczonej dawki, więc 7/160 → cel 9/111 daje najpierw 7/140,
+            // a nie 9/180 (ta sama dawka, dziwny czas pracy).
+            var safePause = Math.Clamp(currentPause, pauseMin, pauseMax);
+            var curWork = Math.Clamp(currentWork, workMin, workMax);
+            var upDuty = (double)curWork / (curWork + Math.Max(1, safePause - p.FeedMaxStepSec));
+            var downDuty = (double)curWork / (curWork + safePause + p.FeedMaxStepSec);
+            var targetDuty = targetWork / (targetWork + target);
+            var duty = Math.Clamp(targetDuty, downDuty, upDuty);
+            var limited = Math.Abs(duty - targetDuty) > 1e-9;
+            var work = limited ? WorkWithHysteresis(currentWork, duty * 86400.0, p) : targetWork;
+            newPause = Round5(work / duty - work, pauseMin, pauseMax);
+            reason = limited
+                ? $"krok w stronę {targetWork}/{target:F0} s (dawka najwyżej o krok {p.FeedMaxStepSec} s postoju)"
+                : $"czas pracy {currentWork} → {targetWork} s";
+            targetWork = work;
         }
         else if (Math.Abs(target - currentPause) >= p.FeedDeadbandSec || outOfBounds)
         {
@@ -249,7 +265,7 @@ public static class DoseCalculator
         var newK = Math.Clamp(k + Math.Clamp(0.3 * (net / model - k), -0.05, 0.05), 0.6, 1.3);
         newK = Math.Round(newK, 3);
         return (newK, string.Create(System.Globalization.CultureInfo.GetCultureInfo("pl-PL"),
-            $"podajnik {day.FeedSec:F0} s, Tz {day.OutdoorMean:F1} °C, w domu {day.IndoorMean:F2} °C (ΔT_wewn {dIndoor:+0.00;-0.00} K) → netto {net:F0} s = {net / model:F2} × model {model:F0} s → k {k:F3} → {newK:F3}"));
+            $"podajnik {day.FeedSec:F0} s, Tz {day.OutdoorMean:F1} °C, w domu {day.IndoorMean:F2} °C (ΔT_wewn {(dIndoor < -0.005 ? "−" : "+")}{Math.Abs(dIndoor):0.00} K) → netto {net:F0} s = {net / model:F2} × model {model:F0} s → k {k:F3} → {newK:F3}"));
     }
 
     /// <summary>

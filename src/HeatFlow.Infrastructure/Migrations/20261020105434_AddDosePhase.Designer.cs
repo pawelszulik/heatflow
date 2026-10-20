@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HeatFlow.Infrastructure.Migrations
 {
     [DbContext(typeof(HeatFlowDbContext))]
-    [Migration("20261020100211_AddDosePhase")]
+    [Migration("20261020105434_AddDosePhase")]
     partial class AddDosePhase
     {
         /// <inheritdoc />
@@ -246,6 +246,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<bool>("AutomatActive")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("BoilerColdWarned")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("Ceiling")
                         .HasColumnType("bit");
 
@@ -263,6 +266,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<DateTime?>("LastCalcUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<int>("LastChangeDirection")
+                        .HasColumnType("int");
 
                     b.Property<double?>("LastChangeOutdoorSmoothed")
                         .HasColumnType("float");
@@ -324,6 +330,18 @@ namespace HeatFlow.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<int?>("SavedWork")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ShadowBlower")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ShadowLastChangeUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ShadowPause")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ShadowWork")
                         .HasColumnType("int");
 
                     b.Property<double>("ShortfallPct")
@@ -564,6 +582,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<decimal>("DeficitHighP3Base")
                         .HasColumnType("decimal(5,2)");
+
+                    b.Property<int>("DoseBoilerColdMinutes")
+                        .HasColumnType("int");
 
                     b.Property<int>("DoseBoilerStaleMinutes")
                         .HasColumnType("int");

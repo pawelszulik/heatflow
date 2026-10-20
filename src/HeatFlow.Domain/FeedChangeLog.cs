@@ -24,13 +24,13 @@ public class FeedChangeLog
     /// <summary>
     /// Kod przyczyny: POGODA, SUFIT, TRYM_KOCIOL_PONIZEJ_NASTAWY, TRYM_PODTRZYMANIA, SPALINY_185,
     /// SPALINY_200, PO_AUTOMATYZACJI_24, ODSTEP, KOREKTA_K, KOREKTA_K_POMINIETA, WLACZENIE_RECZNE,
-    /// WYLACZENIE_RECZNE, SAMOWYLACZENIE_&lt;powód&gt;, PRZYWROCENIE_NASTAW.
+    /// WYLACZENIE_RECZNE, SAMOWYLACZENIE_&lt;powód&gt;, PRZYWROCENIE_NASTAW, KOCIOL_ZIMNY (ostrzeżenie).
     /// </summary>
     public string ReasonCode { get; set; } = string.Empty;
 
     /// <summary>
     /// ZAPISANE (do sterownika, potwierdzone w mapperze), NIEPOTWIERDZONE, WEWNETRZNE (k, trym,
-    /// automat), ZABLOKOWANE (reguła nie pozwoliła), SUGESTIA (automat wyłączony).
+    /// automat), ZABLOKOWANE (reguła nie pozwoliła), SUGESTIA (automat wyłączony), OSTRZEZENIE.
     /// </summary>
     public string Status { get; set; } = string.Empty;
 

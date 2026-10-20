@@ -59,6 +59,13 @@ public static class DoseLog
     public const string ButtonParameter = "przycisk";
     public const string ButtonCode = "RECZNE_USTAW_SUGEROWANE";
 
+    /// <summary>
+    /// Wpis „wysłano na Discord nową sugestię” (automat wyłączony). Kolumny Controller* tego wpisu przechowują
+    /// SUGEROWANE wartości (praca / postój / dmuchawa) - po nich rozpoznajemy, że daną sugestię już zgłoszono.
+    /// </summary>
+    public const string SuggestionParameter = "sugestia_discord";
+    public const string SuggestionCode = "SUGESTIA_DISCORD";
+
     public const string StatusWritten = "ZAPISANE";
     public const string StatusUnconfirmed = "NIEPOTWIERDZONE";
     public const string StatusInternal = "WEWNETRZNE";

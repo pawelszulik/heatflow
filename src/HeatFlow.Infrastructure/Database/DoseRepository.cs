@@ -149,4 +149,12 @@ public class DoseRepository : IDoseRepository
         request.Message = message.Length > 1000 ? message[..999] + "…" : message;
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<FeedChangeLog?> GetLastSuggestionNotificationAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.FeedChangeLogs.AsNoTracking()
+            .Where(e => e.Parameter == "sugestia_discord")
+            .OrderByDescending(e => e.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }

@@ -81,7 +81,9 @@ public class Phase5DoseServiceTests
         _ha.Verify(x => x.SetNumberValueAsync(It.IsAny<string>(), It.IsAny<double>(), It.IsAny<CancellationToken>()), Times.Never);
         Assert.Equal(9, _repo.State!.PlannedWork);
         Assert.False(_repo.State.AutomatActive);
-        Assert.Empty(_messages);
+        // jedyna wiadomość to zgłoszenie nowej sugestii (nic nie zapisano do kotła)
+        Assert.Single(_messages);
+        Assert.Equal("HeatFlow: nowa sugestia dawki", _messages[0].Title);
     }
 
     [Fact]
@@ -619,6 +621,68 @@ public class Phase5DoseServiceTests
 
     // --- Helpers ---
 
+    // ---------- powiadomienie o nowej sugestii (Discord, 8-22) ----------
+
+    [Fact]
+    public async Task NewSuggestion_InDaytime_IsSentOnceToDiscord_WithWhyAndCurrentValues()
+    {
+        await Run();
+        await Run(); // ta sama sugestia - bez powtórki
+
+        var sent = _messages.Where(m => m.Title == "HeatFlow: nowa sugestia dawki").ToList();
+        var msg = Assert.Single(sent).Message;
+        Assert.Contains("Postój 160 → 140 s (w dół = więcej węgla)", msg);
+        Assert.Contains("W kotle teraz 7/160 s, dmuchawa 35 %", msg);
+        Assert.Contains("potrzeba", msg);
+        Assert.Contains("Ustaw sugerowane", msg);
+        Assert.Single(_repo.Log, e => e.Parameter == "sugestia_discord");
+        Assert.Empty(_controller.Writes);
+    }
+
+    [Fact]
+    public async Task NewSuggestion_AtNight_WaitsUntilMorning_ThenIsSentOnce()
+    {
+        var night = ServiceInZone(TimeSpan.FromHours(11)); // 12:00 UTC = 23:00 lokalnie
+        await RunWith(night);
+        Assert.DoesNotContain(_messages, m => m.Title == "HeatFlow: nowa sugestia dawki");
+        Assert.DoesNotContain(_repo.Log, e => e.Parameter == "sugestia_discord");
+
+        await RunWith(ServiceInZone(TimeSpan.FromHours(-3))); // 09:00 lokalnie, sugestia dalej różni się od kotła
+        Assert.Single(_messages, m => m.Title == "HeatFlow: nowa sugestia dawki");
+    }
+
+    [Theory]
+    [InlineData(-4, true)]   // 08:00 - pierwsza godzina okna
+    [InlineData(-5, false)]  // 07:00
+    [InlineData(9, true)]    // 21:00 - ostatnia godzina okna
+    [InlineData(10, false)]  // 22:00
+    public async Task NewSuggestion_OnlyBetween8And22Local(int offsetHours, bool sent)
+    {
+        await RunWith(ServiceInZone(TimeSpan.FromHours(offsetHours)));
+
+        Assert.Equal(sent, _messages.Any(m => m.Title == "HeatFlow: nowa sugestia dawki"));
+    }
+
+    [Fact]
+    public async Task NewSuggestion_NotSentWhenAutomatOn()
+    {
+        _repo.Switch.Enabled = true;
+        await Run();
+
+        Assert.DoesNotContain(_messages, m => m.Title == "HeatFlow: nowa sugestia dawki");
+    }
+
+    [Fact]
+    public async Task NewSuggestion_AfterButtonClick_NoFurtherNotificationUntilSuggestionChanges()
+    {
+        AddButtonRequest();
+        await Run(); // przycisk ustawia sugestię (7/140, 31 %), sugestia = kocioł
+
+        Assert.DoesNotContain(_messages, m => m.Title == "HeatFlow: nowa sugestia dawki");
+        await Run();
+        Assert.DoesNotContain(_messages, m => m.Title == "HeatFlow: nowa sugestia dawki");
+    }
+
     // ---------- przycisk „Ustaw sugerowane” ----------
 
     private FeedChangeLog AddButtonRequest(int minutesAgo = 1)
@@ -830,10 +894,33 @@ public class Phase5DoseServiceTests
     private sealed class FixedTime : TimeProvider
     {
         private readonly DateTimeOffset _now;
-        public FixedTime(DateTime utc) => _now = new DateTimeOffset(utc);
+        private readonly TimeZoneInfo _zone;
+        public FixedTime(DateTime utc, TimeZoneInfo? zone = null)
+        {
+            _now = new DateTimeOffset(utc);
+            _zone = zone ?? TimeZoneInfo.Utc;
+        }
         public override DateTimeOffset GetUtcNow() => _now;
-        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+        public override TimeZoneInfo LocalTimeZone => _zone;
     }
+
+    /// <summary>Druga instancja fazy na tych samych danych, ale z inną strefą lokalną (godzina dnia).</summary>
+    private Phase5DoseService ServiceInZone(TimeSpan utcOffset)
+    {
+        var writer = new DoseControllerWriter(_ha.Object, _controller, new DoseWriteOptions
+        {
+            ConfirmFirstCheck = TimeSpan.Zero, ConfirmPollInterval = TimeSpan.Zero,
+            ConfirmTimeout = TimeSpan.Zero, RetryDelay = TimeSpan.Zero
+        }, new Mock<ILogger<DoseControllerWriter>>().Object);
+        return new Phase5DoseService(_ha.Object, _repo, _controller, writer, _notifier.Object,
+            _config.Object, _audit.Object, new Mock<IApplicationErrorLogger>().Object,
+            new Mock<ILogger<Phase5DoseService>>().Object,
+            new FixedTime(Now, TimeZoneInfo.CreateCustomTimeZone("test", utcOffset, "test", "test")));
+    }
+
+    private Task<PhaseResult> RunWith(Phase5DoseService service)
+        => service.ExecuteAsync(new HeatingState { CurrentTime = Now, SystemConfiguration = SimDefaults.SystemConfiguration() },
+            new HeatingParameters());
 
     /// <summary>Sterownik + mapper: zapis z HA zmienia rejestr, chyba że „ginie” albo mapper leży.</summary>
     private sealed class FakeController : IEsterownikMapperClient
@@ -907,6 +994,9 @@ public class Phase5DoseServiceTests
 
         public Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken ct = default)
             => Task.FromResult(Log.AsEnumerable().Reverse().Take(limit).ToList());
+
+        public Task<FeedChangeLog?> GetLastSuggestionNotificationAsync(CancellationToken ct = default)
+            => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "sugestia_discord"));
 
         public Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken ct = default)
         {

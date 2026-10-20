@@ -2,6 +2,7 @@ using System.Text.Json;
 using HeatFlow.Core.Dose;
 using HeatFlow.Core.Phases;
 using HeatFlow.Domain;
+using HeatFlow.DoseSim;
 using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
 using HeatFlow.Infrastructure.EsterownikMapper;
@@ -20,6 +21,11 @@ namespace HeatFlow.Core.Tests;
 public class Phase5DoseServiceTests
 {
     private static readonly DateTime Now = new(2026, 11, 20, 12, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>Encje i pokoje jak w bazie u Pawła (seed / migracja) - Faza 5 bierze je z konfiguracji.</summary>
+    private static readonly DoseEntities E = SimDefaults.Entities;
+    private static readonly List<RoomConfiguration> Rooms = SimDefaults.IndoorRooms();
+    private static readonly string[] IndoorSensors = Rooms.Select(r => r.SensorTemperatureEntityId).ToArray();
 
     private readonly Mock<IHomeAssistantClient> _ha = new();
     private readonly FakeDoseRepository _repo = new();
@@ -40,6 +46,7 @@ public class Phase5DoseServiceTests
         _notifier.Setup(x => x.NotifyAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback((string t, string m, CancellationToken _) => _messages.Add((t, m)))
             .Returns(Task.CompletedTask);
+        _config.Setup(x => x.GetAllRoomsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => Rooms);
         _config.Setup(x => x.GetHeatingParametersAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new HeatingParameters());
 
@@ -104,7 +111,7 @@ public class Phase5DoseServiceTests
         _repo.Switch.Enabled = false;
         await Run();
 
-        var allowed = new[] { DoseControllerWriter.WorkEntityId, DoseControllerWriter.PauseEntityId, DoseControllerWriter.BlowerEntityId };
+        var allowed = new[] { E.FeederWork, E.FeederPause, E.Blower };
         Assert.NotEmpty(_controller.Writes);
         Assert.All(_controller.Writes, w => Assert.Contains(w.Entity, allowed));
         _ha.Verify(x => x.CallServiceAsync("number", It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -195,7 +202,7 @@ public class Phase5DoseServiceTests
     public async Task WriteNotConfirmedByMapper_SelfDisables()
     {
         _repo.Switch.Enabled = true;
-        _controller.DropWritesTo = DoseControllerWriter.PauseEntityId;
+        _controller.DropWritesTo = E.FeederPause;
 
         await Run();
 
@@ -203,8 +210,8 @@ public class Phase5DoseServiceTests
         Assert.False(_repo.State!.AutomatActive);
         Assert.Contains(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ") && m.Message.Contains("nie potwierdził"));
         // Dwie próby zapisu postoju (limiter ekoPieca), dmuchawa już nie wysłana, sterownik bez zmian.
-        Assert.Equal(2, _controller.Writes.Count(w => w.Entity == DoseControllerWriter.PauseEntityId && w.Value == 140));
-        Assert.DoesNotContain(_controller.Writes, w => w.Entity == DoseControllerWriter.BlowerEntityId);
+        Assert.Equal(2, _controller.Writes.Count(w => w.Entity == E.FeederPause && w.Value == 140));
+        Assert.DoesNotContain(_controller.Writes, w => w.Entity == E.Blower);
         Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
     }
 
@@ -214,7 +221,7 @@ public class Phase5DoseServiceTests
         _repo.Switch.Enabled = true;
         _repo.State = ActiveState(saved: (7, 160, 35));
         _repo.State.LastBoilerDataUtc = Now.AddMinutes(-45);
-        _entities[Phase5DoseService.ControllerClockEntityId] = new EntityState { State = "unavailable" };
+        _entities[E.ControllerClock] = new EntityState { State = "unavailable" };
 
         await Run();
 
@@ -228,7 +235,7 @@ public class Phase5DoseServiceTests
         // Czujnik ogrodowy przy stałej temperaturze zmienia stan co ok. 58 min - to nie awaria.
         _repo.Switch.Enabled = true;
         _repo.State = ActiveState(saved: (7, 160, 35));
-        _entities[Phase5DoseService.OutdoorEntityId].LastUpdated = Now.AddMinutes(-58);
+        _entities[E.OutdoorTemp].LastUpdated = Now.AddMinutes(-58);
 
         await Run();
 
@@ -301,7 +308,7 @@ public class Phase5DoseServiceTests
 
         Assert.False(_repo.Switch.Enabled);
         Assert.Contains(_messages, m => m.Message.Contains("parametry poza granicami"));
-        Assert.DoesNotContain(_controller.Writes, w => w.Value > 10 && w.Entity == DoseControllerWriter.WorkEntityId);
+        Assert.DoesNotContain(_controller.Writes, w => w.Value > 10 && w.Entity == E.FeederWork);
     }
 
     [Fact]
@@ -451,7 +458,7 @@ public class Phase5DoseServiceTests
     public async Task Log_UnconfirmedWrite_HasRozjazdAndSelfDisableCode()
     {
         _repo.Switch.Enabled = true;
-        _controller.DropWritesTo = DoseControllerWriter.PauseEntityId;
+        _controller.DropWritesTo = E.FeederPause;
 
         await Run();
 
@@ -611,7 +618,8 @@ public class Phase5DoseServiceTests
     // --- Helpers ---
 
     private Task<PhaseResult> Run(HeatingParameters? p = null)
-        => _service.ExecuteAsync(new HeatingState { CurrentTime = Now }, p ?? new HeatingParameters());
+        => _service.ExecuteAsync(new HeatingState { CurrentTime = Now, SystemConfiguration = SimDefaults.SystemConfiguration() },
+            p ?? new HeatingParameters());
 
     private DoseState ActiveState((int W, int P, int B) saved) => new()
     {
@@ -623,17 +631,17 @@ public class Phase5DoseServiceTests
     private void SetEnvironment(double outdoor, double flue = 140, bool summer = false, bool auto = true, double boiler = 66)
     {
         EntityState S(string v, DateTime? updated = null) => new() { State = v, LastUpdated = updated ?? Now.AddSeconds(-20) };
-        _entities[Phase5DoseService.OutdoorEntityId] = S(outdoor.ToString(System.Globalization.CultureInfo.InvariantCulture), Now.AddMinutes(-10));
-        foreach (var id in Phase5DoseService.IndoorEntityIds) _entities[id] = S("24.0");
-        _entities[Phase5DoseService.BoilerTempEntityId] = S(boiler.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        _entities[Phase5DoseService.BoilerSetpointEntityId] = S("67.0");
-        _entities[Phase5DoseService.FlueTempEntityId] = S(flue.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        _entities[Phase5DoseService.BlowerActualEntityId] = S("35.0");
-        _entities[Phase5DoseService.FeederCounterEntityId] = S("30m,034s");
-        _entities[Phase5DoseService.SummerSwitchEntityId] = S(summer ? "on" : "off");
-        _entities[Phase5DoseService.ModeSwitchEntityId] = S(auto ? "on" : "off");
-        _entities[Phase5DoseService.ControllerClockEntityId] = S("2026-11-20T11:59:30+00:00");
-        _entities[Phase5DoseService.FlueSafetyAutomationEntityId] = new EntityState
+        _entities[E.OutdoorTemp] = S(outdoor.ToString(System.Globalization.CultureInfo.InvariantCulture), Now.AddMinutes(-10));
+        foreach (var id in IndoorSensors) _entities[id] = S("24.0");
+        _entities[E.BoilerTemp] = S(boiler.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _entities[E.BoilerSetpoint] = S("67.0");
+        _entities[E.FlueTemp] = S(flue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _entities[E.BlowerActual] = S("35.0");
+        _entities[E.FeederCounter] = S("30m,034s");
+        _entities[E.SummerSwitch] = S(summer ? "on" : "off");
+        _entities[E.ControllerMode] = S(auto ? "on" : "off");
+        _entities[E.ControllerClock] = S("2026-11-20T11:59:30+00:00");
+        _entities[E.FlueSafetyAutomation] = new EntityState
         {
             State = "on",
             Attributes = new Dictionary<string, object> { ["last_triggered"] = JsonDocument.Parse("null").RootElement }
@@ -675,13 +683,10 @@ public class Phase5DoseServiceTests
         {
             Writes.Add((entity, value));
             if (entity == DropWritesTo) return true; // HA mówi ok, sterownik nie przyjął
-            Settings = entity switch
-            {
-                DoseControllerWriter.WorkEntityId => Settings with { FeederWork = value },
-                DoseControllerWriter.PauseEntityId => Settings with { FeederPause = value },
-                DoseControllerWriter.BlowerEntityId => Settings with { Blower = value },
-                _ => throw new InvalidOperationException($"Zapis do niedozwolonej encji {entity}")
-            };
+            if (entity == E.FeederWork) Settings = Settings with { FeederWork = value };
+            else if (entity == E.FeederPause) Settings = Settings with { FeederPause = value };
+            else if (entity == E.Blower) Settings = Settings with { Blower = value };
+            else throw new InvalidOperationException($"Zapis do niedozwolonej encji {entity}");
             return true;
         }
     }

@@ -30,40 +30,11 @@ namespace HeatFlow.Core.Phases;
 /// </summary>
 public class Phase5DoseService : IPhaseService
 {
-    public const string OutdoorEntityId = "sensor.temperatura_ogrod_temperature";
-    public const string BoilerTempEntityId = "sensor.kociol_temperatura_kotla";
-    public const string BoilerSetpointEntityId = "number.kociol_temperatura_zadana_kotla";
-    public const string FlueTempEntityId = "sensor.kociol_temperatura_spalin";
-    public const string BlowerActualEntityId = "sensor.kociol_aktualna_moc_dmuchawy";
-    public const string FeederCounterEntityId = "sensor.kociol_czas_pracy_podajnika_2";
-    public const string SummerSwitchEntityId = "switch.kociol_tryb_zima_lato";
-    /// <summary>on = Auto, off = tryb ręczny sterownika (rozpalanie / awaria).</summary>
-    public const string ModeSwitchEntityId = "switch.kociol_tryb_pracy";
-    /// <summary>Zegar sterownika - zmienia się przy każdym odczycie integracji (co 30 s), stąd świeżość danych kotła.</summary>
-    public const string ControllerClockEntityId = "sensor.kociol_aktualna_data";
-    /// <summary>Automatyzacja HA #24: spaliny &gt; 250 °C → dmuchawa na minimum.</summary>
-    public const string FlueSafetyAutomationEntityId = "automation.kociol_bezpiecznik_spalin_dmuchawa_na_minimum";
-
-    /// <summary>Te same 7 czujników BMx280, z których liczony był model (§ 2, a2_doby.py).</summary>
-    public static readonly string[] IndoorEntityIds =
-    {
-        "sensor.kuchnia_czujnik_bm280_kuchnia_bmx280_temperature",
-        "sensor.salon_czujnik_bm280_salon_bmx280_temperature",
-        "sensor.spizarnia_czujnik_bm280_spizarnia_bmx280_temperature",
-        "sensor.suszarnia_czujnik_bm280_suszarnia_bmx280_temperature",
-        "sensor.edyta_czujnik_bm280_edyta_bmx280_temperature",
-        "sensor.hol_czujnik_bm280_hol_bmx280_temperature",
-        "sensor.przejsciowy_czujnik_bm280_przejsciowy_bmx280_temperature"
-    };
-
-    private const int MinIndoorSensors = 5;
-    private const double FlueSelfDisableTemp = 200.0;
+    // Encje HA - z SystemConfiguration (DoseEntities), czujniki w domu - z pokoi z flagą
+    // UseForDoseIndoorMean, progi - z HeatingParameters. W kodzie zostają tylko twarde granice
+    // (DoseLimits) i stałe techniczne poniżej.
     private static readonly TimeSpan SampleRetention = TimeSpan.FromDays(4);
     private static readonly TimeSpan CalcInterval = TimeSpan.FromMinutes(55);
-    private static readonly TimeSpan UnderpowerWindow = TimeSpan.FromHours(2);
-    private static readonly TimeSpan StandbyWindow = TimeSpan.FromHours(6);
-    private static readonly TimeSpan FlueSafetyHold = TimeSpan.FromHours(6);
-    private const int StandbyEntriesForTrim = 2;
 
     private readonly IHomeAssistantClient _haClient;
     private readonly IDoseRepository _repository;
@@ -119,6 +90,7 @@ public class Phase5DoseService : IPhaseService
         public List<string> Notes { get; } = new();
         public List<FeedChangeLog> Entries { get; } = new();
         public required DoseLogContext Ctx { get; init; }
+        public required DoseEntities Entities { get; init; }
     }
 
     public async Task<PhaseResult> ExecuteAsync(
@@ -128,13 +100,22 @@ public class Phase5DoseService : IPhaseService
     {
         var startTime = DateTime.UtcNow;
         var now = _time.GetUtcNow().UtcDateTime;
-        var run = new RunLog { Ctx = new DoseLogContext { NowUtc = now } };
-        var notes = run.Notes;
+        var notes = new List<string>();
 
         try
         {
+            var entities = state.SystemConfiguration == null ? null : DoseEntities.From(state.SystemConfiguration);
+            var configErrors = entities?.Validate() ?? new List<string> { "brak SystemConfiguration" };
+            if (configErrors.Count > 0)
+            {
+                return await ConfigurationErrorAsync(configErrors, now, startTime, cancellationToken);
+            }
+
+            var run = new RunLog { Ctx = new DoseLogContext { NowUtc = now, Parameters = parameters }, Entities = entities! };
+            notes = run.Notes;
+
             // 1. Migawka (co przebieg) - pamięć do Tz, trymu, bezpieczników i bilansu doby.
-            var inputs = await ReadInputsAsync(now, cancellationToken);
+            var inputs = await ReadInputsAsync(entities!, parameters, now, cancellationToken);
             await _repository.AddSampleAsync(inputs.Sample, cancellationToken);
             await _repository.DeleteSamplesOlderThanAsync(now - SampleRetention, cancellationToken);
 
@@ -168,12 +149,17 @@ public class Phase5DoseService : IPhaseService
             await CorrectKIfDueAsync(ds, parameters, now, run, cancellationToken);
             ctx.K = parameters.FeedCorrectionK;
 
-            var windowStart = now - TimeSpan.FromHours(Math.Max(Math.Max(StandbyWindow.TotalHours, parameters.FeedSmoothingPastHours),
-            Math.Max(1, parameters.DoseBoilerColdMinutes / 60.0)));
+            var windowStart = now - TimeSpan.FromHours(new[]
+            {
+                parameters.DoseTrimStandbyHours, parameters.DoseTrimUnderpowerHours, parameters.FeedSmoothingPastHours,
+                parameters.DoseBoilerColdMinutes / 60.0, parameters.DoseBoilerColdWarnMinutes / 60.0
+            }.Max());
             var samples = await _repository.GetSamplesSinceAsync(windowStart, cancellationToken);
-            var last2h = samples.Where(s => s.TimestampUtc > now - UnderpowerWindow && s.BlowerActual.HasValue).ToList();
+            var last2h = samples.Where(s => s.TimestampUtc > now - TimeSpan.FromHours(parameters.DoseTrimUnderpowerHours)
+                                            && s.BlowerActual.HasValue).ToList();
             ctx.HeatingShare2hPct = last2h.Count > 0 ? Math.Round(100.0 * last2h.Count(s => s.BlowerActual > 0) / last2h.Count) : null;
-            ctx.StandbyEntries6h = DoseCalculator.StandbyEntries(samples.Where(s => s.TimestampUtc > now - StandbyWindow).ToList());
+            ctx.StandbyEntries6h = DoseCalculator.StandbyEntries(samples
+                .Where(s => s.TimestampUtc > now - TimeSpan.FromHours(parameters.DoseTrimStandbyHours)).ToList());
 
             // 3. Dawka z pogody - co godzinę.
             if (ds.LastCalcUtc == null || ds.ModelPause == null || now - ds.LastCalcUtc.Value >= CalcInterval)
@@ -189,7 +175,7 @@ public class Phase5DoseService : IPhaseService
             string? blowerNote = null;
             string? blowerCode = null;
             var flueSafetyRecent = inputs.FlueSafetyLastTriggeredUtc.HasValue
-                                   && now - inputs.FlueSafetyLastTriggeredUtc.Value < FlueSafetyHold;
+                                   && now - inputs.FlueSafetyLastTriggeredUtc.Value < TimeSpan.FromHours(parameters.DoseFlueSafetyHoldHours);
             if (ds.ModelPause.HasValue && ds.PlannedWork.HasValue && controller != null)
             {
                 var plan = new DosePlan(ds.PlannedWork.Value, ds.ModelPause.Value, ds.Ceiling, ds.ShortfallPct);
@@ -256,12 +242,12 @@ public class Phase5DoseService : IPhaseService
                 var issue = SafetyReason(inputs, ds, samples, now, parameters) ?? ParametersReason(parameters);
                 if (issue != null)
                 {
-                    var flueHigh = inputs.Sample.FlueTemp > FlueSelfDisableTemp;
+                    var flueHigh = inputs.Sample.FlueTemp > parameters.DoseFlueMaxTemp;
                     if (flueHigh && controller != null && blower.HasValue && blower.Value < controller.Blower)
                     {
                         // „> 200 °C → −2 pkt” robimy przed samowyłączeniem; przywracanie nie podniesie dmuchawy.
-                        var cut = await _writer.WriteAsync(DoseRegister.Blower, blower.Value, cancellationToken);
-                        notes.Add($"spaliny > 200 °C: {cut.Report}");
+                        var cut = await _writer.WriteAsync(run.Entities, DoseRegister.Blower, blower.Value, cancellationToken);
+                        notes.Add($"spaliny > {parameters.DoseFlueMaxTemp} °C: {cut.Report}");
                         var w = cut.Writes.FirstOrDefault();
                         run.Entries.Add(DoseLog.Change(ctx, DoseLog.Blower, controller.Blower, blower.Value, "SPALINY_200",
                             cut.Confirmed ? DoseLog.StatusWritten : DoseLog.StatusUnconfirmed,
@@ -359,37 +345,40 @@ public class Phase5DoseService : IPhaseService
         }
 
         var (_, _, pauseMin, pauseMax) = DoseCalculator.Bounds(p);
-        var last2h = samples.Where(s => s.TimestampUtc > now - UnderpowerWindow).ToList();
-        var last6h = samples.Where(s => s.TimestampUtc > now - StandbyWindow).ToList();
+        var underpowerWindow = TimeSpan.FromHours(p.DoseTrimUnderpowerHours);
+        var last2h = samples.Where(s => s.TimestampUtc > now - underpowerWindow).ToList();
+        var last6h = samples.Where(s => s.TimestampUtc > now - TimeSpan.FromHours(p.DoseTrimStandbyHours)).ToList();
+        var trimStep = p.DoseTrimStepSec;
+        var trimLimit = p.DoseTrimLimitSec;
         var effective = planWithoutTrim.ModelPause + ds.TrimSec;
         const string followUp = "postój z modelu przesunięty - sterownik dostanie to przy najbliższej zmianie";
 
         string? code = null;
         int step = 0;
         string? blockedText = null;
-        if (DoseCalculator.BoilerUnderpowered(last2h, UnderpowerWindow))
+        if (DoseCalculator.BoilerUnderpowered(last2h, underpowerWindow, p.DoseTrimUnderpowerK))
         {
             code = "TRYM_KOCIOL_PONIZEJ_NASTAWY";
-            if (!planWithoutTrim.Ceiling && effective - DoseCalculator.TrimStepSec >= pauseMin
-                && ds.TrimSec - DoseCalculator.TrimStepSec >= -DoseCalculator.TrimLimitSec)
-                step = -DoseCalculator.TrimStepSec;
+            if (!planWithoutTrim.Ceiling && effective - trimStep >= pauseMin
+                && ds.TrimSec - trimStep >= -trimLimit)
+                step = -trimStep;
             else
                 blockedText = planWithoutTrim.Ceiling
                     ? "kocioł na suficie dawki - trym nie zbiera"
-                    : effective - DoseCalculator.TrimStepSec < pauseMin
+                    : effective - trimStep < pauseMin
                         ? $"postój z trymem zszedłby poniżej minimum {pauseMin} s - trym nie zbiera"
-                        : $"trym już na granicy −{DoseCalculator.TrimLimitSec} s";
+                        : $"trym już na granicy −{trimLimit} s";
         }
-        else if (DoseCalculator.StandbyEntries(last6h) >= StandbyEntriesForTrim)
+        else if (DoseCalculator.StandbyEntries(last6h) >= p.DoseTrimStandbyEntries)
         {
             code = "TRYM_PODTRZYMANIA";
-            if (effective + DoseCalculator.TrimStepSec <= pauseMax
-                && ds.TrimSec + DoseCalculator.TrimStepSec <= DoseCalculator.TrimLimitSec)
-                step = DoseCalculator.TrimStepSec;
+            if (effective + trimStep <= pauseMax
+                && ds.TrimSec + trimStep <= trimLimit)
+                step = trimStep;
             else
-                blockedText = effective + DoseCalculator.TrimStepSec > pauseMax
+                blockedText = effective + trimStep > pauseMax
                     ? "postój już na maksimum"
-                    : $"trym już na granicy +{DoseCalculator.TrimLimitSec} s";
+                    : $"trym już na granicy +{trimLimit} s";
         }
 
         if (code == null) return;
@@ -410,7 +399,7 @@ public class Phase5DoseService : IPhaseService
             if (ds.LastLoggedBlockKey != key)
             {
                 ds.LastLoggedBlockKey = key;
-                var wanted = ds.TrimSec + (code == "TRYM_PODTRZYMANIA" ? DoseCalculator.TrimStepSec : -DoseCalculator.TrimStepSec);
+                var wanted = ds.TrimSec + (code == "TRYM_PODTRZYMANIA" ? trimStep : -trimStep);
                 run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Trim, ds.TrimSec, wanted, code, DoseLog.StatusBlocked,
                     $"Chciałbym: {DoseLog.Head(DoseLog.Trim, ds.TrimSec, wanted)}, ale {blockedText}. Dlaczego: {DoseLog.Why(code, run.Ctx)}."));
             }
@@ -422,7 +411,7 @@ public class Phase5DoseService : IPhaseService
     {
         var cause = DoseCause(ds, controller, decision, p, now);
         var stepNote = StepLimitNote(ds, decision, p);
-        var result = await _writer.WriteSettingsAsync(controller, decision.Work, decision.Pause, blower, ct);
+        var result = await _writer.WriteSettingsAsync(run.Entities, controller, decision.Work, decision.Pause, blower, ct);
         if (result.Last != null) SetController(ds, result.Last);
 
         var lines = new List<string>();
@@ -598,7 +587,7 @@ public class Phase5DoseService : IPhaseService
                 ? $"Automat dawki SAM SIĘ WYŁĄCZYŁ: {reason.Text}."
                 : "Automat dawki wyłączony w HA."));
 
-        var restore = await RestoreAsync(ds, controller, noBlowerIncrease, p, ct);
+        var restore = await RestoreAsync(ds, controller, noBlowerIncrease, p, run.Entities, ct);
         foreach (var w in restore.Writes)
         {
             var parameter = w.Register switch
@@ -638,7 +627,7 @@ public class Phase5DoseService : IPhaseService
     private record RestoreOutcome(string Summary, IReadOnlyList<DoseRegisterWrite> Writes);
 
     private async Task<RestoreOutcome> RestoreAsync(DoseState ds, ControllerFeedSettings? controller, bool noBlowerIncrease,
-        HeatingParameters p, CancellationToken ct)
+        HeatingParameters p, DoseEntities entities, CancellationToken ct)
     {
         var none = Array.Empty<DoseRegisterWrite>();
         if (!p.DoseRestoreOnDisable)
@@ -657,7 +646,7 @@ public class Phase5DoseService : IPhaseService
         if (noBlowerIncrease && blower > controller.Blower)
             blower = controller.Blower;
 
-        var result = await _writer.WriteSettingsAsync(controller, work, pause, blower, ct);
+        var result = await _writer.WriteSettingsAsync(entities, controller, work, pause, blower, ct);
         if (result.Last != null) SetController(ds, result.Last);
         return new(result.Confirmed
             ? $"Przywrócone: praca {work} s, postój {pause} s, dmuchawa {blower} % (potwierdzone w mapperze)."
@@ -668,11 +657,11 @@ public class Phase5DoseService : IPhaseService
     private static SafetyIssue? SafetyReason(DoseInputs inputs, DoseState ds, IReadOnlyList<DoseSample> samples,
         DateTime now, HeatingParameters p)
     {
-        if (inputs.Sample.FlueTemp > FlueSelfDisableTemp)
-            return new("SPALINY_200", $"spaliny {inputs.Sample.FlueTemp:F0} °C > {FlueSelfDisableTemp:F0} °C");
+        if (inputs.Sample.FlueTemp > p.DoseFlueMaxTemp)
+            return new("SPALINY_200", $"spaliny {inputs.Sample.FlueTemp:F0} °C > {p.DoseFlueMaxTemp} °C");
 
-        if (p.DoseBoilerColdMinutes > 0 && BoilerCold(samples, now, p.DoseBoilerColdMinutes))
-            return new("KOCIOL_ZIMNY", $"kocioł poniżej nastawy − 10 K od {p.DoseBoilerColdMinutes} min");
+        if (p.DoseBoilerColdMinutes > 0 && BoilerCold(samples, now, p.DoseBoilerColdMinutes, p.DoseBoilerColdK))
+            return new("KOCIOL_ZIMNY", $"kocioł poniżej nastawy − {p.DoseBoilerColdK:0.#} K od {p.DoseBoilerColdMinutes} min");
 
         var boilerStale = TimeSpan.FromMinutes(p.DoseBoilerStaleMinutes);
         if (ds.LastBoilerDataUtc == null || now - ds.LastBoilerDataUtc.Value > boilerStale)
@@ -690,28 +679,28 @@ public class Phase5DoseService : IPhaseService
         return null;
     }
 
-    private static bool BoilerCold(IReadOnlyList<DoseSample> samples, DateTime now, int minutes)
+    private static bool BoilerCold(IReadOnlyList<DoseSample> samples, DateTime now, int minutes, double kelvinBelow)
     {
         var window = TimeSpan.FromMinutes(minutes);
-        return DoseCalculator.BoilerColdFor(samples.Where(s => s.TimestampUtc > now - window).ToList(), window);
+        return DoseCalculator.BoilerColdFor(samples.Where(s => s.TimestampUtc > now - window).ToList(), window, kelvinBelow);
     }
 
     /// <summary>
     /// DoseBoilerColdMinutes = 0: kocioł zimny nie wyłącza automatu, tylko ostrzega - raz na epizod
-    /// (wpis OSTRZEZENIE w dzienniku + Discord), po 60 min poniżej nastawy − 10 K.
+    /// (wpis OSTRZEZENIE w dzienniku + Discord), po DoseBoilerColdWarnMinutes (60) poniżej nastawy − DoseBoilerColdK (10 K).
     /// </summary>
     private async Task WarnBoilerColdAsync(DoseState ds, IReadOnlyList<DoseSample> samples, DateTime now,
         HeatingParameters p, RunLog run, CancellationToken ct)
     {
         if (p.DoseBoilerColdMinutes != 0) return;
-        if (!BoilerCold(samples, now, 60))
+        if (!BoilerCold(samples, now, p.DoseBoilerColdWarnMinutes, p.DoseBoilerColdK))
         {
             ds.BoilerColdWarned = false;
             return;
         }
         if (ds.BoilerColdWarned) return;
         ds.BoilerColdWarned = true;
-        var text = $"kocioł {DoseLog.Number(run.Ctx.BoilerTemp, "0.0")} °C, nastawa {DoseLog.Number(run.Ctx.BoilerSetpoint, "0")} °C - od godziny poniżej nastawy − 10 K " +
+        var text = $"kocioł {DoseLog.Number(run.Ctx.BoilerTemp, "0.0")} °C, nastawa {DoseLog.Number(run.Ctx.BoilerSetpoint, "0")} °C - od {p.DoseBoilerColdWarnMinutes} min poniżej nastawy − {p.DoseBoilerColdK:0.#} K " +
                    $"(spaliny {DoseLog.Number(run.Ctx.FlueTemp, "0")} °C, dmuchawa {DoseLog.Number(run.Ctx.HeatingShare2hPct, "0")} % czasu). " +
                    "Automat zostaje włączony (DoseBoilerColdMinutes = 0).";
         run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "KOCIOL_ZIMNY", DoseLog.StatusWarning, $"Ostrzeżenie: {text}"));
@@ -779,36 +768,38 @@ public class Phase5DoseService : IPhaseService
         run.Notes.Add($"korekta k za {dayText}: {reason}; trym wyzerowany");
     }
 
-    private async Task<DoseInputs> ReadInputsAsync(DateTime now, CancellationToken ct)
+    private async Task<DoseInputs> ReadInputsAsync(DoseEntities e, HeatingParameters p, DateTime now, CancellationToken ct)
     {
-        var outdoorState = await _haClient.GetStateAsync(OutdoorEntityId, ct);
+        var outdoorState = await _haClient.GetStateAsync(e.OutdoorTemp, ct);
         var outdoor = ParseDouble(outdoorState);
 
+        // Średnia w domu z czujników pokoi oznaczonych UseForDoseIndoorMean (u nas 7× BMx280 z modelu).
         var indoorValues = new List<double>();
-        foreach (var id in IndoorEntityIds)
+        var rooms = await _configurationService.GetAllRoomsAsync(ct);
+        foreach (var room in rooms.Where(r => r.UseForDoseIndoorMean && !string.IsNullOrWhiteSpace(r.SensorTemperatureEntityId)))
         {
-            var v = ParseDouble(await _haClient.GetStateAsync(id, ct));
+            var v = ParseDouble(await _haClient.GetStateAsync(room.SensorTemperatureEntityId, ct));
             if (v.HasValue) indoorValues.Add(v.Value);
         }
 
-        var clock = await _haClient.GetStateAsync(ControllerClockEntityId, ct);
-        var counter = await _haClient.GetStateAsync(FeederCounterEntityId, ct);
-        var flueSafety = await _haClient.GetStateAsync(FlueSafetyAutomationEntityId, ct);
+        var clock = await _haClient.GetStateAsync(e.ControllerClock, ct);
+        var counter = await _haClient.GetStateAsync(e.FeederCounter, ct);
+        var flueSafety = string.IsNullOrWhiteSpace(e.FlueSafetyAutomation) ? null : await _haClient.GetStateAsync(e.FlueSafetyAutomation, ct);
 
         var sample = new DoseSample
         {
             TimestampUtc = now,
             OutdoorTemp = outdoor,
-            IndoorTemp = indoorValues.Count >= MinIndoorSensors ? Math.Round(indoorValues.Average(), 2) : null,
-            BoilerTemp = ParseDouble(await _haClient.GetStateAsync(BoilerTempEntityId, ct)),
-            BoilerSetpoint = ParseDouble(await _haClient.GetStateAsync(BoilerSetpointEntityId, ct)),
-            FlueTemp = ParseDouble(await _haClient.GetStateAsync(FlueTempEntityId, ct)),
-            BlowerActual = ParseDouble(await _haClient.GetStateAsync(BlowerActualEntityId, ct)),
+            IndoorTemp = indoorValues.Count >= p.DoseIndoorMinSensors ? Math.Round(indoorValues.Average(), 2) : null,
+            BoilerTemp = ParseDouble(await _haClient.GetStateAsync(e.BoilerTemp, ct)),
+            BoilerSetpoint = ParseDouble(await _haClient.GetStateAsync(e.BoilerSetpoint, ct)),
+            FlueTemp = ParseDouble(await _haClient.GetStateAsync(e.FlueTemp, ct)),
+            BlowerActual = ParseDouble(await _haClient.GetStateAsync(e.BlowerActual, ct)),
             FeederCounterSec = DoseCalculator.ParseFeederCounter(counter?.State),
-            SummerMode = HomeAssistantClient.ParseBoolState((await _haClient.GetStateAsync(SummerSwitchEntityId, ct))?.State)
+            SummerMode = HomeAssistantClient.ParseBoolState((await _haClient.GetStateAsync(e.SummerSwitch, ct))?.State)
         };
 
-        var controllerAuto = HomeAssistantClient.ParseBoolState((await _haClient.GetStateAsync(ModeSwitchEntityId, ct))?.State);
+        var controllerAuto = HomeAssistantClient.ParseBoolState((await _haClient.GetStateAsync(e.ControllerMode, ct))?.State);
 
         return new DoseInputs(
             sample,
@@ -817,6 +808,38 @@ public class Phase5DoseService : IPhaseService
             sample.SummerMode,
             controllerAuto,
             ParseLastTriggered(flueSafety));
+    }
+
+    /// <summary>
+    /// Błędna konfiguracja encji (SystemConfiguration): faza nic nie czyta ani nie zapisuje i zgłasza
+    /// błąd. Gdy automat był włączony - wyłącza go (bez przywracania: nie wiadomo, gdzie pisać) i pisze
+    /// do dziennika i na Discord.
+    /// </summary>
+    private async Task<PhaseResult> ConfigurationErrorAsync(List<string> errors, DateTime now, DateTime startTime, CancellationToken ct)
+    {
+        var text = $"błędna konfiguracja encji Fazy 5: {string.Join("; ", errors)}";
+        _logger.LogError("Faza 5: {Text}", text);
+        var ds = await _repository.GetStateAsync(ct) ?? new DoseState();
+        var automat = await _repository.GetAutomatSwitchAsync(ct);
+        if (automat.Enabled || ds.AutomatActive)
+        {
+            await _repository.SetAutomatSwitchAsync(false, "Faza5: konfiguracja", ct);
+            var ctx = new DoseLogContext { NowUtc = now, AutomatActive = ds.AutomatActive };
+            await _repository.AddChangeLogAsync(new[]
+            {
+                DoseLog.Entry(ctx, DoseLog.Automat, 1, 0, "SAMOWYLACZENIE_KONFIGURACJA", DoseLog.StatusInternal,
+                    $"Automat dawki SAM SIĘ WYŁĄCZYŁ: {text}. Nastaw nie przywracam - sprawdź przy kotle " +
+                    $"(zapamiętane: {ds.SavedWork}/{ds.SavedPause} s, dmuchawa {ds.SavedBlower} %).")
+            }, ct);
+            ds.AutomatActive = false;
+            ds.LastSelfDisableReason = Truncate(text, 500);
+            ds.LastSelfDisableUtc = now;
+            ds.LastReason = Truncate(text, 1000);
+            await _repository.SaveStateAsync(ds, ct);
+            await _notifier.NotifyAsync("HeatFlow: automat dawki SAM SIĘ WYŁĄCZYŁ", $"{text}. Nastaw nie przywróciłem - sprawdź przy kotle.", ct);
+        }
+
+        return PhaseResult.ErrorResult(PhaseNumber, text, (long)(DateTime.UtcNow - startTime).TotalMilliseconds);
     }
 
     private static bool IsValid(EntityState? state)

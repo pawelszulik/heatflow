@@ -36,18 +36,53 @@ public class SystemConfiguration
     public string Mixer4DPositionEntityId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Encja Home Assistant dla temperatury zadanej kotła (opcjonalne).
-    /// Jeśli puste, system zbuduje nazwę automatycznie: number.ekopiec_{device_sn}_kot_tzad
-    /// Przykład: "number.ekopiec_ABC123_kot_tzad"
+    /// Encja HA z temperaturą kotła (Faza 5 „Dawka”: trym, ostrzeżenie „kocioł zimny”).
+    /// U nas: sensor.kociol_temperatura_kotla.
     /// </summary>
     public string? BoilerTempEntityId { get; set; }
 
+    // ---- Faza 5 „Dawka”: encje HA (wartości u nas - seed w ConfigurationSeed.DoseEntityDefaults
+    // i migracji AddDosePhase). Pusta = Faza 5 nie działa i pisze, czego brakuje. ----
+
+    /// <summary>Temperatura zewnętrzna do dawki (czujnik ogrodowy, nie weather.*).</summary>
+    public string DoseOutdoorTempEntityId { get; set; } = string.Empty;
+
+    /// <summary>Temperatura zadana kotła (tylko odczyt - Faza 5 jej nie zmienia).</summary>
+    public string DoseBoilerSetpointEntityId { get; set; } = string.Empty;
+
+    public string DoseFlueTempEntityId { get; set; } = string.Empty;
+
+    /// <summary>Aktualna moc dmuchawy (&gt; 0 = kocioł grzeje).</summary>
+    public string DoseBlowerActualEntityId { get; set; } = string.Empty;
+
+    /// <summary>Licznik czasu pracy podajnika od zasypu (format „30m,034s”).</summary>
+    public string DoseFeederCounterEntityId { get; set; } = string.Empty;
+
+    /// <summary>Przełącznik zima/lato kotła (on = lato).</summary>
+    public string DoseSummerSwitchEntityId { get; set; } = string.Empty;
+
+    /// <summary>Tryb pracy sterownika (on = Auto, off = ręczny).</summary>
+    public string DoseControllerModeEntityId { get; set; } = string.Empty;
+
+    /// <summary>Zegar sterownika - jego last_updated mówi, czy dane kotła są świeże.</summary>
+    public string DoseControllerClockEntityId { get; set; } = string.Empty;
+
+    /// <summary>Automatyzacja HA „bezpiecznik spalin” (#24) - po jej zadziałaniu dmuchawa nie rośnie.</summary>
+    public string DoseFlueSafetyAutomationEntityId { get; set; } = string.Empty;
+
     /// <summary>
-    /// Encja Home Assistant dla czasu pracy podajnika (opcjonalne).
-    /// Jeśli puste, system zbuduje nazwę automatycznie: number.ekopiec_{device_sn}_p_pod_on
-    /// Przykład: "number.ekopiec_ABC123_p_pod_on"
+    /// Trzy jedyne encje, które Faza 5 zapisuje (number.set_value). Muszą być number.* i różne od
+    /// nastawy kotła - inaczej Faza 5 odmawia zapisu.
     /// </summary>
-    public string? FeederTimeEntityId { get; set; }
+    public string DoseFeederWorkEntityId { get; set; } = string.Empty;
+    public string DoseFeederPauseEntityId { get; set; } = string.Empty;
+    public string DoseBlowerEntityId { get; set; } = string.Empty;
+
+    /// <summary>Usługa HA do powiadomień Fazy 5 (notify.&lt;ta nazwa&gt;), u nas homeintegrator = Discord.</summary>
+    public string DoseNotifyService { get; set; } = string.Empty;
+
+    /// <summary>Cel powiadomień (kanał Discorda) - ten sam, co alarmy kotła w automatyzacjach HA.</summary>
+    public string DoseNotifyTarget { get; set; } = string.Empty;
 
     /// <summary>
     /// Czy system grzania jest włączony.

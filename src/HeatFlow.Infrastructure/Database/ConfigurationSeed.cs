@@ -107,22 +107,8 @@ public static class ConfigurationSeed
             // Parametry pieca
             MinReturnTemp = 45.0,
             BoilerNominalTemp = 70.0,
-            FrostCompensationFactor = 0.5,
-            Mixer4DDefault = 50.0,
-            FeederTimeDefault = 30.0,
-            FeederBoostMultiplier = 1.2,
-            FeederEconomyMultiplier = 0.8,
-            FeederNormalMultiplier = 1.0,
-            FeederBoostThreshold = 5,
-            FeederEconomyThreshold = 2,
-            BoilerTempTolerance = 0.5,
-            FeederTimeTolerance = 1.0,
-            BoilerRetryCount = 3,
-            BoilerRetryDelay = 1.0,
 
             // Parametry bezpieczeństwa
-            MinTempDiff = 20.0,
-            MinMixer4D = 20.0,
             Hysteresis = 0.5,
             HysteresisSafetyThreshold = 2.0,
             TempValidationMin = 0.0,
@@ -130,27 +116,54 @@ public static class ConfigurationSeed
         };
     }
 
+    /// <summary>Pokoje, których czujniki (7× BMx280 pod sufitem) były podstawą modelu dawki (analiza § 2).</summary>
+    public static readonly string[] DoseIndoorMeanRooms =
+        { "kuchnia", "salon", "spizarnia", "suszarnia", "edyta", "hol", "przejsciowy" };
+
+    /// <summary>
+    /// Encje HA Fazy 5 „Dawka” u nas (integracja ekoPiec „kociol_*”, czujnik ogrodowy, automatyzacja #24)
+    /// i kanał powiadomień. Te same wartości wpisuje migracja AddDosePhase do istniejącego wiersza.
+    /// </summary>
+    public static SystemConfiguration DoseEntityDefaults(SystemConfiguration c)
+    {
+        c.BoilerTempEntityId ??= "sensor.kociol_temperatura_kotla";
+        c.DoseOutdoorTempEntityId = "sensor.temperatura_ogrod_temperature";
+        c.DoseBoilerSetpointEntityId = "number.kociol_temperatura_zadana_kotla";
+        c.DoseFlueTempEntityId = "sensor.kociol_temperatura_spalin";
+        c.DoseBlowerActualEntityId = "sensor.kociol_aktualna_moc_dmuchawy";
+        c.DoseFeederCounterEntityId = "sensor.kociol_czas_pracy_podajnika_2";
+        c.DoseSummerSwitchEntityId = "switch.kociol_tryb_zima_lato";
+        c.DoseControllerModeEntityId = "switch.kociol_tryb_pracy";
+        c.DoseControllerClockEntityId = "sensor.kociol_aktualna_data";
+        c.DoseFlueSafetyAutomationEntityId = "automation.kociol_bezpiecznik_spalin_dmuchawa_na_minimum";
+        c.DoseFeederWorkEntityId = "number.kociol_czas_pracy_podajnika";
+        c.DoseFeederPauseEntityId = "number.kociol_czas_postoju_podajnika";
+        c.DoseBlowerEntityId = "number.kociol_moc_dmuchawy";
+        c.DoseNotifyService = "homeintegrator";
+        c.DoseNotifyTarget = "1458898223593689120";
+        return c;
+    }
+
     private static SystemConfiguration CreateDefaultSystemConfiguration()
     {
-        return new SystemConfiguration
+        return DoseEntityDefaults(new SystemConfiguration
         {
             Id = 1,
             RoomsList = "sypialnia,lazienka,edyta,przejsciowy,hol,balkonowy,grzes,garaz,kuchnia,salon,jadalnia,suszarnia,spizarnia,sien,toaleta",
             EkoPiecDeviceSn = "ABC", // Użytkownik musi dostosować do swojego pieca
             TempReturnEntityId = "sensor.kociol_temperatura_powrotu",
             Mixer4DPositionEntityId = "sensor.kociol_pozycja_zaworu_4d",
-            BoilerTempEntityId = "sensor.kociol_temperatura_kotla", // Opcjonalne - jeśli różni się od standardowej
-            FeederTimeEntityId = null, // Zostanie zbudowane automatycznie
+            BoilerTempEntityId = "sensor.kociol_temperatura_kotla",
             SystemEnabled = true,
             Latitude = 50.13050002204031, // Użytkownik musi ustawić współrzędne geograficzne
             Longitude = 18.641279186369157 // Użytkownik musi ustawić współrzędne geograficzne
-        };
+        });
     }
 
     private static List<RoomConfiguration> CreateDefaultRoomConfigurations()
     {
         // Wartości pochodzą z inputs/*.yaml (wartości initial)
-        return new List<RoomConfiguration>
+        var rooms = new List<RoomConfiguration>
         {
             new RoomConfiguration { Name = "sypialnia", TempTarget = 27.0, TempTargetActive = 23.0, TempTargetInactive = 21.0, Priority = 1, Sensitive = true, AutomationDisabled = false, UsageSchedule = "21:00-04:00|21:00-04:00", HeatingSchedule = "21:00-04:00|21:00-04:00", SensorTemperatureEntityId = "sensor.sypialnia_czujnik_bm280_sypialnia_bmx280_temperature", ValveEntityId = "climate.avatto_zigbee_smart_trv_2" },
             new RoomConfiguration { Name = "lazienka", TempTarget = 24.0, TempTargetActive = 24.0, TempTargetInactive = 21.0, Priority = 1, Sensitive = true, AutomationDisabled = false, UsageSchedule = "18:00-22:00|19:00-21:00", HeatingSchedule = "06:30-07:30,18:00-22:00|08:00-09:00,19:00-21:00", SensorTemperatureEntityId = "sensor.lazienka_czujnik_dht_lazienka_temperature", ValveEntityId = "climate.zigbee_smart_trv" },
@@ -168,5 +181,7 @@ public static class ConfigurationSeed
             new RoomConfiguration { Name = "sien", TempTarget = 18.0, TempTargetActive = 17.0, TempTargetInactive = 15.0, Priority = 4, Sensitive = false, AutomationDisabled = false, UsageSchedule = "Brak", HeatingSchedule = "Brak", SensorTemperatureEntityId = "climate.zigbee_smart_trv_2", ValveEntityId = "climate.zigbee_smart_trv_2" },
             new RoomConfiguration { Name = "toaleta", TempTarget = 19.0, TempTargetActive = 22.0, TempTargetInactive = 20.0, Priority = 3, Sensitive = false, AutomationDisabled = false, UsageSchedule = "07:00-08:00,15:00-17:00,18:00-19:00|07:00-08:00,12:00-15:00,18:00-19:00", HeatingSchedule = "07:00-08:00,15:00-17:00,18:00-19:00|07:00-08:00,12:00-15:00,18:00-19:00", SensorTemperatureEntityId = "climate.zigbee_smart_trv_5", ValveEntityId = "climate.zigbee_smart_trv_5" }
         };
+        foreach (var room in rooms) room.UseForDoseIndoorMean = DoseIndoorMeanRooms.Contains(room.Name);
+        return rooms;
     }
 }

@@ -231,22 +231,8 @@ public class ConfigurationService : IConfigurationService
             // Parametry pieca
             MinReturnTemp = 45.0,
             BoilerNominalTemp = 70.0,
-            FrostCompensationFactor = 0.5,
-            Mixer4DDefault = 50.0,
-            FeederTimeDefault = 30.0,
-            FeederBoostMultiplier = 1.2,
-            FeederEconomyMultiplier = 0.8,
-            FeederNormalMultiplier = 1.0,
-            FeederBoostThreshold = 5,
-            FeederEconomyThreshold = 2,
-            BoilerTempTolerance = 0.5,
-            FeederTimeTolerance = 1.0,
-            BoilerRetryCount = 3,
-            BoilerRetryDelay = 1.0,
 
             // Parametry bezpieczeństwa
-            MinTempDiff = 20.0,
-            MinMixer4D = 20.0,
             Hysteresis = 0.5,
             HysteresisSafetyThreshold = 2.0,
             TempValidationMin = 0.0,
@@ -264,7 +250,6 @@ public class ConfigurationService : IConfigurationService
             TempReturnEntityId = "sensor.temp_return",
             Mixer4DPositionEntityId = "sensor.mixer_4d_position",
             BoilerTempEntityId = null,
-            FeederTimeEntityId = null,
             SystemEnabled = true
         };
     }

@@ -1,3 +1,4 @@
+using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.HomeAssistant;
 using Microsoft.Extensions.Logging;
 
@@ -10,30 +11,38 @@ public interface IDoseNotifier
 }
 
 /// <summary>
-/// Discord przez usługę HA notify.homeintegrator - ten sam kanał (target) co automatyzacje
-/// kotła w HA (vm100-homeassistant-grafana.md § 6). Błąd wysyłki nie przerywa fazy.
+/// Powiadomienie przez usługę HA notify.&lt;DoseNotifyService&gt; z celem DoseNotifyTarget - oba z
+/// SystemConfiguration (u nas homeintegrator = Discord, ten sam kanał co alarmy kotła w HA).
+/// Brak konfiguracji = ostrzeżenie w logu, nic nie wysyła. Błąd wysyłki nie przerywa fazy.
 /// </summary>
 public class HomeAssistantDiscordNotifier : IDoseNotifier
 {
-    private const string NotifyService = "homeintegrator";
-    private const string DiscordTarget = "1458898223593689120";
-
     private readonly IHomeAssistantClient _haClient;
+    private readonly IConfigurationService _configurationService;
     private readonly ILogger<HomeAssistantDiscordNotifier> _logger;
 
-    public HomeAssistantDiscordNotifier(IHomeAssistantClient haClient, ILogger<HomeAssistantDiscordNotifier> logger)
+    public HomeAssistantDiscordNotifier(IHomeAssistantClient haClient, IConfigurationService configurationService,
+        ILogger<HomeAssistantDiscordNotifier> logger)
     {
         _haClient = haClient;
+        _configurationService = configurationService;
         _logger = logger;
     }
 
     public async Task NotifyAsync(string title, string message, CancellationToken cancellationToken = default)
     {
-        var ok = await _haClient.CallServiceAsync("notify", NotifyService,
-            new { target = DiscordTarget, title, message }, cancellationToken);
+        var config = await _configurationService.GetSystemConfigurationAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(config.DoseNotifyService) || string.IsNullOrWhiteSpace(config.DoseNotifyTarget))
+        {
+            _logger.LogWarning("Faza 5: brak DoseNotifyService/DoseNotifyTarget w SystemConfiguration - nie wysyłam: {Title}", title);
+            return;
+        }
+
+        var ok = await _haClient.CallServiceAsync("notify", config.DoseNotifyService,
+            new { target = config.DoseNotifyTarget, title, message }, cancellationToken);
         if (!ok)
         {
-            _logger.LogWarning("Faza 5: nie udało się wysłać powiadomienia na Discord: {Title}", title);
+            _logger.LogWarning("Faza 5: nie udało się wysłać powiadomienia: {Title}", title);
         }
     }
 }

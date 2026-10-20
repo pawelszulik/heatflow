@@ -34,6 +34,9 @@ public sealed class SimController : IEsterownikMapperClient
     public List<(DateTime Utc, string Entity, int Value)> History { get; } = new();
     public Func<DateTime> Now { get; set; } = () => DateTime.UtcNow;
 
+    /// <summary>Encje, które sterownik „ma” (zapis do innej = wyjątek).</summary>
+    public DoseEntities Entities { get; set; } = SimDefaults.Entities;
+
     public Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(Down ? null : Settings);
 
@@ -41,13 +44,10 @@ public sealed class SimController : IEsterownikMapperClient
     {
         if (DropWrites) { DroppedWrites++; return true; }
         if (DropNextWrites > 0) { DropNextWrites--; DroppedWrites++; return true; }
-        Settings = entity switch
-        {
-            DoseControllerWriter.WorkEntityId => Settings with { FeederWork = value },
-            DoseControllerWriter.PauseEntityId => Settings with { FeederPause = value },
-            DoseControllerWriter.BlowerEntityId => Settings with { Blower = value },
-            _ => throw new InvalidOperationException($"Faza 5 próbowała zapisać niedozwoloną encję {entity}")
-        };
+        if (entity == Entities.FeederWork) Settings = Settings with { FeederWork = value };
+        else if (entity == Entities.FeederPause) Settings = Settings with { FeederPause = value };
+        else if (entity == Entities.Blower) Settings = Settings with { Blower = value };
+        else throw new InvalidOperationException($"Faza 5 próbowała zapisać niedozwoloną encję {entity}");
         History.Add((Now(), entity, value));
         return true;
     }
@@ -203,10 +203,14 @@ public sealed class SimConfigurationService : IConfigurationService
     public Task UpdateHeatingParametersAsync(HeatingParameters parameters, CancellationToken cancellationToken = default)
         => SaveHeatingParametersAsync(parameters, cancellationToken);
 
-    public Task<List<RoomConfiguration>> GetAllRoomsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<RoomConfiguration>());
-    public Task<RoomConfiguration?> GetRoomAsync(string roomName, CancellationToken cancellationToken = default) => Task.FromResult<RoomConfiguration?>(null);
+    public SystemConfiguration System { get; set; } = SimDefaults.SystemConfiguration();
+    public List<RoomConfiguration> Rooms { get; set; } = SimDefaults.IndoorRooms();
+
+    public Task<List<RoomConfiguration>> GetAllRoomsAsync(CancellationToken cancellationToken = default) => Task.FromResult(Rooms);
+    public Task<RoomConfiguration?> GetRoomAsync(string roomName, CancellationToken cancellationToken = default)
+        => Task.FromResult(Rooms.FirstOrDefault(r => r.Name == roomName));
     public Task SaveRoomAsync(RoomConfiguration roomConfig, CancellationToken cancellationToken = default) => Task.CompletedTask;
-    public Task<SystemConfiguration> GetSystemConfigurationAsync(CancellationToken cancellationToken = default) => Task.FromResult(new SystemConfiguration());
+    public Task<SystemConfiguration> GetSystemConfigurationAsync(CancellationToken cancellationToken = default) => Task.FromResult(System);
     public Task SaveSystemConfigurationAsync(SystemConfiguration systemConfig, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 

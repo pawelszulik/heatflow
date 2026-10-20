@@ -53,30 +53,31 @@ public sealed class DoseHarness
     }
 
     public HeatingParameters Parameters => Config.Parameters;
+    public DoseEntities Entities => DoseEntities.From(Config.System);
 
     /// <summary>Wystawia odczyty w HA z last_updated = <paramref name="updatedUtc"/> (dla brakujących - niedostępne).</summary>
     public void Publish(DoseInputsSnapshot s, DateTime updatedUtc)
     {
-        Ha.Set(Phase5DoseService.OutdoorEntityId, s.Outdoor, updatedUtc);
-        foreach (var id in Phase5DoseService.IndoorEntityIds) Ha.Set(id, s.Indoor, updatedUtc);
-        Ha.Set(Phase5DoseService.BoilerTempEntityId, s.Boiler, updatedUtc);
-        Ha.Set(Phase5DoseService.BoilerSetpointEntityId, s.Setpoint, updatedUtc);
-        Ha.Set(Phase5DoseService.FlueTempEntityId, s.Flue, updatedUtc);
-        Ha.Set(Phase5DoseService.BlowerActualEntityId, s.BlowerActual, updatedUtc);
-        Ha.Set(Phase5DoseService.FeederCounterEntityId,
-            s.FeederCounterSec is { } c ? $"{c / 60}m,{c % 60:000}s" : null, updatedUtc);
-        Ha.Set(Phase5DoseService.SummerSwitchEntityId, s.Summer is { } su ? (su ? "on" : "off") : null, updatedUtc);
-        Ha.Set(Phase5DoseService.ModeSwitchEntityId, s.ControllerAuto is { } a ? (a ? "on" : "off") : null, updatedUtc);
+        var e = Entities;
+        Ha.Set(e.OutdoorTemp, s.Outdoor, updatedUtc);
+        foreach (var room in Config.Rooms.Where(r => r.UseForDoseIndoorMean)) Ha.Set(room.SensorTemperatureEntityId, s.Indoor, updatedUtc);
+        Ha.Set(e.BoilerTemp, s.Boiler, updatedUtc);
+        Ha.Set(e.BoilerSetpoint, s.Setpoint, updatedUtc);
+        Ha.Set(e.FlueTemp, s.Flue, updatedUtc);
+        Ha.Set(e.BlowerActual, s.BlowerActual, updatedUtc);
+        Ha.Set(e.FeederCounter, s.FeederCounterSec is { } c ? $"{c / 60}m,{c % 60:000}s" : null, updatedUtc);
+        Ha.Set(e.SummerSwitch, s.Summer is { } su ? (su ? "on" : "off") : null, updatedUtc);
+        Ha.Set(e.ControllerMode, s.ControllerAuto is { } a ? (a ? "on" : "off") : null, updatedUtc);
         if (s.BoilerDataFresh)
-            Ha.Set(Phase5DoseService.ControllerClockEntityId, updatedUtc.ToString("O"), updatedUtc);
+            Ha.Set(e.ControllerClock, updatedUtc.ToString("O"), updatedUtc);
         else
-            Ha.Set(Phase5DoseService.ControllerClockEntityId, (string?)null, updatedUtc);
+            Ha.Set(e.ControllerClock, (string?)null, updatedUtc);
     }
 
     public Task<Core.Phases.PhaseResult> StepAsync(DateTime utc, ForecastData? forecast)
     {
         Clock.UtcNow = utc;
-        return Phase.ExecuteAsync(new HeatingState { CurrentTime = utc, Forecast = forecast }, Parameters);
+        return Phase.ExecuteAsync(new HeatingState { CurrentTime = utc, Forecast = forecast, SystemConfiguration = Config.System }, Parameters);
     }
 
     /// <summary>„Idealna prognoza”: faktyczna Tz z kolejnych godzin.</summary>

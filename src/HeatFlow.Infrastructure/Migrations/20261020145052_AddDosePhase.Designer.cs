@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HeatFlow.Infrastructure.Migrations
 {
     [DbContext(typeof(HeatFlowDbContext))]
-    [Migration("20261020105434_AddDosePhase")]
+    [Migration("20261020145052_AddDosePhase")]
     partial class AddDosePhase
     {
         /// <inheritdoc />
@@ -547,15 +547,6 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("BoilerNominalTemp")
                         .HasColumnType("decimal(5,2)");
 
-                    b.Property<int>("BoilerRetryCount")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("BoilerRetryDelay")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal>("BoilerTempTolerance")
-                        .HasColumnType("decimal(5,2)");
-
                     b.Property<int>("BufferHeatingTime")
                         .HasColumnType("int");
 
@@ -583,10 +574,37 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("DeficitHighP3Base")
                         .HasColumnType("decimal(5,2)");
 
+                    b.Property<decimal>("DoseBlowerLowDuty")
+                        .HasColumnType("decimal(6,4)");
+
+                    b.Property<decimal>("DoseBoilerColdK")
+                        .HasColumnType("decimal(5,2)");
+
                     b.Property<int>("DoseBoilerColdMinutes")
                         .HasColumnType("int");
 
+                    b.Property<int>("DoseBoilerColdWarnMinutes")
+                        .HasColumnType("int");
+
                     b.Property<int>("DoseBoilerStaleMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("DoseCeilingDayHeatingHours")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<int>("DoseFlueBlowerCutPct")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseFlueMaxTemp")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseFlueNoRaiseTemp")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseFlueSafetyHoldHours")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseIndoorMinSensors")
                         .HasColumnType("int");
 
                     b.Property<int>("DoseOutdoorStaleMinutes")
@@ -595,11 +613,41 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<bool>("DoseRestoreOnDisable")
                         .HasColumnType("bit");
 
+                    b.Property<int>("DoseTrimLimitSec")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseTrimStandbyEntries")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseTrimStandbyHours")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseTrimStepSec")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseTrimUnderpowerHours")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("DoseTrimUnderpowerK")
+                        .HasColumnType("decimal(5,2)");
+
                     b.Property<decimal>("FeedCorrectionK")
                         .HasColumnType("decimal(5,3)");
 
                     b.Property<int>("FeedDeadbandSec")
                         .HasColumnType("int");
+
+                    b.Property<decimal>("FeedKGain")
+                        .HasColumnType("decimal(5,3)");
+
+                    b.Property<decimal>("FeedKMax")
+                        .HasColumnType("decimal(5,3)");
+
+                    b.Property<decimal>("FeedKMaxStep")
+                        .HasColumnType("decimal(5,3)");
+
+                    b.Property<decimal>("FeedKMin")
+                        .HasColumnType("decimal(5,3)");
 
                     b.Property<int>("FeedMaxStepSec")
                         .HasColumnType("int");
@@ -622,32 +670,11 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int>("FeedWorkUpHysteresisSec")
                         .HasColumnType("int");
 
-                    b.Property<decimal>("FeederBoostMultiplier")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<int>("FeederBoostThreshold")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("FeederEconomyMultiplier")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<int>("FeederEconomyThreshold")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("FeederNormalMultiplier")
-                        .HasColumnType("decimal(5,2)");
-
                     b.Property<int>("FeederPauseMax")
                         .HasColumnType("int");
 
                     b.Property<int>("FeederPauseMin")
                         .HasColumnType("int");
-
-                    b.Property<decimal>("FeederTimeDefault")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal>("FeederTimeTolerance")
-                        .HasColumnType("decimal(5,2)");
 
                     b.Property<int>("FeederWorkMax")
                         .HasColumnType("int");
@@ -688,9 +715,6 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("ForecastTempRiseThreshold")
                         .HasColumnType("decimal(5,2)");
 
-                    b.Property<decimal>("FrostCompensationFactor")
-                        .HasColumnType("decimal(5,2)");
-
                     b.Property<decimal>("HouseCapacity")
                         .HasColumnType("decimal(8,2)");
 
@@ -709,20 +733,11 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int>("MinDwellMinutes")
                         .HasColumnType("int");
 
-                    b.Property<decimal>("MinMixer4D")
-                        .HasColumnType("decimal(5,2)");
-
                     b.Property<decimal>("MinReturnTemp")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<decimal>("MinTempDiff")
                         .HasColumnType("decimal(5,2)");
 
                     b.Property<int>("MinValvesOpen")
                         .HasColumnType("int");
-
-                    b.Property<decimal>("Mixer4DDefault")
-                        .HasColumnType("decimal(5,2)");
 
                     b.Property<int>("ScoreDeficitMultiplier")
                         .HasColumnType("int");
@@ -812,6 +827,9 @@ namespace HeatFlow.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("UseForDoseIndoorMean")
+                        .HasColumnType("bit");
 
                     b.Property<string>("ValveEntityId")
                         .IsRequired()
@@ -935,14 +953,80 @@ namespace HeatFlow.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("DoseBlowerActualEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseBlowerEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseBoilerSetpointEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseControllerClockEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseControllerModeEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseFeederCounterEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseFeederPauseEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseFeederWorkEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseFlueSafetyAutomationEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseFlueTempEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseNotifyService")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseNotifyTarget")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseOutdoorTempEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseSummerSwitchEntityId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("EkoPiecDeviceSn")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("FeederTimeEntityId")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<decimal>("Latitude")
                         .HasColumnType("decimal(9,6)");

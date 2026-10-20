@@ -72,6 +72,25 @@ public class HeatingParametersEntity
     public int FeedDeadbandSec { get; set; } = 15;
     public int FeedMaxStepSec { get; set; } = 20;
     public int FeedWorkUpHysteresisSec { get; set; } = 130;
+    public int DoseIndoorMinSensors { get; set; } = 5;
+    public int DoseFlueNoRaiseTemp { get; set; } = 185;
+    public int DoseFlueMaxTemp { get; set; } = 200;
+    public int DoseFlueBlowerCutPct { get; set; } = 2;
+    public int DoseFlueSafetyHoldHours { get; set; } = 6;
+    public double DoseTrimUnderpowerK { get; set; } = 3.0;
+    public int DoseTrimUnderpowerHours { get; set; } = 2;
+    public int DoseTrimStandbyEntries { get; set; } = 2;
+    public int DoseTrimStandbyHours { get; set; } = 6;
+    public int DoseTrimStepSec { get; set; } = 20;
+    public int DoseTrimLimitSec { get; set; } = 60;
+    public double DoseBoilerColdK { get; set; } = 10.0;
+    public int DoseBoilerColdWarnMinutes { get; set; } = 60;
+    public double FeedKGain { get; set; } = 0.3;
+    public double FeedKMaxStep { get; set; } = 0.05;
+    public double FeedKMin { get; set; } = 0.6;
+    public double FeedKMax { get; set; } = 1.3;
+    public double DoseCeilingDayHeatingHours { get; set; } = 22.5;
+    public double DoseBlowerLowDuty { get; set; } = 0.034;
     public bool DoseRestoreOnDisable { get; set; } = true;
     public int DoseBoilerColdMinutes { get; set; }
     public int DoseBoilerStaleMinutes { get; set; } = 30;
@@ -85,22 +104,8 @@ public class HeatingParametersEntity
     // Parametry pieca
     public double MinReturnTemp { get; set; }
     public double BoilerNominalTemp { get; set; }
-    public double FrostCompensationFactor { get; set; }
-    public double Mixer4DDefault { get; set; }
-    public double FeederTimeDefault { get; set; }
-    public double FeederBoostMultiplier { get; set; }
-    public double FeederEconomyMultiplier { get; set; }
-    public double FeederNormalMultiplier { get; set; }
-    public int FeederBoostThreshold { get; set; }
-    public int FeederEconomyThreshold { get; set; }
-    public double BoilerTempTolerance { get; set; }
-    public double FeederTimeTolerance { get; set; }
-    public int BoilerRetryCount { get; set; }
-    public double BoilerRetryDelay { get; set; }
 
     // Parametry bezpieczeństwa
-    public double MinTempDiff { get; set; }
-    public double MinMixer4D { get; set; }
     public double Hysteresis { get; set; }
     public double HysteresisSafetyThreshold { get; set; }
     public double TempValidationMin { get; set; }
@@ -167,6 +172,25 @@ public class HeatingParametersEntity
             FeedDeadbandSec = FeedDeadbandSec,
             FeedMaxStepSec = FeedMaxStepSec,
             FeedWorkUpHysteresisSec = FeedWorkUpHysteresisSec,
+            DoseIndoorMinSensors = DoseIndoorMinSensors,
+            DoseFlueNoRaiseTemp = DoseFlueNoRaiseTemp,
+            DoseFlueMaxTemp = DoseFlueMaxTemp,
+            DoseFlueBlowerCutPct = DoseFlueBlowerCutPct,
+            DoseFlueSafetyHoldHours = DoseFlueSafetyHoldHours,
+            DoseTrimUnderpowerK = DoseTrimUnderpowerK,
+            DoseTrimUnderpowerHours = DoseTrimUnderpowerHours,
+            DoseTrimStandbyEntries = DoseTrimStandbyEntries,
+            DoseTrimStandbyHours = DoseTrimStandbyHours,
+            DoseTrimStepSec = DoseTrimStepSec,
+            DoseTrimLimitSec = DoseTrimLimitSec,
+            DoseBoilerColdK = DoseBoilerColdK,
+            DoseBoilerColdWarnMinutes = DoseBoilerColdWarnMinutes,
+            FeedKGain = FeedKGain,
+            FeedKMaxStep = FeedKMaxStep,
+            FeedKMin = FeedKMin,
+            FeedKMax = FeedKMax,
+            DoseCeilingDayHeatingHours = DoseCeilingDayHeatingHours,
+            DoseBlowerLowDuty = DoseBlowerLowDuty,
             DoseRestoreOnDisable = DoseRestoreOnDisable,
             DoseBoilerColdMinutes = DoseBoilerColdMinutes,
             DoseBoilerStaleMinutes = DoseBoilerStaleMinutes,
@@ -176,20 +200,6 @@ public class HeatingParametersEntity
             ValveRetryDelay = ValveRetryDelay,
             MinReturnTemp = MinReturnTemp,
             BoilerNominalTemp = BoilerNominalTemp,
-            FrostCompensationFactor = FrostCompensationFactor,
-            Mixer4DDefault = Mixer4DDefault,
-            FeederTimeDefault = FeederTimeDefault,
-            FeederBoostMultiplier = FeederBoostMultiplier,
-            FeederEconomyMultiplier = FeederEconomyMultiplier,
-            FeederNormalMultiplier = FeederNormalMultiplier,
-            FeederBoostThreshold = FeederBoostThreshold,
-            FeederEconomyThreshold = FeederEconomyThreshold,
-            BoilerTempTolerance = BoilerTempTolerance,
-            FeederTimeTolerance = FeederTimeTolerance,
-            BoilerRetryCount = BoilerRetryCount,
-            BoilerRetryDelay = BoilerRetryDelay,
-            MinTempDiff = MinTempDiff,
-            MinMixer4D = MinMixer4D,
             Hysteresis = Hysteresis,
             HysteresisSafetyThreshold = HysteresisSafetyThreshold,
             TempValidationMin = TempValidationMin,
@@ -251,6 +261,25 @@ public class HeatingParametersEntity
         FeedDeadbandSec = parameters.FeedDeadbandSec;
         FeedMaxStepSec = parameters.FeedMaxStepSec;
         FeedWorkUpHysteresisSec = parameters.FeedWorkUpHysteresisSec;
+        DoseIndoorMinSensors = parameters.DoseIndoorMinSensors;
+        DoseFlueNoRaiseTemp = parameters.DoseFlueNoRaiseTemp;
+        DoseFlueMaxTemp = parameters.DoseFlueMaxTemp;
+        DoseFlueBlowerCutPct = parameters.DoseFlueBlowerCutPct;
+        DoseFlueSafetyHoldHours = parameters.DoseFlueSafetyHoldHours;
+        DoseTrimUnderpowerK = parameters.DoseTrimUnderpowerK;
+        DoseTrimUnderpowerHours = parameters.DoseTrimUnderpowerHours;
+        DoseTrimStandbyEntries = parameters.DoseTrimStandbyEntries;
+        DoseTrimStandbyHours = parameters.DoseTrimStandbyHours;
+        DoseTrimStepSec = parameters.DoseTrimStepSec;
+        DoseTrimLimitSec = parameters.DoseTrimLimitSec;
+        DoseBoilerColdK = parameters.DoseBoilerColdK;
+        DoseBoilerColdWarnMinutes = parameters.DoseBoilerColdWarnMinutes;
+        FeedKGain = parameters.FeedKGain;
+        FeedKMaxStep = parameters.FeedKMaxStep;
+        FeedKMin = parameters.FeedKMin;
+        FeedKMax = parameters.FeedKMax;
+        DoseCeilingDayHeatingHours = parameters.DoseCeilingDayHeatingHours;
+        DoseBlowerLowDuty = parameters.DoseBlowerLowDuty;
         DoseRestoreOnDisable = parameters.DoseRestoreOnDisable;
         DoseBoilerColdMinutes = parameters.DoseBoilerColdMinutes;
         DoseBoilerStaleMinutes = parameters.DoseBoilerStaleMinutes;
@@ -260,20 +289,6 @@ public class HeatingParametersEntity
         ValveRetryDelay = parameters.ValveRetryDelay;
         MinReturnTemp = parameters.MinReturnTemp;
         BoilerNominalTemp = parameters.BoilerNominalTemp;
-        FrostCompensationFactor = parameters.FrostCompensationFactor;
-        Mixer4DDefault = parameters.Mixer4DDefault;
-        FeederTimeDefault = parameters.FeederTimeDefault;
-        FeederBoostMultiplier = parameters.FeederBoostMultiplier;
-        FeederEconomyMultiplier = parameters.FeederEconomyMultiplier;
-        FeederNormalMultiplier = parameters.FeederNormalMultiplier;
-        FeederBoostThreshold = parameters.FeederBoostThreshold;
-        FeederEconomyThreshold = parameters.FeederEconomyThreshold;
-        BoilerTempTolerance = parameters.BoilerTempTolerance;
-        FeederTimeTolerance = parameters.FeederTimeTolerance;
-        BoilerRetryCount = parameters.BoilerRetryCount;
-        BoilerRetryDelay = parameters.BoilerRetryDelay;
-        MinTempDiff = parameters.MinTempDiff;
-        MinMixer4D = parameters.MinMixer4D;
         Hysteresis = parameters.Hysteresis;
         HysteresisSafetyThreshold = parameters.HysteresisSafetyThreshold;
         TempValidationMin = parameters.TempValidationMin;

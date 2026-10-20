@@ -131,7 +131,19 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.TempReturnEntityId).HasMaxLength(200);
             entity.Property(e => e.Mixer4DPositionEntityId).HasMaxLength(200);
             entity.Property(e => e.BoilerTempEntityId).HasMaxLength(200);
-            entity.Property(e => e.FeederTimeEntityId).HasMaxLength(200);
+            foreach (var name in new[]
+                     {
+                         nameof(SystemConfiguration.DoseOutdoorTempEntityId), nameof(SystemConfiguration.DoseBoilerSetpointEntityId),
+                         nameof(SystemConfiguration.DoseFlueTempEntityId), nameof(SystemConfiguration.DoseBlowerActualEntityId),
+                         nameof(SystemConfiguration.DoseFeederCounterEntityId), nameof(SystemConfiguration.DoseSummerSwitchEntityId),
+                         nameof(SystemConfiguration.DoseControllerModeEntityId), nameof(SystemConfiguration.DoseControllerClockEntityId),
+                         nameof(SystemConfiguration.DoseFlueSafetyAutomationEntityId), nameof(SystemConfiguration.DoseFeederWorkEntityId),
+                         nameof(SystemConfiguration.DoseFeederPauseEntityId), nameof(SystemConfiguration.DoseBlowerEntityId),
+                         nameof(SystemConfiguration.DoseNotifyService), nameof(SystemConfiguration.DoseNotifyTarget)
+                     })
+            {
+                entity.Property(name).HasMaxLength(200);
+            }
             entity.Property(e => e.Latitude).HasColumnType("decimal(9,6)");
             entity.Property(e => e.Longitude).HasColumnType("decimal(9,6)");
         });
@@ -171,21 +183,18 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.HouseCapacity).HasColumnType("decimal(8,2)");
             entity.Property(e => e.IndoorTargetForFeed).HasColumnType("decimal(5,2)");
             entity.Property(e => e.FeedCorrectionK).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.DoseTrimUnderpowerK).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.DoseBoilerColdK).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.FeedKGain).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.FeedKMaxStep).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.FeedKMin).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.FeedKMax).HasColumnType("decimal(5,3)");
+            entity.Property(e => e.DoseCeilingDayHeatingHours).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.DoseBlowerLowDuty).HasColumnType("decimal(6,4)");
             entity.Property(e => e.ValveTolerance).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveRetryDelay).HasColumnType("decimal(5,2)");
             entity.Property(e => e.MinReturnTemp).HasColumnType("decimal(5,2)");
             entity.Property(e => e.BoilerNominalTemp).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FrostCompensationFactor).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.Mixer4DDefault).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederTimeDefault).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederBoostMultiplier).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederEconomyMultiplier).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederNormalMultiplier).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.BoilerTempTolerance).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.FeederTimeTolerance).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.BoilerRetryDelay).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.MinTempDiff).HasColumnType("decimal(5,2)");
-            entity.Property(e => e.MinMixer4D).HasColumnType("decimal(5,2)");
             entity.Property(e => e.Hysteresis).HasColumnType("decimal(5,2)");
             entity.Property(e => e.HysteresisSafetyThreshold).HasColumnType("decimal(5,2)");
             entity.Property(e => e.TempValidationMin).HasColumnType("decimal(5,2)");

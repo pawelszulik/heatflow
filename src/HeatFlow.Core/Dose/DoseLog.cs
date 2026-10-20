@@ -25,6 +25,8 @@ public class DoseLogContext
     public double? HeatingShare2hPct { get; set; }
     public int? StandbyEntries6h { get; set; }
     public double? HoursSinceFlueSafety { get; set; }
+    /// <summary>Parametry przebiegu - progi w zdaniach (3 K, 185 °C …) zgodne z tym, co faktycznie działa.</summary>
+    public HeatingParameters Parameters { get; set; } = new();
     public ControllerFeedSettingsSnapshot? Controller { get; set; }
 }
 
@@ -112,16 +114,17 @@ public static class DoseLog
         var need = $"potrzeba {Number(c.NeedSecPerDay, "#,##0")} s/dobę przy k {Number(c.K, "0.00")}";
         var trim = c.TrimSec != 0 ? $", trym {c.TrimSec.ToString("+0;-0", Pl)} s" : "";
         var boiler = $"kocioł {Number(c.BoilerTemp, "0.0")} °C przy nastawie {Number(c.BoilerSetpoint, "0")} °C";
+        var p = c.Parameters;
 
         var text = code switch
         {
             "POGODA" => $"{tz}, {need}{trim}",
             "SUFIT" => $"kocioł nie nadąża - przy maks. pracy i min. postoju brakuje {Number(c.ShortfallPct, "0")} % ({tz}, {need})",
-            "TRYM_KOCIOL_PONIZEJ_NASTAWY" => $"od 2 h dmuchawa chodzi {Number(c.HeatingShare2hPct, "0")} % czasu, a {boiler} (poniżej nastawy − 3 K)",
-            "TRYM_PODTRZYMANIA" => $"{c.StandbyEntries6h} wejścia w podtrzymanie w ostatnich 6 h, {boiler}",
-            "SPALINY_200" => $"spaliny {Number(c.FlueTemp, "0")} °C > 200",
-            "SPALINY_185" => $"spaliny {Number(c.FlueTemp, "0")} °C ≥ 185",
-            "PO_AUTOMATYZACJI_24" => $"bezpiecznik spalin #24 zadziałał {Number(c.HoursSinceFlueSafety, "0.#")} h temu (6 h bez podnoszenia dmuchawy)",
+            "TRYM_KOCIOL_PONIZEJ_NASTAWY" => $"od {p.DoseTrimUnderpowerHours} h dmuchawa chodzi {Number(c.HeatingShare2hPct, "0")} % czasu, a {boiler} (poniżej nastawy − {Number(p.DoseTrimUnderpowerK, "0.#")} K)",
+            "TRYM_PODTRZYMANIA" => $"{c.StandbyEntries6h} wejścia w podtrzymanie w ostatnich {p.DoseTrimStandbyHours} h, {boiler}",
+            "SPALINY_200" => $"spaliny {Number(c.FlueTemp, "0")} °C > {p.DoseFlueMaxTemp}",
+            "SPALINY_185" => $"spaliny {Number(c.FlueTemp, "0")} °C ≥ {p.DoseFlueNoRaiseTemp}",
+            "PO_AUTOMATYZACJI_24" => $"bezpiecznik spalin #24 zadziałał {Number(c.HoursSinceFlueSafety, "0.#")} h temu ({p.DoseFlueSafetyHoldHours} h bez podnoszenia dmuchawy)",
             "PRZYWROCENIE_NASTAW" => "przywrócenie nastaw zastanych przy włączeniu automatu",
             _ => ""
         };

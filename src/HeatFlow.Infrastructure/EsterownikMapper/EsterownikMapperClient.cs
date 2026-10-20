@@ -42,6 +42,14 @@ public class EsterownikMapperClient : IEsterownikMapperClient
 
     public async Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default)
     {
+        if (_httpClient.BaseAddress == null)
+        {
+            // Brak EsterownikMapper:BaseUrl w appsettings - bez zgadywania adresu; Faza 5 nie potwierdzi
+            // zapisu, więc automat się nie włączy (ostrzeżenie loguje też Program przy starcie).
+            _logger.LogWarning("eSterownikMapper nie skonfigurowany (EsterownikMapper:BaseUrl) - brak odczytu nastaw kotła");
+            return null;
+        }
+
         try
         {
             using var response = await _httpClient.GetAsync("readdata/GetAllValues", cancellationToken);

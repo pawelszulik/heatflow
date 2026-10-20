@@ -8,11 +8,11 @@ namespace HeatFlow.Core.Dose;
 /// <summary>Trzy nastawy kotła, które Faza 5 może zmieniać. Nic innego - nigdy.</summary>
 public enum DoseRegister
 {
-    /// <summary>number.kociol_czas_pracy_podajnika → rrGPodOn.</summary>
+    /// <summary>Czas pracy podajnika (u nas number.kociol_czas_pracy_podajnika) → rrGPodOn.</summary>
     Work,
-    /// <summary>number.kociol_czas_postoju_podajnika → rrGPodOff.</summary>
+    /// <summary>Czas postoju podajnika (number.kociol_czas_postoju_podajnika) → rrGPodOff.</summary>
     Pause,
-    /// <summary>number.kociol_moc_dmuchawy → rrGDiffuserMotorSpeed.</summary>
+    /// <summary>Moc dmuchawy w grzaniu (number.kociol_moc_dmuchawy) → rrGDiffuserMotorSpeed.</summary>
     Blower
 }
 
@@ -29,14 +29,11 @@ public record DoseWriteResult(bool Confirmed, ControllerFeedSettings? Last, stri
 /// Zapis nastaw do sterownika przez HA (number.set_value) z potwierdzeniem w eSterownikMapperze
 /// (GetAllValues), nie ze stanu encji HA. Pisze po jednym rejestrze i czeka na potwierdzenie,
 /// zanim ruszy następny - ekoPiec ma limiter zapisów. Wartości poza twardymi granicami
-/// (<see cref="DoseLimits"/>) nie są wysyłane nigdy.
+/// (<see cref="DoseLimits"/>) nie są wysyłane nigdy. Encje z <see cref="DoseEntities"/> (SystemConfiguration);
+/// przy błędnej konfiguracji (nie number.*, nastawa kotła, powtórzenia) zapis jest odrzucany.
 /// </summary>
 public class DoseControllerWriter
 {
-    public const string WorkEntityId = "number.kociol_czas_pracy_podajnika";
-    public const string PauseEntityId = "number.kociol_czas_postoju_podajnika";
-    public const string BlowerEntityId = "number.kociol_moc_dmuchawy";
-
     private readonly IHomeAssistantClient _haClient;
     private readonly IEsterownikMapperClient _mapper;
     private readonly DoseWriteOptions _options;
@@ -54,11 +51,11 @@ public class DoseControllerWriter
         _logger = logger;
     }
 
-    public static string EntityId(DoseRegister register) => register switch
+    public static string EntityId(DoseEntities entities, DoseRegister register) => register switch
     {
-        DoseRegister.Work => WorkEntityId,
-        DoseRegister.Pause => PauseEntityId,
-        _ => BlowerEntityId
+        DoseRegister.Work => entities.FeederWork,
+        DoseRegister.Pause => entities.FeederPause,
+        _ => entities.Blower
     };
 
     public static int Value(ControllerFeedSettings settings, DoseRegister register) => register switch
@@ -79,7 +76,7 @@ public class DoseControllerWriter
     /// Zapisuje te z trzech nastaw, które różnią się od <paramref name="current"/>. Przerywa na
     /// pierwszym niepotwierdzonym zapisie.
     /// </summary>
-    public async Task<DoseWriteResult> WriteSettingsAsync(
+    public async Task<DoseWriteResult> WriteSettingsAsync(DoseEntities entities,
         ControllerFeedSettings current, int work, int pause, int blower, CancellationToken cancellationToken = default)
     {
         var report = new List<string>();
@@ -93,7 +90,7 @@ public class DoseControllerWriter
                 continue;
             }
 
-            var result = await WriteAsync(register, value, cancellationToken);
+            var result = await WriteAsync(entities, register, value, cancellationToken);
             report.Add(result.Report);
             writes.Add(result.Writes.Count > 0 ? result.Writes[0] with { From = from } : new DoseRegisterWrite(register, from, value, "BRAK", null));
             last = result.Last ?? last;
@@ -107,9 +104,21 @@ public class DoseControllerWriter
     }
 
     /// <summary>Zapis jednego rejestru: set_value → potwierdzenie w mapperze; jedna ponowna próba.</summary>
-    public async Task<DoseWriteResult> WriteAsync(DoseRegister register, int value, CancellationToken cancellationToken = default)
+    public async Task<DoseWriteResult> WriteAsync(DoseEntities entities, DoseRegister register, int value,
+        CancellationToken cancellationToken = default)
     {
-        var entityId = EntityId(register);
+        var entityId = EntityId(entities, register);
+        var configErrors = entities.Validate();
+        if (configErrors.Count > 0)
+        {
+            _logger.LogError("Faza 5: odmowa zapisu {Entity} = {Value} - błędna konfiguracja encji: {Errors}",
+                entityId, value, string.Join("; ", configErrors));
+            return new DoseWriteResult(false, null, $"błędna konfiguracja encji - nie wysłano ({string.Join("; ", configErrors)})")
+            {
+                Writes = new[] { new DoseRegisterWrite(register, value, value, "ODMOWA", null) }
+            };
+        }
+
         if (!WithinHardLimits(register, value))
         {
             _logger.LogError("Faza 5: odmowa zapisu {Entity} = {Value} - poza twardymi granicami", entityId, value);

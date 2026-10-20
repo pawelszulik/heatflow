@@ -189,12 +189,10 @@ public static class ClosedLoopRunner
 
             foreach (var w in harness.Controller.History.Skip(lastHistory))
             {
-                var ok = w.Entity switch
-                {
-                    DoseControllerWriter.WorkEntityId => w.Value is >= DoseLimits.WorkMin and <= DoseLimits.WorkMax,
-                    DoseControllerWriter.PauseEntityId => w.Value is >= DoseLimits.PauseMin and <= DoseLimits.PauseMax,
-                    _ => w.Value is >= 30 and <= 35
-                };
+                var e = harness.Entities;
+                var ok = w.Entity == e.FeederWork ? w.Value is >= DoseLimits.WorkMin and <= DoseLimits.WorkMax
+                    : w.Entity == e.FeederPause ? w.Value is >= DoseLimits.PauseMin and <= DoseLimits.PauseMax
+                    : w.Entity == e.Blower && w.Value is >= 30 and <= 35;
                 if (!ok) result.LimitViolations.Add($"{w.Utc:u} {w.Entity} = {w.Value}");
             }
             lastHistory = harness.Controller.History.Count;

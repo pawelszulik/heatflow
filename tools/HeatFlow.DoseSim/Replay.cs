@@ -69,9 +69,6 @@ public sealed class ReplayResult
 /// </summary>
 public static class ReplayRunner
 {
-    private static readonly string[] IndoorColumns =
-        { "in_kuchnia", "in_salon", "in_spizarnia", "in_suszarnia", "in_edyta", "in_hol", "in_przejsciowy" };
-
     /// <summary>Do 2026-09-10 Tz z sensor.t_h_sensor_2, potem z czujnika ogrodowego (jak w analizie).</summary>
     public static readonly DateTime GardenSensorFrom = new(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc);
 
@@ -114,9 +111,9 @@ public static class ReplayRunner
             if (neutralBoiler && latest.TryGetValue("nastawa", out var z)
                 && double.TryParse(z.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var zv))
             {
-                h.Ha.Set(Phase5DoseService.BoilerTempEntityId, zv - 1.5, t);
-                h.Ha.Set(Phase5DoseService.FlueTempEntityId, 120.0, t);
-                h.Ha.Set(Phase5DoseService.ControllerClockEntityId, t.ToString("O"), t);
+                h.Ha.Set(h.Entities.BoilerTemp, zv - 1.5, t);
+                h.Ha.Set(h.Entities.FlueTemp, 120.0, t);
+                h.Ha.Set(h.Entities.ControllerClock, t.ToString("O"), t);
             }
 
             if (automatOn && !h.Repo.Switch.Enabled && !(h.Repo.State?.AutomatActive ?? false))
@@ -138,12 +135,10 @@ public static class ReplayRunner
 
             foreach (var w in h.Controller.History.Skip(lastHistory))
             {
-                var ok = w.Entity switch
-                {
-                    DoseControllerWriter.WorkEntityId => w.Value is >= DoseLimits.WorkMin and <= DoseLimits.WorkMax,
-                    DoseControllerWriter.PauseEntityId => w.Value is >= DoseLimits.PauseMin and <= DoseLimits.PauseMax,
-                    _ => w.Value is >= DoseLimits.BlowerMin and <= DoseLimits.BlowerMax
-                };
+                var e = h.Entities;
+                var ok = w.Entity == e.FeederWork ? w.Value is >= DoseLimits.WorkMin and <= DoseLimits.WorkMax
+                    : w.Entity == e.FeederPause ? w.Value is >= DoseLimits.PauseMin and <= DoseLimits.PauseMax
+                    : w.Entity == e.Blower && w.Value is >= DoseLimits.BlowerMin and <= DoseLimits.BlowerMax;
                 if (!ok) result.LimitViolations.Add($"{w.Utc:u} {w.Entity} = {w.Value}");
             }
             lastHistory = h.Controller.History.Count;
@@ -167,36 +162,28 @@ public static class ReplayRunner
             else h.Ha.Set(entity, (string?)null, t);
         }
 
+        var e = h.Entities;
         var outdoorColumn = t >= GardenSensorFrom ? "tz_ogrod" : "tz_thsensor";
-        Num(Phase5DoseService.OutdoorEntityId, outdoorColumn);
-        // Czujniki pokojowe: każdy z 7 osobno (Faza 5 sama liczy średnią z ≥ 5), stare odczyty (> 15 min) = brak.
-        var map = new Dictionary<string, string>
+        Num(e.OutdoorTemp, outdoorColumn);
+        // Czujniki pokojowe z flagą UseForDoseIndoorMean (kolumna in_<pokój>); stare odczyty (> 15 min) = brak.
+        foreach (var room in h.Config.Rooms.Where(r => r.UseForDoseIndoorMean))
         {
-            ["sensor.kuchnia_czujnik_bm280_kuchnia_bmx280_temperature"] = "in_kuchnia",
-            ["sensor.salon_czujnik_bm280_salon_bmx280_temperature"] = "in_salon",
-            ["sensor.spizarnia_czujnik_bm280_spizarnia_bmx280_temperature"] = "in_spizarnia",
-            ["sensor.suszarnia_czujnik_bm280_suszarnia_bmx280_temperature"] = "in_suszarnia",
-            ["sensor.edyta_czujnik_bm280_edyta_bmx280_temperature"] = "in_edyta",
-            ["sensor.hol_czujnik_bm280_hol_bmx280_temperature"] = "in_hol",
-            ["sensor.przejsciowy_czujnik_bm280_przejsciowy_bmx280_temperature"] = "in_przejsciowy"
-        };
-        foreach (var (entity, column) in map)
-        {
-            if (latest.TryGetValue(column, out var x) && t - x.Utc <= TimeSpan.FromMinutes(15)) h.Ha.Set(entity, x.Value, x.Utc);
-            else h.Ha.Set(entity, (string?)null, t);
+            if (latest.TryGetValue($"in_{room.Name}", out var x) && t - x.Utc <= TimeSpan.FromMinutes(15))
+                h.Ha.Set(room.SensorTemperatureEntityId, x.Value, x.Utc);
+            else h.Ha.Set(room.SensorTemperatureEntityId, (string?)null, t);
         }
 
-        Num(Phase5DoseService.BoilerTempEntityId, "kociol");
-        Num(Phase5DoseService.BoilerSetpointEntityId, "nastawa");
-        Num(Phase5DoseService.FlueTempEntityId, "spaliny");
-        Num(Phase5DoseService.BlowerActualEntityId, "dmuchawa_akt");
-        Num(Phase5DoseService.FeederCounterEntityId, "licznik");
-        Num(Phase5DoseService.SummerSwitchEntityId, "lato");
-        Num(Phase5DoseService.ModeSwitchEntityId, "tryb_auto");
+        Num(e.BoilerTemp, "kociol");
+        Num(e.BoilerSetpoint, "nastawa");
+        Num(e.FlueTemp, "spaliny");
+        Num(e.BlowerActual, "dmuchawa_akt");
+        Num(e.FeederCounter, "licznik");
+        Num(e.SummerSwitch, "lato");
+        Num(e.ControllerMode, "tryb_auto");
 
         // Zegara sterownika nie ma w eksporcie - świeżość kotła = świeżość temperatury kotła.
-        if (latest.TryGetValue("kociol", out var k)) h.Ha.Set(Phase5DoseService.ControllerClockEntityId, k.Utc.ToString("O"), k.Utc);
-        else h.Ha.Set(Phase5DoseService.ControllerClockEntityId, (string?)null, t);
+        if (latest.TryGetValue("kociol", out var k)) h.Ha.Set(e.ControllerClock, k.Utc.ToString("O"), k.Utc);
+        else h.Ha.Set(e.ControllerClock, (string?)null, t);
     }
 
     /// <summary>Średnie godzinowe Tz (UTC) - do idealnej prognozy.</summary>

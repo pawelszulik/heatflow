@@ -29,16 +29,6 @@ public record DailyBalance(double? OutdoorMean, double? IndoorMean, double? Feed
 /// </summary>
 public static class DoseCalculator
 {
-    /// <summary>Udział pracy podajnika, przy którym dmuchawa jest na minimum (§ 9 „Dmuchawa”).</summary>
-    public const double BlowerLowDuty = 0.034;
-
-    /// <summary>Grzanie ≥ tylu godzin w dobie = kocioł stał na suficie, doba nie uczy k (§ 9).</summary>
-    public const double CeilingDayHeatingHours = 22.5;
-
-    /// <summary>Granice trymu od kotła [s postoju] - najwyżej 3 kroki po 20 s w jedną stronę.</summary>
-    public const int TrimLimitSec = 60;
-    public const int TrimStepSec = 20;
-
     /// <summary>
     /// Krok 1: średnia Tz z <paramref name="pastHours"/> godzin pomiaru wstecz (średnie godzinowe
     /// czujnika ogrodowego) i <paramref name="forecastHours"/> godzin prognozy do przodu - § 7a.
@@ -192,7 +182,7 @@ public static class DoseCalculator
     }
 
     /// <summary>
-    /// Dmuchawa w grzaniu: BlowerMin przy ≤ 3,4 % pracy podajnika, liniowo do BlowerMax przy
+    /// Dmuchawa w grzaniu: BlowerMin przy ≤ DoseBlowerLowDuty (3,4 %) pracy podajnika, liniowo do BlowerMax przy
     /// maks. pracy / min. postoju (10 s / 100 s). Zmienia się razem z dawką (§ 9 „Dmuchawa”).
     /// </summary>
     public static int BlowerFor(int work, int pause, HeatingParameters p)
@@ -201,15 +191,17 @@ public static class DoseCalculator
         var (blowerMin, blowerMax) = BlowerBounds(p);
         var duty = (double)work / (work + pause);
         var highDuty = (double)workMax / (workMax + pauseMin);
-        var frac = highDuty > BlowerLowDuty
-            ? Math.Clamp((duty - BlowerLowDuty) / (highDuty - BlowerLowDuty), 0, 1)
+        var low = p.DoseBlowerLowDuty;
+        var frac = highDuty > low
+            ? Math.Clamp((duty - low) / (highDuty - low), 0, 1)
             : 1;
         return (int)Math.Round(blowerMin + frac * (blowerMax - blowerMin), MidpointRounding.AwayFromZero);
     }
 
     /// <summary>
-    /// Ograniczenia dmuchawy od spalin: nie podnosić przy spalinach ≥ 185 °C ani przez 6 h po
-    /// bezpieczniku spalin w HA (#24); przy &gt; 200 °C −2 pkt (nie niżej niż BlowerMin).
+    /// Ograniczenia dmuchawy od spalin: nie podnosić przy spalinach ≥ DoseFlueNoRaiseTemp (185 °C) ani przez
+    /// DoseFlueSafetyHoldHours (6 h) po bezpieczniku spalin w HA (#24); przy &gt; DoseFlueMaxTemp (200 °C)
+    /// −DoseFlueBlowerCutPct (2) pkt, nie niżej niż BlowerMin.
     /// Nigdy poza twarde 28-35 %.
     /// </summary>
     /// <returns>Dmuchawa po ograniczeniach, opis i kod przyczyny (SPALINY_200 / SPALINY_185 /
@@ -222,22 +214,22 @@ public static class DoseCalculator
         string? code = null;
         var result = target;
 
-        if (flueTemp > 200)
+        if (flueTemp > p.DoseFlueMaxTemp)
         {
-            result = current > blowerMin ? Math.Max(blowerMin, current - 2) : current;
-            note = $"spaliny {flueTemp:F0} °C > 200 → dmuchawa −2 pkt";
+            result = current > blowerMin ? Math.Max(blowerMin, current - p.DoseFlueBlowerCutPct) : current;
+            note = $"spaliny {flueTemp:F0} °C > {p.DoseFlueMaxTemp} → dmuchawa −{p.DoseFlueBlowerCutPct} pkt";
             code = "SPALINY_200";
         }
-        else if (result > current && flueTemp >= 185)
+        else if (result > current && flueTemp >= p.DoseFlueNoRaiseTemp)
         {
             result = current;
-            note = $"spaliny {flueTemp:F0} °C ≥ 185 → dmuchawy nie podnoszę";
+            note = $"spaliny {flueTemp:F0} °C ≥ {p.DoseFlueNoRaiseTemp} → dmuchawy nie podnoszę";
             code = "SPALINY_185";
         }
         else if (result > current && safetyAutomationRecent)
         {
             result = current;
-            note = "bezpiecznik spalin (#24) w ostatnich 6 h → dmuchawy nie podnoszę";
+            note = $"bezpiecznik spalin (#24) w ostatnich {p.DoseFlueSafetyHoldHours} h → dmuchawy nie podnoszę";
             code = "PO_AUTOMATYZACJI_24";
         }
 
@@ -246,15 +238,16 @@ public static class DoseCalculator
 
     /// <summary>
     /// Korekta k raz na dobę (§ 9): netto = podajnik − HouseCapacity · ΔT_wewn (dziś − wczoraj),
-    /// k ← k + clamp(0,3 · (netto / model(ΔT faktyczne) − k), ±0,05), w granicach 0,6-1,3.
+    /// k ← k + clamp(FeedKGain (0,3) · (netto / model(ΔT faktyczne) − k), ±FeedKMaxStep (0,05)),
+    /// w granicach FeedKMin-FeedKMax (0,6-1,3).
     /// Model bez k, z faktyczną temperaturą w domu - jak w symulacji. Null = doba nie uczy.
     /// </summary>
     public static (double? K, string Reason) CorrectK(double k, DailyBalance day, DailyBalance? dayBefore, HeatingParameters p)
     {
         if (!day.Valid)
             return (null, $"doba pominięta: {day.InvalidReason}");
-        if (day.HeatingHours >= CeilingDayHeatingHours)
-            return (null, $"doba pominięta: grzanie {day.HeatingHours:F1} h ≥ {CeilingDayHeatingHours} h (sufit)");
+        if (day.HeatingHours >= p.DoseCeilingDayHeatingHours)
+            return (null, $"doba pominięta: grzanie {day.HeatingHours:F1} h ≥ {p.DoseCeilingDayHeatingHours} h (sufit)");
 
         var model = p.FeedPerKelvin * (day.IndoorMean!.Value - day.OutdoorMean!.Value) + p.FeedOffset;
         if (model <= 0)
@@ -262,7 +255,8 @@ public static class DoseCalculator
 
         var dIndoor = dayBefore is { IndoorMean: not null } ? day.IndoorMean!.Value - dayBefore.IndoorMean.Value : 0.0;
         var net = day.FeedSec!.Value - p.HouseCapacity * dIndoor;
-        var newK = Math.Clamp(k + Math.Clamp(0.3 * (net / model - k), -0.05, 0.05), 0.6, 1.3);
+        var newK = Math.Clamp(k + Math.Clamp(p.FeedKGain * (net / model - k), -p.FeedKMaxStep, p.FeedKMaxStep),
+            p.FeedKMin, p.FeedKMax);
         newK = Math.Round(newK, 3);
         return (newK, string.Create(System.Globalization.CultureInfo.GetCultureInfo("pl-PL"),
             $"podajnik {day.FeedSec:F0} s, Tz {day.OutdoorMean:F1} °C, w domu {day.IndoorMean:F2} °C (ΔT_wewn {(dIndoor < -0.005 ? "−" : "+")}{Math.Abs(dIndoor):0.00} K) → netto {net:F0} s = {net / model:F2} × model {model:F0} s → k {k:F3} → {newK:F3}"));
@@ -314,13 +308,13 @@ public static class DoseCalculator
 
     /// <summary>
     /// Szybki trym, sygnał „za mało”: dmuchawa chodziła w każdej migawce i kocioł był poniżej
-    /// nastawy − 3 K przez całe okno (§ 9). Wymaga co najmniej 75 % migawek z okna.
+    /// nastawy − <paramref name="kelvinBelow"/> (3 K) przez całe okno (§ 9). Wymaga ≥ 75 % migawek z okna.
     /// </summary>
-    public static bool BoilerUnderpowered(IReadOnlyList<DoseSample> window, TimeSpan length)
+    public static bool BoilerUnderpowered(IReadOnlyList<DoseSample> window, TimeSpan length, double kelvinBelow = 3)
     {
         var valid = window.Where(s => s.BlowerActual.HasValue && s.BoilerTemp.HasValue && s.BoilerSetpoint.HasValue).ToList();
         if (valid.Count < length.TotalMinutes / 5.0 * 0.75) return false;
-        return valid.All(s => s.BlowerActual > 0 && s.BoilerTemp < s.BoilerSetpoint - 3);
+        return valid.All(s => s.BlowerActual > 0 && s.BoilerTemp < s.BoilerSetpoint - kelvinBelow);
     }
 
     /// <summary>
@@ -353,13 +347,14 @@ public static class DoseCalculator
     }
 
     /// <summary>
-    /// Bezpiecznik: kocioł poniżej nastawy − 10 K w każdej migawce przez całe okno (min. 75 % migawek).
+    /// „Kocioł zimny”: poniżej nastawy − <paramref name="kelvinBelow"/> (10 K) w każdej migawce przez całe
+    /// okno (min. 75 % migawek).
     /// </summary>
-    public static bool BoilerColdFor(IReadOnlyList<DoseSample> window, TimeSpan length)
+    public static bool BoilerColdFor(IReadOnlyList<DoseSample> window, TimeSpan length, double kelvinBelow = 10)
     {
         var valid = window.Where(s => s.BoilerTemp.HasValue && s.BoilerSetpoint.HasValue).ToList();
         if (valid.Count < length.TotalMinutes / 5.0 * 0.75) return false;
-        return valid.All(s => s.BoilerTemp < s.BoilerSetpoint - 10);
+        return valid.All(s => s.BoilerTemp < s.BoilerSetpoint - kelvinBelow);
     }
 
     /// <summary>

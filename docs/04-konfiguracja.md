@@ -17,7 +17,6 @@ Tabela zawiera **jeden rekord** (`Id = 1`) opisujący cały system.
 | `TempReturnEntityId` | string | ID encji HA z temperaturą powrotu, np. `sensor.kociol_temperatura_powrotu`. |
 | `Mixer4DPositionEntityId` | string | ID encji HA z pozycją zaworu 4D. |
 | `BoilerTempEntityId` | string | ID encji HA z temperaturą pieca (opcjonalne). |
-| `FeederTimeEntityId` | string | ID encji HA z czasem podajnika (opcjonalne). |
 | `SystemEnabled` | bool | Główny włącznik systemu. Gdy `false`, Console pomija wykonanie. |
 | `Latitude` | double | Szerokość geograficzna (do prognozy OpenWeatherMap). |
 | `Longitude` | double | Długość geograficzna. |
@@ -109,17 +108,11 @@ Tabela zawiera **jeden rekord** (`Id = 1`) ze wszystkimi parametrami algorytmu.
 |------|-----------|------|
 | `BoilerNominalTemp` | 70.0 | Nominalna temperatura pieca (°C). |
 | `MinReturnTemp` | 45.0 | Minimalna temperatura powrotu (°C). |
-| `FrostCompensationFactor` | 0.5 | Współczynnik kompensacji mrozu. |
-| `FeederTimeDefault` | 30.0 | Domyślny czas pracy podajnika (s). |
-| `FeederBoostMultiplier` | 1.2 | Mnożnik czasu podajnika przy dużym zapotrzebowaniu. |
-| `FeederEconomyMultiplier` | 0.8 | Mnożnik czasu podajnika przy małym zapotrzebowaniu. |
 
 #### Parametry bezpieczeństwa
 
 | Pole | Domyślnie | Opis |
 |------|-----------|------|
-| `MinTempDiff` | 15.0 | Minimalna różnica między temperaturą zadaną a powrotu. |
-| `MinMixer4D` | 20.0 | Minimalna pozycja zaworu mieszającego 4D. |
 | `Hysteresis` | 0.5 | Histereza wyłączania grzania (°C). |
 | `HysteresisSafetyThreshold` | 2.0 | Próg bezpieczeństwa histerezy. |
 | `TempValidationMin` | 0.0 | Dolna granica akceptowalnej temperatury. |
@@ -206,3 +199,38 @@ Każda zmiana przez API jest automatycznie rejestrowana w tabeli `ConfigurationC
 ## Następny krok
 
 Gdy konfiguracja jest gotowa, przejdź do [05-uzytkowanie.md](05-uzytkowanie.md), aby zrozumieć, jak system pracuje na co dzień.
+
+## Faza 5 „Dawka” - konfiguracja w bazie
+
+Nic z tego nie jest w kodzie - w kodzie zostają tylko twarde granice Pawła (`DoseLimits`: praca 7-10 s,
+postój 100-320 s, dmuchawa 28-35 %; podniesienie dmuchawy ponad 35 % = zmiana kodu).
+
+**`SystemConfiguration`** (wartości u nas wpisuje migracja `AddDosePhase`, wzór: `ConfigurationSeed.DoseEntityDefaults`):
+
+| Pole | U nas |
+|---|---|
+| `BoilerTempEntityId` | `sensor.kociol_temperatura_kotla` |
+| `DoseOutdoorTempEntityId` | `sensor.temperatura_ogrod_temperature` |
+| `DoseBoilerSetpointEntityId` | `number.kociol_temperatura_zadana_kotla` (tylko odczyt) |
+| `DoseFlueTempEntityId` | `sensor.kociol_temperatura_spalin` |
+| `DoseBlowerActualEntityId` | `sensor.kociol_aktualna_moc_dmuchawy` |
+| `DoseFeederCounterEntityId` | `sensor.kociol_czas_pracy_podajnika_2` |
+| `DoseSummerSwitchEntityId` | `switch.kociol_tryb_zima_lato` |
+| `DoseControllerModeEntityId` | `switch.kociol_tryb_pracy` |
+| `DoseControllerClockEntityId` | `sensor.kociol_aktualna_data` |
+| `DoseFlueSafetyAutomationEntityId` | `automation.kociol_bezpiecznik_spalin_dmuchawa_na_minimum` (opcjonalne) |
+| `DoseFeederWorkEntityId` / `DoseFeederPauseEntityId` / `DoseBlowerEntityId` | `number.kociol_czas_pracy_podajnika` / `number.kociol_czas_postoju_podajnika` / `number.kociol_moc_dmuchawy` - jedyne zapisywane; muszą być `number.*`, różne i ≠ nastawa kotła |
+| `DoseNotifyService` / `DoseNotifyTarget` | `homeintegrator` / `1458898223593689120` (Discord, ten sam cel co alarmy kotła w HA) |
+
+Brak albo błąd którejś encji: Faza 5 kończy się błędem z listą braków, a włączony automat sam się wyłącza
+(bez przywracania - nie wiadomo, gdzie pisać).
+
+**`RoomConfiguration.UseForDoseIndoorMean`** - czy czujnik pokoju wchodzi do średniej temperatury w domu
+(bilans dobowy, korekta k). U nas 7× BMx280: kuchnia, salon, spiżarnia, suszarnia, edyta, hol, przejściowy.
+W HA: switch „Dawka: średnia w domu” w urządzeniu pokoju.
+
+**`HeatingParameters`** - wszystkie progi Fazy 5 (`Feed*`, `Dose*`, `Blower*`, `Feeder*Min/Max`), z walidacją
+w `DoseLimits.Validate` i gałkami w HA (`number.heatflow_parametry_dawka_*`).
+
+**appsettings Console:** `EsterownikMapper:BaseUrl` (u nas `http://172.17.137.33:5000/`).
+

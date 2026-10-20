@@ -114,6 +114,64 @@ public class HeatingParameters
     /// </summary>
     public int FeedWorkUpHysteresisSec { get; set; } = 130;
 
+    // Progi i strojenie Fazy 5 - reguły Pawła i wartości z analizy, do zmiany z HA (walidacja: DoseLimits).
+    /// <summary>Ile czujników z pokoi (UseForDoseIndoorMean) musi odpowiedzieć, żeby średnia w domu się liczyła.</summary>
+    public int DoseIndoorMinSensors { get; set; } = 5;
+
+    /// <summary>Spaliny [°C], od których dmuchawy nie podnosimy (reguła Pawła, margines pod 200).</summary>
+    public int DoseFlueNoRaiseTemp { get; set; } = 185;
+
+    /// <summary>Spaliny [°C], powyżej których dmuchawa −DoseFlueBlowerCutPct pkt i automat sam się wyłącza (reguła Pawła).</summary>
+    public int DoseFlueMaxTemp { get; set; } = 200;
+
+    /// <summary>O ile punktów zbić dmuchawę przy spalinach > DoseFlueMaxTemp.</summary>
+    public int DoseFlueBlowerCutPct { get; set; } = 2;
+
+    /// <summary>Ile godzin po bezpieczniku spalin w HA (#24) nie podnosimy dmuchawy.</summary>
+    public int DoseFlueSafetyHoldHours { get; set; } = 6;
+
+    /// <summary>Trym „za mało”: kocioł poniżej nastawy o tyle K ...</summary>
+    public double DoseTrimUnderpowerK { get; set; } = 3.0;
+
+    /// <summary>... przez tyle godzin, przy dmuchawie chodzącej cały czas → postój −DoseTrimStepSec.</summary>
+    public int DoseTrimUnderpowerHours { get; set; } = 2;
+
+    /// <summary>Trym „za dużo”: tyle wejść w podtrzymanie ...</summary>
+    public int DoseTrimStandbyEntries { get; set; } = 2;
+
+    /// <summary>... w tylu ostatnich godzinach → postój +DoseTrimStepSec.</summary>
+    public int DoseTrimStandbyHours { get; set; } = 6;
+
+    /// <summary>Krok trymu od kotła [s postoju].</summary>
+    public int DoseTrimStepSec { get; set; } = 20;
+
+    /// <summary>Granica trymu w jedną stronę [s] (zerowany o północy).</summary>
+    public int DoseTrimLimitSec { get; set; } = 60;
+
+    /// <summary>„Kocioł zimny”: o ile K poniżej nastawy.</summary>
+    public double DoseBoilerColdK { get; set; } = 10.0;
+
+    /// <summary>Po ilu minutach „kocioł zimny” daje ostrzeżenie (przy DoseBoilerColdMinutes = 0).</summary>
+    public int DoseBoilerColdWarnMinutes { get; set; } = 60;
+
+    /// <summary>Korekta k: wzmocnienie - k ← k + clamp(FeedKGain · (netto/model − k), ±FeedKMaxStep).</summary>
+    public double FeedKGain { get; set; } = 0.3;
+
+    /// <summary>Korekta k: największy krok na dobę.</summary>
+    public double FeedKMaxStep { get; set; } = 0.05;
+
+    /// <summary>Korekta k: dolna granica.</summary>
+    public double FeedKMin { get; set; } = 0.6;
+
+    /// <summary>Korekta k: górna granica.</summary>
+    public double FeedKMax { get; set; } = 1.3;
+
+    /// <summary>Doba z grzaniem ≥ tylu godzin = kocioł na suficie, nie uczy k.</summary>
+    public double DoseCeilingDayHeatingHours { get; set; } = 22.5;
+
+    /// <summary>Udział pracy podajnika, przy którym dmuchawa jest na minimum (BlowerMin); liniowo do BlowerMax przy maks. dawce.</summary>
+    public double DoseBlowerLowDuty { get; set; } = 0.034;
+
     /// <summary>Czy po wyłączeniu automatu (ręcznie albo samowyłączeniu) przywrócić nastawy zastane przy włączeniu.</summary>
     public bool DoseRestoreOnDisable { get; set; } = true;
 
@@ -145,22 +203,8 @@ public class HeatingParameters
     // Parametry pieca
     public double MinReturnTemp { get; set; }
     public double BoilerNominalTemp { get; set; }
-    public double FrostCompensationFactor { get; set; }
-    public double Mixer4DDefault { get; set; }
-    public double FeederTimeDefault { get; set; }
-    public double FeederBoostMultiplier { get; set; }
-    public double FeederEconomyMultiplier { get; set; }
-    public double FeederNormalMultiplier { get; set; }
-    public int FeederBoostThreshold { get; set; }
-    public int FeederEconomyThreshold { get; set; }
-    public double BoilerTempTolerance { get; set; }
-    public double FeederTimeTolerance { get; set; }
-    public int BoilerRetryCount { get; set; }
-    public double BoilerRetryDelay { get; set; }
 
     // Parametry bezpieczeństwa
-    public double MinTempDiff { get; set; }
-    public double MinMixer4D { get; set; }
     public double Hysteresis { get; set; }
     public double HysteresisSafetyThreshold { get; set; }
     public double TempValidationMin { get; set; }

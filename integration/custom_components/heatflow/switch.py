@@ -36,6 +36,8 @@ async def async_setup_entry(
             entities.append(RoomSwitchEntity(coordinator, entry, name, "sensitive"))
         if "automationDisabled" in room or "AutomationDisabled" in room:
             entities.append(RoomSwitchEntity(coordinator, entry, name, "automation_disabled"))
+        if "useForDoseIndoorMean" in room or "UseForDoseIndoorMean" in room:
+            entities.append(RoomSwitchEntity(coordinator, entry, name, "use_for_dose_indoor_mean"))
     async_add_entities(entities)
 
 
@@ -206,6 +208,15 @@ class HeatFlowDoseRestoreSwitchEntity(CoordinatorEntity, SwitchEntity):
         await self._set_value(False)
 
 
+# Pola pokoju wystawiane jako switch: pole HA → (klucz w API, nazwa encji).
+ROOM_SWITCH_FIELDS = {
+    "sensitive": ("sensitive", "Wrażliwy"),
+    "automation_disabled": ("automationDisabled", "Automatyka wyłączona"),
+    # Faza 5 „Dawka”: czy czujnik pokoju wchodzi do średniej temperatury w domu (bilans do korekty k).
+    "use_for_dose_indoor_mean": ("useForDoseIndoorMean", "Dawka: średnia w domu"),
+}
+
+
 class RoomSwitchEntity(CoordinatorEntity, SwitchEntity):
     _attr_has_entity_name = True
 
@@ -214,9 +225,10 @@ class RoomSwitchEntity(CoordinatorEntity, SwitchEntity):
         self._entry = entry
         self._room_name = room_name
         self._field = field
-        key = "sensitive" if field == "sensitive" else "automationDisabled"
+        key, label = ROOM_SWITCH_FIELDS[field]
+        self._key = key
         self._attr_unique_id = f"{entry.entry_id}_{room_name}_{key}"
-        self._attr_name = "Wrażliwy" if field == "sensitive" else "Automatyka wyłączona"
+        self._attr_name = label
         self._attr_device_info = {"identifiers": {(DOMAIN, f"{entry.entry_id}_{room_name}")}, "name": f"HeatFlow {room_name}"}
 
     @property
@@ -224,9 +236,7 @@ class RoomSwitchEntity(CoordinatorEntity, SwitchEntity):
         data = self.coordinator.data or {}
         for r in (data.get("rooms") or []):
             if (r.get("name") or r.get("Name")) == self._room_name:
-                if self._field == "sensitive":
-                    return bool(r.get("sensitive", r.get("Sensitive", False)))
-                return bool(r.get("automationDisabled", r.get("AutomationDisabled", False)))
+                return bool(r.get(self._key, r.get(self._key[0].upper() + self._key[1:], False)))
         return False
 
     async def _set_value(self, value: bool) -> None:
@@ -239,10 +249,7 @@ class RoomSwitchEntity(CoordinatorEntity, SwitchEntity):
                 break
         if not room:
             return
-        if self._field == "sensitive":
-            room["sensitive"] = value
-        else:
-            room["automationDisabled"] = value
+        room[self._key] = value
         api_url = self.coordinator.api_url
         api_key = self.coordinator.api_key
         async with aiohttp.ClientSession() as session:

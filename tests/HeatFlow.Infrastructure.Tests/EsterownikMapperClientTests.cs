@@ -28,4 +28,13 @@ public class EsterownikMapperClientTests
         using var doc = JsonDocument.Parse("""{"rrGPodOn":7,"rrGDiffuserMotorSpeed":35}""");
         Assert.Null(EsterownikMapperClient.Parse(doc.RootElement));
     }
+
+    [Fact]
+    public async Task NoBaseUrl_ReturnsNullWithoutGuessingAddress()
+    {
+        var client = new EsterownikMapperClient(new HttpClient(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<EsterownikMapperClient>.Instance);
+
+        Assert.Null(await client.GetFeedSettingsAsync());
+    }
 }

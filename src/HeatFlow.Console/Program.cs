@@ -232,12 +232,19 @@ class Program
         services.AddSingleton(new DoseWriteOptions());
         services.AddSingleton(TimeProvider.System);
 
-        // eSterownikMapper - potwierdzenie zapisu nastaw kotła (Faza 5). Console chodzi na tym samym
-        // CT 200 co mapper (esterownik.service, port 5000), stąd domyślnie localhost.
-        var mapperBaseUrl = configuration["EsterownikMapper:BaseUrl"] ?? "http://127.0.0.1:5000/";
+        // eSterownikMapper - potwierdzenie zapisu nastaw kotła (Faza 5), adres z appsettings
+        // (EsterownikMapper:BaseUrl, u nas http://172.17.137.33:5000/). Bez klucza nie zgadujemy adresu:
+        // ostrzeżenie przy starcie, mapper „nie odpowiada”, automat dawki się nie włączy.
+        var mapperBaseUrl = configuration["EsterownikMapper:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(mapperBaseUrl))
+        {
+            Log.Warning("Brak EsterownikMapper:BaseUrl w appsettings - Faza 5 nie odczyta nastaw kotła z mappera, " +
+                        "automat dawki się nie włączy (tryb cienia działa)");
+        }
         services.AddHttpClient<IEsterownikMapperClient, EsterownikMapperClient>(client =>
         {
-            client.BaseAddress = new Uri(mapperBaseUrl.EndsWith('/') ? mapperBaseUrl : mapperBaseUrl + "/");
+            if (!string.IsNullOrWhiteSpace(mapperBaseUrl))
+                client.BaseAddress = new Uri(mapperBaseUrl.EndsWith('/') ? mapperBaseUrl : mapperBaseUrl + "/");
             client.Timeout = TimeSpan.FromSeconds(15);
         });
 
@@ -280,6 +287,14 @@ class Program
         var mapper = scope.ServiceProvider.GetRequiredService<IEsterownikMapperClient>();
         var writer = scope.ServiceProvider.GetRequiredService<DoseControllerWriter>();
         var doseRepository = scope.ServiceProvider.GetRequiredService<IDoseRepository>();
+        var entities = DoseEntities.From(await scope.ServiceProvider.GetRequiredService<IConfigurationService>()
+            .GetSystemConfigurationAsync());
+        var configErrors = entities.Validate();
+        if (configErrors.Count > 0)
+        {
+            System.Console.WriteLine($"Błędna konfiguracja encji (SystemConfiguration): {string.Join("; ", configErrors)}");
+            return 6;
+        }
 
         var registers = new List<DoseRegister>();
         foreach (var a in args.Length == 0 ? new[] { "praca", "postoj" } : args)
@@ -318,7 +333,7 @@ class Program
             return (Register: r, Current: current, Test: test);
         }).ToList();
         foreach (var (r, current, test) in plan)
-            System.Console.WriteLine($"  {DoseControllerWriter.EntityId(r)}: {current} → {test} → z powrotem {current}");
+            System.Console.WriteLine($"  {DoseControllerWriter.EntityId(entities, r)}: {current} → {test} → z powrotem {current}");
         System.Console.Write("Wpisz 'tak', żeby zapisać: ");
         if (!string.Equals(System.Console.ReadLine()?.Trim(), "tak", StringComparison.OrdinalIgnoreCase))
         {
@@ -330,15 +345,15 @@ class Program
         foreach (var (r, current, test) in plan)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var there = await writer.WriteAsync(r, test);
+            var there = await writer.WriteAsync(entities, r, test);
             System.Console.WriteLine($"[{sw.Elapsed.TotalSeconds:F0} s] {there.Report}");
             sw.Restart();
-            var back = await writer.WriteAsync(r, current);
+            var back = await writer.WriteAsync(entities, r, current);
             System.Console.WriteLine($"[{sw.Elapsed.TotalSeconds:F0} s] przywrócenie: {back.Report}");
             allOk &= there.Confirmed && back.Confirmed;
             if (!back.Confirmed)
             {
-                System.Console.WriteLine($"UWAGA: {DoseControllerWriter.EntityId(r)} nie wrócił na {current} - ustaw ręcznie na panelu.");
+                System.Console.WriteLine($"UWAGA: {DoseControllerWriter.EntityId(entities, r)} nie wrócił na {current} - ustaw ręcznie na panelu.");
                 break;
             }
         }

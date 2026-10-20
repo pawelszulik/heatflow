@@ -15,6 +15,16 @@ ROOM_FIELD_NAMES = {
     "tempTarget": "Temperatura docelowa",
     "tempTargetActive": "Temperatura docelowa (aktywny)",
     "tempTargetInactive": "Temperatura docelowa (nieaktywny)",
+    "heatLossW": "Dawka: straty ciepła (W)",
+}
+
+# Zakres, krok i jednostka pól pokoju (min, max, krok, jednostka).
+ROOM_FIELD_RANGES = {
+    "tempTarget": (5.0, 30.0, 0.5, "°C"),
+    "tempTargetActive": (5.0, 30.0, 0.5, "°C"),
+    "tempTargetInactive": (5.0, 30.0, 0.5, "°C"),
+    # Waga celu pokoju w celu domu dla dawki (Faza 5); 0 = pokój nie wchodzi.
+    "heatLossW": (0.0, 5000.0, 1.0, "W"),
 }
 
 
@@ -50,6 +60,50 @@ PARAM_FIELDS = [
     ("minDwellMinutes", 0, 120, 1),
     ("summerModeWarmDayTemp", 0, 40, 0.5),
     ("summerModeForecastHours", 1, 48, 1),
+    # Faza 5 „Dawka” - zakresy = twarde granice Pawła (DoseLimits w API, które i tak odrzuci resztę).
+    ("feederWorkMin", 7, 10, 1),
+    ("feederWorkMax", 7, 10, 1),
+    ("feederPauseMin", 100, 320, 5),
+    ("feederPauseMax", 100, 320, 5),
+    ("blowerMin", 28, 35, 1),
+    ("blowerMax", 28, 35, 1),
+    ("feedPerKelvin", 100, 400, 1),
+    ("feedOffset", -5000, 5000, 1),
+    ("houseCapacity", 500, 3000, 1),
+    ("indoorTargetForFeed", 18, 26, 0.5),
+    ("feedCorrectionK", 0.6, 1.3, 0.01),
+    ("feedSmoothingPastHours", 1, 24, 1),
+    ("feedSmoothingForecastHours", 0, 24, 1),
+    ("feedMinIntervalHours", 2, 24, 1),
+    ("feedDeadbandSec", 5, 60, 1),
+    ("feedMaxStepSec", 5, 60, 1),
+    ("feedWorkUpHysteresisSec", 100, 320, 5),
+    ("doseBoilerStaleMinutes", 10, 120, 1),
+    ("doseBoilerColdMinutes", 0, 360, 5),
+    ("doseOutdoorStaleMinutes", 30, 360, 5),
+    ("doseIndoorMinSensors", 1, 20, 1),
+    ("doseFlueNoRaiseTemp", 100, 250, 1),
+    ("doseFlueMaxTemp", 150, 250, 1),
+    ("doseFlueBlowerCutPct", 1, 5, 1),
+    ("doseFlueSafetyHoldHours", 0, 48, 1),
+    ("doseTrimUnderpowerK", 1, 15, 0.5),
+    ("doseTrimUnderpowerHours", 1, 12, 1),
+    ("doseTrimStandbyEntries", 1, 10, 1),
+    ("doseTrimStandbyHours", 1, 24, 1),
+    ("doseTrimStepSec", 5, 60, 5),
+    ("doseTrimLimitSec", 0, 200, 5),
+    ("doseBoilerColdK", 3, 30, 0.5),
+    ("doseBoilerColdWarnMinutes", 15, 360, 5),
+    ("feedKGain", 0.05, 1.0, 0.05),
+    ("feedKMaxStep", 0.01, 0.2, 0.01),
+    ("feedKMin", 0.3, 1.0, 0.05),
+    ("feedKMax", 1.0, 2.0, 0.05),
+    ("doseCeilingDayHeatingHours", 12, 24, 0.5),
+    ("doseBlowerLowDuty", 0.01, 0.09, 0.001),
+    ("doseTargetRiseKPerHour", 0.01, 1.0, 0.01),
+    ("doseStorageBonusMaxSec", 0, 8000, 100),
+    ("doseActualSmoothingHours", 3, 72, 1),
+    ("doseActualMaxAboveTargetsK", 0, 6, 0.1),
 ]
 
 PARAM_DISPLAY_NAMES = {
@@ -71,6 +125,49 @@ PARAM_DISPLAY_NAMES = {
     "minDwellMinutes": "Min. czas trzymania zaworu (min)",
     "summerModeWarmDayTemp": "Tryb lato - próg ciepłego dnia (°C)",
     "summerModeForecastHours": "Tryb lato - okno prognozy ciepłego dnia (h)",
+    "feederWorkMin": "Dawka - praca podajnika min (s)",
+    "feederWorkMax": "Dawka - praca podajnika max (s)",
+    "feederPauseMin": "Dawka - postój podajnika min (s)",
+    "feederPauseMax": "Dawka - postój podajnika max (s)",
+    "blowerMin": "Dawka - dmuchawa min (%)",
+    "blowerMax": "Dawka - dmuchawa max (%)",
+    "feedPerKelvin": "Dawka - podajnik na 1 K (s na dobę)",
+    "feedOffset": "Dawka - wyraz wolny (s na dobę)",
+    "houseCapacity": "Dawka - pojemność domu (s na 1 K)",
+    "indoorTargetForFeed": "Dawka - temperatura w domu (°C)",
+    "feedCorrectionK": "Dawka - korekta k",
+    "feedSmoothingPastHours": "Dawka - Tz godzin wstecz",
+    "feedSmoothingForecastHours": "Dawka - Tz godzin prognozy",
+    "feedMinIntervalHours": "Dawka - min. odstęp zmian (h)",
+    "feedDeadbandSec": "Dawka - martwa strefa (s)",
+    "feedMaxStepSec": "Dawka - max krok postoju (s)",
+    "feedWorkUpHysteresisSec": "Dawka - histereza czasu pracy (s)",
+    "doseBoilerStaleMinutes": "Dawka - brak danych kotła (min)",
+    "doseBoilerColdMinutes": "Dawka - kocioł zimny: wyłącz po (min, 0 = tylko ostrzeżenie)",
+    "doseOutdoorStaleMinutes": "Dawka - brak temp. zewn. (min)",
+    "doseIndoorMinSensors": "Dawka - min. czujników w domu",
+    "doseFlueNoRaiseTemp": "Dawka - spaliny: nie podnoś dmuchawy od (°C)",
+    "doseFlueMaxTemp": "Dawka - spaliny: dmuchawa w dół i wyłączenie od (°C)",
+    "doseFlueBlowerCutPct": "Dawka - spaliny: zbicie dmuchawy (pkt)",
+    "doseFlueSafetyHoldHours": "Dawka - po bezpieczniku #24 bez podnoszenia (h)",
+    "doseTrimUnderpowerK": "Dawka - trym: kocioł pod nastawą o (K)",
+    "doseTrimUnderpowerHours": "Dawka - trym: pod nastawą przez (h)",
+    "doseTrimStandbyEntries": "Dawka - trym: liczba podtrzymań",
+    "doseTrimStandbyHours": "Dawka - trym: podtrzymania w oknie (h)",
+    "doseTrimStepSec": "Dawka - trym: krok (s)",
+    "doseTrimLimitSec": "Dawka - trym: granica (s)",
+    "doseBoilerColdK": "Dawka - kocioł zimny: pod nastawą o (K)",
+    "doseBoilerColdWarnMinutes": "Dawka - kocioł zimny: ostrzeżenie po (min)",
+    "feedKGain": "Dawka - korekta k: wzmocnienie",
+    "feedKMaxStep": "Dawka - korekta k: krok na dobę",
+    "feedKMin": "Dawka - korekta k: minimum",
+    "feedKMax": "Dawka - korekta k: maksimum",
+    "doseCeilingDayHeatingHours": "Dawka - doba na suficie od (h grzania)",
+    "doseBlowerLowDuty": "Dawka - dmuchawa minimum przy udziale pracy",
+    "doseTargetRiseKPerHour": "Dawka - wzrost celu domu (K/h)",
+    "doseStorageBonusMaxSec": "Dawka - max dodatek na dogrzanie (s na dobę)",
+    "doseActualSmoothingHours": "Dawka - wygładzanie faktycznej pokoju (h)",
+    "doseActualMaxAboveTargetsK": "Dawka - cel z faktycznymi max ponad cele (K)",
 }
 
 
@@ -89,7 +186,7 @@ async def async_setup_entry(
         name = room.get("name") or room.get("Name")
         if not name:
             continue
-        for key in ["tempTarget", "tempTargetActive", "tempTargetInactive"]:
+        for key in ["tempTarget", "tempTargetActive", "tempTargetInactive", "heatLossW"]:
             val = _pole(room, key)
             if val is not None:
                 entities.append(RoomNumberEntity(coordinator, entry, name, key, float(val)))
@@ -102,13 +199,14 @@ async def async_setup_entry(
 
 class RoomNumberEntity(CoordinatorEntity, NumberEntity):
     _attr_has_entity_name = True
-    _attr_native_min_value = 5.0
-    _attr_native_max_value = 30.0
-    _attr_native_step = 0.5
-    _attr_native_unit_of_measurement = "°C"
 
     def __init__(self, coordinator, entry: ConfigEntry, room_name: str, field: str, initial: float) -> None:
         super().__init__(coordinator)
+        min_v, max_v, step, unit = ROOM_FIELD_RANGES[field]
+        self._attr_native_min_value = min_v
+        self._attr_native_max_value = max_v
+        self._attr_native_step = step
+        self._attr_native_unit_of_measurement = unit
         self._entry = entry
         self._room_name = room_name
         self._field = field

@@ -62,6 +62,9 @@ Pliki `appsettings.json` nie są commitowane do repozytorium (znajdują się w `
     "AccessToken": "TWOJ_LONG_LIVED_TOKEN",
     "TimeoutSeconds": 30
   },
+  "EsterownikMapper": {
+    "BaseUrl": "http://172.17.137.33:5000/"
+  },
   "OpenWeatherMap": {
     "ApiKey": "TWOJ_KLUCZ_OWM"
   },
@@ -79,6 +82,10 @@ Pliki `appsettings.json` nie są commitowane do repozytorium (znajdują się w `
   }
 }
 ```
+
+`EsterownikMapper:BaseUrl` - adres eSterownikMappera (u nas `esterownik.service` na CT 200, `172.17.137.33:5000`).
+Faza 5 „Dawka” czyta z niego nastawy kotła (`GET readdata/GetAllValues`) i nim potwierdza każdy zapis.
+Bez tego klucza Console loguje przy starcie ostrzeżenie, a automat dawki się nie włączy (tryb cienia działa).
 
 ### Aplikacja Api (`src/HeatFlow.Api/appsettings.json`)
 

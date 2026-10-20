@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Wirtualne testy Fazy 5 „Dawka”: atrapy HA / sterownika / bazy, wirtualny kocioł z domem,
+       replay historii z HMS i pętla zamknięta. Nic tu nie łączy się z HA, mapperem ani bazą. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeatFlow.Core\HeatFlow.Core.csproj" />
+  </ItemGroup>
+
+</Project>

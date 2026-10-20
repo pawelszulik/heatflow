@@ -79,12 +79,22 @@ class HeatFlowDataUpdateCoordinator(DataUpdateCoordinator[dict]):
                 )
                 system = await system_resp.json() if system_resp.status == 200 else None
 
+                # Faza 5 „Dawka” (automat podajnika). Starsze API bez endpointu -> encje
+                # dawki niedostępne, reszta integracji działa jak dotąd.
+                dose_resp = await session.get(
+                    f"{self._api_url}/api/dose",
+                    headers=_headers(self._api_key),
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                dose = await dose_resp.json() if dose_resp.status == 200 else None
+
                 return {
                     "rooms": rooms,
                     "heating_parameters": params,
                     "configuration_changes": changes,
                     "status": status,
                     "system": system,
+                    "dose": dose,
                 }
             except aiohttp.ClientError as e:
                 raise UpdateFailed(f"Błąd połączenia: {e}") from e

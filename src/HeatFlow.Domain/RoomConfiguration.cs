@@ -65,6 +65,28 @@ public class RoomConfiguration
     public string ValveEntityId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Czy czujnik tego pokoju (SensorTemperatureEntityId) wchodzi do średniej temperatury w domu,
+    /// z której Faza 5 „Dawka” liczy bilans dobowy (korekta k). Model dawki był kalibrowany na 7 czujnikach
+    /// BMx280 pod sufitem (kuchnia, salon, spiżarnia, suszarnia, edyta, hol, przejściowy) - zmiana zestawu
+    /// zmienia poziom średniej, więc tylko świadomie. Głowice TRV nie nadają się (mierzą przy grzejniku).
+    /// </summary>
+    public bool UseForDoseIndoorMean { get; set; }
+
+    /// <summary>
+    /// Zapotrzebowanie pokoju na ciepło [W] z inwentaryzacji (plan-heatflow-algorytm.md, „Wagi pokoi
+    /// z zapotrzebowania”). Waga celu pokoju w celu domu, z którego Faza 5 liczy dawkę:
+    /// cel domu = Σ(waga · cel pokoju) / Σ wag. 0 = pokój nie wchodzi do celu domu.
+    /// </summary>
+    public double HeatLossW { get; set; }
+
+    /// <summary>
+    /// Czy faktyczna temperatura pokoju może podnieść jego wkład do celu domu ponad cel
+    /// (HeatingParameters.DoseTargetUseActual). Wył. = pokój zawsze po celu - np. pomieszczenie ciepłe
+    /// od cudzego ciepła (garaż przy celu 6 °C ma średnio ~16 °C, zawór zamknięty).
+    /// </summary>
+    public bool DoseUseActual { get; set; } = true;
+
+    /// <summary>
     /// Tworzy kopię konfiguracji (snapshot) do porównań np. w audit logu.
     /// Zwraca null, gdy wywołane na null.
     /// </summary>
@@ -83,7 +105,10 @@ public class RoomConfiguration
             UsageSchedule = source.UsageSchedule,
             HeatingSchedule = source.HeatingSchedule,
             SensorTemperatureEntityId = source.SensorTemperatureEntityId,
-            ValveEntityId = source.ValveEntityId
+            ValveEntityId = source.ValveEntityId,
+            UseForDoseIndoorMean = source.UseForDoseIndoorMean,
+            HeatLossW = source.HeatLossW,
+            DoseUseActual = source.DoseUseActual
         };
     }
 

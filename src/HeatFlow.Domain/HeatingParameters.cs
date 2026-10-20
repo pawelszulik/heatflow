@@ -118,12 +118,14 @@ public class HeatingParameters
     public bool DoseRestoreOnDisable { get; set; } = true;
 
     /// <summary>
-    /// Ile minut kocioł musi być poniżej nastawy − 10 K, żeby automat sam się wyłączył. Spec: 60.
-    /// 0 = nie wyłączaj z tego powodu: po 60 min tylko wpis w dzienniku i Discord (raz na epizod).
-    /// Uwaga z danych (HMS I-X 2026, nastawy Pawła): takich epizodów ≥ 1 h było 76, ≥ 2 h 11,
-    /// ≥ 3 h 3 - zawsze z dmuchawą 100 % i spalinami ≥ 91 °C (ogień się palił, nie zgasł).
+    /// Kocioł poniżej nastawy − 10 K: 0 (domyślnie, decyzja Pawła 2026-10-20) = tylko ostrzeżenie -
+    /// po 60 min wpis OSTRZEZENIE w dzienniku i Discord, automat zostaje włączony, nastaw nie
+    /// przywraca. Wartość 30-360 = samowyłączenie po tylu minutach (spec pierwotnie: 60).
+    /// Powód (HMS I-X 2026, nastawy Pawła): takich epizodów ≥ 1 h było 76, ≥ 2 h 11, ≥ 3 h 3 -
+    /// zawsze z dmuchawą 100 % i spalinami ≥ 91 °C, czyli ogień się palił; samowyłączenie w mróz
+    /// przywracało niższą dawkę.
     /// </summary>
-    public int DoseBoilerColdMinutes { get; set; } = 60;
+    public int DoseBoilerColdMinutes { get; set; }
 
     /// <summary>Po ilu minutach bez danych z kotła automat sam się wyłącza.</summary>
     public int DoseBoilerStaleMinutes { get; set; } = 30;

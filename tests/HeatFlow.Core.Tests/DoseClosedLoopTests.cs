@@ -12,16 +12,16 @@ namespace HeatFlow.Core.Tests;
 /// granice nigdy nieprzekroczone, bez piłowania, Tin przy celu, k zbiega, każda usterka kończy się
 /// właściwym samowyłączeniem + wpisem w dzienniku + przywróceniem nastaw.
 ///
-/// Bezpiecznik „kocioł zimny” ustawiony na 0 (tylko ostrzeżenie) we wszystkich testach poza
-/// <see cref="SpecColdRule_SelfDisablesWithinDays_AsSeenInRealData"/>: z regułą 60 min (spec) automat
-/// wyłącza się w 1-2 doby - to samo widać w danych z HMS (76 takich epizodów I-X przy nastawach Pawła,
-/// zawsze z palącym się ogniem). Decyzja, co z tą regułą, należy do Pawła.
+/// Bezpiecznik „kocioł zimny” domyślnie = 0 (tylko ostrzeżenie, decyzja Pawła 2026-10-20).
+/// <see cref="ColdRule60Min_SelfDisablesWithinDays_AsSeenInRealData"/> pokazuje, dlaczego: z regułą
+/// 60 min z pierwotnej spec automat wyłącza się w 1-2 doby - to samo widać w danych z HMS (76 takich
+/// epizodów I-X przy nastawach Pawła, zawsze z palącym się ogniem).
 /// </summary>
 public class DoseClosedLoopTests
 {
     private static readonly TimeZoneInfo Warsaw = TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
     private static DateTime Start(int month, int day) => TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, month, day), Warsaw);
-    private static HeatingParameters WarnOnlyCold() => new() { DoseBoilerColdMinutes = 0 };
+    private static HeatingParameters WarnOnlyCold() => new(); // domyślnie DoseBoilerColdMinutes = 0
 
     private static List<(DateTime Utc, double Tz)> Tz(string file)
         => File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "Data", file)).Skip(1)
@@ -146,12 +146,13 @@ public class DoseClosedLoopTests
     }
 
     [Fact]
-    public async Task SpecColdRule_SelfDisablesWithinDays_AsSeenInRealData()
+    public async Task ColdRule60Min_SelfDisablesWithinDays_AsSeenInRealData()
     {
-        // Charakterystyka, nie wymaganie: przy regule ze specyfikacji (60 min) wirtualny kocioł po
+        // Charakterystyka, nie wymaganie: przy regule z pierwotnej spec (60 min) wirtualny kocioł po
         // podtrzymaniu albo przy szybkim spadku Tz schodzi pod nastawę − 10 K na ponad godzinę
         // i automat sam się wyłącza (z przywróceniem nastaw). Patrz komentarz klasy.
-        var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), Start(3, 1), 7, 1.0, new HeatingParameters(), startAtModel: true);
+        var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), Start(3, 1), 7, 1.0,
+            new HeatingParameters { DoseBoilerColdMinutes = 60 }, startAtModel: true);
 
         AssertHealthy(r);
         var off = Assert.Single(r.SelfDisables);

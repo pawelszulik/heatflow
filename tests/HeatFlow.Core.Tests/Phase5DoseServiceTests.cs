@@ -237,17 +237,44 @@ public class Phase5DoseServiceTests
     }
 
     [Fact]
-    public async Task BoilerBelowSetpointMinus10ForAnHour_SelfDisables()
+    public async Task BoilerBelowSetpointMinus10ForAnHour_Default_OnlyWarns_AutomatStaysOn()
+    {
+        // Decyzja Pawła 2026-10-20: domyślnie (DoseBoilerColdMinutes = 0) tylko ostrzeżenie.
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        MakeBoilerColdForLastHour();
+
+        await Run();
+        await Run();
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.DoesNotContain(_repo.Log, e => e.ReasonCode == "PRZYWROCENIE_NASTAW" || e.ReasonCode.StartsWith("SAMOWYLACZENIE_"));
+        var warning = Assert.Single(_repo.Log, e => e.Status == DoseLog.StatusWarning);
+        Assert.Equal("KOCIOL_ZIMNY", warning.ReasonCode);
+        Assert.Contains("Automat zostaje włączony", warning.Message);
+        Assert.Single(_messages, m => m.Title == "HeatFlow: kocioł zimny");
+    }
+
+    [Fact]
+    public async Task BoilerBelowSetpointMinus10_WithColdMinutesSet_SelfDisables()
     {
         _repo.Switch.Enabled = true;
         _repo.State = ActiveState(saved: (7, 160, 35));
-        foreach (var s in _repo.Samples.Where(s => s.TimestampUtc > Now.AddHours(-1))) s.BoilerTemp = 55;
-        SetEnvironment(outdoor: -5.0, boiler: 55);
+        MakeBoilerColdForLastHour();
 
-        await Run();
+        await Run(new HeatingParameters { DoseBoilerColdMinutes = 60 });
 
         Assert.False(_repo.Switch.Enabled);
         Assert.Contains(_messages, m => m.Message.Contains("poniżej nastawy − 10 K"));
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "SAMOWYLACZENIE_KOCIOL_ZIMNY");
+    }
+
+    private void MakeBoilerColdForLastHour()
+    {
+        foreach (var s in _repo.Samples.Where(s => s.TimestampUtc > Now.AddHours(-1))) s.BoilerTemp = 55;
+        SetEnvironment(outdoor: -5.0, boiler: 55);
     }
 
     [Fact]

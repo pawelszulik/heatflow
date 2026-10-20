@@ -33,7 +33,7 @@ namespace HeatFlow.Infrastructure.Migrations
                 table: "HeatingParameters",
                 type: "int",
                 nullable: false,
-                defaultValue: 60);
+                defaultValue: 0);
 
             migrationBuilder.AddColumn<int>(
                 name: "DoseBoilerStaleMinutes",

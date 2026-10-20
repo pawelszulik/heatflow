@@ -54,7 +54,8 @@ void ReplayTable(ReplayResult r)
 
 // ---------- 1. Replay: automat włączony (pętla otwarta) ----------
 var sw = System.Diagnostics.Stopwatch.StartNew();
-var on = await ReplayRunner.RunAsync(rows, automatOn: true);
+// Replay z regułą 60 min (pierwotna spec) - pokazuje, ile razy by się wyłączał; domyślnie jest 0.
+var on = await ReplayRunner.RunAsync(rows, automatOn: true, parameters: new HeatingParameters { DoseBoilerColdMinutes = 60 });
 W($"## 1. Replay historii, automat włączony (pętla otwarta, {sw.Elapsed.TotalSeconds:F0} s)");
 W();
 W("Kocioł i dom w danych reagowały na nastawy Pawła, nie automatu - więc trym od kotła i bezpieczniki widzą tamten kocioł. Po samowyłączeniu „Paweł” włącza automat ponownie po 6 h.");
@@ -155,7 +156,7 @@ W();
 W("Dom: C = 1549 s/K, strata = f · (255·(Tin − Tz) − 934) s/dobę (f = „prawdziwy dom” względem modelu); ogień: opóźnienie 15 min + stała 45 min; " +
   "woda 9,6 s/K; podtrzymanie ≥ nastawy 67 °C, powrót < 65 °C; 4D przymyka poniżej ~50 °C. Start w równowadze (nastawy z modelu), k = 1,0.");
 W();
-foreach (var (title, coldMinutes) in new[] { ("bezpiecznik „kocioł zimny” jak w spec (60 min → samowyłączenie)", 60), ("bezpiecznik „kocioł zimny” = 0 (tylko ostrzeżenie)", 0) })
+foreach (var (title, coldMinutes) in new[] { ("bezpiecznik „kocioł zimny” = 0 (tylko ostrzeżenie - domyślnie, decyzja Pawła)", 0), ("dla porównania: 60 min → samowyłączenie (pierwotna spec)", 60) })
 {
     W($"### {title}");
     W();

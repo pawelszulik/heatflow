@@ -108,7 +108,7 @@ PARAM_DISPLAY_NAMES = {
     "feedMaxStepSec": "Dawka - max krok postoju (s)",
     "feedWorkUpHysteresisSec": "Dawka - histereza czasu pracy (s)",
     "doseBoilerStaleMinutes": "Dawka - brak danych kotła (min)",
-    "doseBoilerColdMinutes": "Dawka - kocioł zimny wyłącza po (min, 0 = tylko ostrzega)",
+    "doseBoilerColdMinutes": "Dawka - kocioł zimny: wyłącz po (min, 0 = tylko ostrzeżenie)",
     "doseOutdoorStaleMinutes": "Dawka - brak temp. zewn. (min)",
 }
 

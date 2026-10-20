@@ -61,6 +61,72 @@ public class HeatingParameters
     /// </summary>
     public double SummerModeWarmDayTemp { get; set; } = 20.0;
 
+    // Parametry Fazy 5 „Dawka” (analiza-kociol-nastawy.md § 9). Inicjalizatory = wartości
+    // domyślne z analizy - z tego samego powodu co przy SummerModeWarmDayTemp: zero z niepełnego
+    // PUT albo new HeatingParameters() dawałoby nastawy poza granicami Pawła. Twarde granice
+    // i walidacja: DoseLimits.
+
+    /// <summary>Czas pracy podajnika w grzaniu - zakres dla automatu [s], twardo 7-10.</summary>
+    public int FeederWorkMin { get; set; } = 7;
+    public int FeederWorkMax { get; set; } = 10;
+
+    /// <summary>Czas postoju podajnika w grzaniu - zakres dla automatu [s], twardo 100-320.</summary>
+    public int FeederPauseMin { get; set; } = 100;
+    public int FeederPauseMax { get; set; } = 320;
+
+    /// <summary>Moc dmuchawy w grzaniu - zakres dla automatu [%], twardo 28-35 (decyzja Pawła: 30-35).</summary>
+    public int BlowerMin { get; set; } = 30;
+    public int BlowerMax { get; set; } = 35;
+
+    /// <summary>Ile sekund pracy podajnika na dobę dom bierze na 1 K różnicy środek-dwór (§ 4a).</summary>
+    public double FeedPerKelvin { get; set; } = 255.0;
+
+    /// <summary>Wyraz wolny modelu [s/dobę] - CWU minus zyski (§ 4a).</summary>
+    public double FeedOffset { get; set; } = -934.0;
+
+    /// <summary>Pojemność cieplna domu [s pracy podajnika na 1 K] - do bilansu netto w korekcie k (§ 4a).</summary>
+    public double HouseCapacity { get; set; } = 1549.0;
+
+    /// <summary>Temperatura w domu, na którą liczona jest dawka [°C] - „pierwsze pokrętło” (§ 5).</summary>
+    public double IndoorTargetForFeed { get; set; } = 24.0;
+
+    /// <summary>Współczynnik korekty modelu, uczony raz na dobę z bilansu (0,6-1,3).</summary>
+    public double FeedCorrectionK { get; set; } = 1.0;
+
+    /// <summary>Ile godzin pomiaru wstecz wchodzi do średniej Tz (§ 7a).</summary>
+    public int FeedSmoothingPastHours { get; set; } = 2;
+
+    /// <summary>Ile godzin prognozy do przodu wchodzi do średniej Tz (§ 7a).</summary>
+    public int FeedSmoothingForecastHours { get; set; } = 1;
+
+    /// <summary>Minimalny odstęp między zmianami nastaw [h] - kocioł reaguje w 30 min-2 h (§ 7).</summary>
+    public int FeedMinIntervalHours { get; set; } = 2;
+
+    /// <summary>Martwa strefa postoju [s] - mniejszej różnicy nie zapisujemy.</summary>
+    public int FeedDeadbandSec { get; set; } = 15;
+
+    /// <summary>Największy krok postoju na jedną zmianę [s].</summary>
+    public int FeedMaxStepSec { get; set; } = 20;
+
+    /// <summary>
+    /// Histereza czasu pracy [s postoju]: czas pracy schodzi o 1 s dopiero, gdy przy krótszym
+    /// czasie postój wyszedłby co najmniej tyle (w górę idzie, gdy postój spadłby poniżej minimum).
+    /// </summary>
+    public int FeedWorkUpHysteresisSec { get; set; } = 130;
+
+    /// <summary>Czy po wyłączeniu automatu (ręcznie albo samowyłączeniu) przywrócić nastawy zastane przy włączeniu.</summary>
+    public bool DoseRestoreOnDisable { get; set; } = true;
+
+    /// <summary>Po ilu minutach bez danych z kotła automat sam się wyłącza.</summary>
+    public int DoseBoilerStaleMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// Po ilu minutach bez nowej wartości z czujnika ogrodowego automat sam się wyłącza. Nie 30 min
+    /// jak dla kotła: przy stałej temperaturze stan czujnika zmienia się w HA zwykle co ok. 58 min
+    /// (HMS, X 2026: kilkadziesiąt przerw 53-59 min), więc 30 min wyłączałoby automat co godzinę.
+    /// </summary>
+    public int DoseOutdoorStaleMinutes { get; set; } = 120;
+
     // Parametry zaworów
     public double ValveTolerance { get; set; }
     public int ValveRetryCount { get; set; }

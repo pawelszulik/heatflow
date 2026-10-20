@@ -173,6 +173,161 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.ToTable("ConfigurationChangeLog", (string)null);
                 });
 
+            modelBuilder.Entity("HeatFlow.Domain.DoseAutomatSwitch", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("ChangedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ChangedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DoseAutomatSwitch", (string)null);
+                });
+
+            modelBuilder.Entity("HeatFlow.Domain.DoseSample", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<double?>("BlowerActual")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("BoilerSetpoint")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("BoilerTemp")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("FeederCounterSec")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("FlueTemp")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("IndoorTemp")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("OutdoorTemp")
+                        .HasColumnType("float");
+
+                    b.Property<bool?>("SummerMode")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("TimestampUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TimestampUtc");
+
+                    b.ToTable("DoseSample", (string)null);
+                });
+
+            modelBuilder.Entity("HeatFlow.Domain.DoseState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("AutomatActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("Ceiling")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("ControllerBlower")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ControllerPause")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ControllerWork")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("LastBoilerDataUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastCalcUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastChangeUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastKCorrectionDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("LastMapperOkUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastOutdoorDataUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("LastSelfDisableReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("LastSelfDisableUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastTrimUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double?>("ModelPause")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("NeedSecPerDay")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("OutdoorSmoothed")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("PlannedBlower")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PlannedPause")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PlannedWork")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SavedBlower")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SavedPause")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SavedWork")
+                        .HasColumnType("int");
+
+                    b.Property<double>("ShortfallPct")
+                        .HasColumnType("float");
+
+                    b.Property<int>("TrimSec")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DoseState", (string)null);
+                });
+
             modelBuilder.Entity("HeatFlow.Domain.ExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -255,6 +410,12 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int>("Id")
                         .HasColumnType("int");
 
+                    b.Property<int>("BlowerMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("BlowerMin")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("BoilerNominalTemp")
                         .HasColumnType("decimal(5,2)");
 
@@ -294,6 +455,42 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("DeficitHighP3Base")
                         .HasColumnType("decimal(5,2)");
 
+                    b.Property<int>("DoseBoilerStaleMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DoseOutdoorStaleMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("DoseRestoreOnDisable")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("FeedCorrectionK")
+                        .HasColumnType("decimal(5,3)");
+
+                    b.Property<int>("FeedDeadbandSec")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FeedMaxStepSec")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FeedMinIntervalHours")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("FeedOffset")
+                        .HasColumnType("decimal(8,2)");
+
+                    b.Property<decimal>("FeedPerKelvin")
+                        .HasColumnType("decimal(7,2)");
+
+                    b.Property<int>("FeedSmoothingForecastHours")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FeedSmoothingPastHours")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FeedWorkUpHysteresisSec")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("FeederBoostMultiplier")
                         .HasColumnType("decimal(5,2)");
 
@@ -309,11 +506,23 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("FeederNormalMultiplier")
                         .HasColumnType("decimal(5,2)");
 
+                    b.Property<int>("FeederPauseMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FeederPauseMin")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("FeederTimeDefault")
                         .HasColumnType("decimal(5,2)");
 
                     b.Property<decimal>("FeederTimeTolerance")
                         .HasColumnType("decimal(5,2)");
+
+                    b.Property<int>("FeederWorkMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FeederWorkMin")
+                        .HasColumnType("int");
 
                     b.Property<int>("ForecastHoursCount")
                         .HasColumnType("int");
@@ -351,10 +560,16 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("FrostCompensationFactor")
                         .HasColumnType("decimal(5,2)");
 
+                    b.Property<decimal>("HouseCapacity")
+                        .HasColumnType("decimal(8,2)");
+
                     b.Property<decimal>("Hysteresis")
                         .HasColumnType("decimal(5,2)");
 
                     b.Property<decimal>("HysteresisSafetyThreshold")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal>("IndoorTargetForFeed")
                         .HasColumnType("decimal(5,2)");
 
                     b.Property<int>("MaxValvesOpen")

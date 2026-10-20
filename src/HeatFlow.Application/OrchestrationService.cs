@@ -19,6 +19,7 @@ public class OrchestrationService
     private readonly IPhaseService _phase2;
     private readonly IPhaseService _phase3;
     private readonly IPhaseService _phase4;
+    private readonly IPhaseService _phase5;
     private readonly DataPersistenceService? _dataPersistenceService;
     private readonly IApplicationErrorLogger _errorLogger;
     private readonly IHeatFlowRepository _repository;
@@ -50,6 +51,7 @@ public class OrchestrationService
         _phase2 = phases[2];
         _phase3 = phases[3];
         _phase4 = phases[4];
+        _phase5 = phases[5];
     }
 
     /// <summary>
@@ -92,6 +94,11 @@ public class OrchestrationService
 
             var result4 = await _phase4.ExecuteAsync(state, parameters, cancellationToken);
             results.Add(result4);
+            await Task.Delay(2000, cancellationToken);
+
+            // Faza 5 - dawka podajnika i dmuchawa z pogody; bez włączonego automatu tylko liczy.
+            var result5 = await _phase5.ExecuteAsync(state, parameters, cancellationToken);
+            results.Add(result5);
 
             // Zapisz wyniki do bazy danych (jeśli serwis jest dostępny)
             if (_dataPersistenceService != null)

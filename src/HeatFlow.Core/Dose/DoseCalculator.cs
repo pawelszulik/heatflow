@@ -1,0 +1,381 @@
+using System.Text.RegularExpressions;
+using HeatFlow.Domain;
+
+namespace HeatFlow.Core.Dose;
+
+/// <summary>Plan dawki z modelu pogodowego (krok 1-4 i 6 specyfikacji).</summary>
+/// <param name="Work">Czas pracy podajnika po histerezie [s].</param>
+/// <param name="ModelPause">Postój z modelu z trymem, przycięty do zakresu, niezaokrąglony [s].</param>
+/// <param name="Ceiling">Kocioł na suficie: przy maks. czasie pracy postój wyszedłby poniżej minimum.</param>
+/// <param name="ShortfallPct">O ile procent sufit nie pokrywa potrzeby (0, gdy nie na suficie).</param>
+public record DosePlan(int Work, double ModelPause, bool Ceiling, double ShortfallPct);
+
+/// <summary>Decyzja o zmianie nastaw (krok 5 specyfikacji).</summary>
+public record DoseDecision(bool Change, int Work, int Pause, string Reason);
+
+/// <summary>Bilans jednej doby do korekty k.</summary>
+/// <param name="FeedSec">Sekundy pracy podajnika z licznika (null = dziura w danych).</param>
+/// <param name="HeatingHours">Godziny z dmuchawą &gt; 0 (grzanie, nie podtrzymanie).</param>
+public record DailyBalance(double? OutdoorMean, double? IndoorMean, double? FeedSec, double HeatingHours, bool Valid, string? InvalidReason);
+
+/// <summary>
+/// Obliczenia Fazy 5 „Dawka” - bez wejścia/wyjścia, żeby dało się je sprawdzić testami
+/// i porównać z symulacją a7_sucho2.py (analiza-kociol-nastawy.md § 9, § 11).
+/// Wszystko liczone w sekundach pracy podajnika na dobę, nie w kilogramach (§ 3).
+/// </summary>
+public static class DoseCalculator
+{
+    /// <summary>Udział pracy podajnika, przy którym dmuchawa jest na minimum (§ 9 „Dmuchawa”).</summary>
+    public const double BlowerLowDuty = 0.034;
+
+    /// <summary>Grzanie ≥ tylu godzin w dobie = kocioł stał na suficie, doba nie uczy k (§ 9).</summary>
+    public const double CeilingDayHeatingHours = 22.5;
+
+    /// <summary>Granice trymu od kotła [s postoju] - najwyżej 3 kroki po 20 s w jedną stronę.</summary>
+    public const int TrimLimitSec = 60;
+    public const int TrimStepSec = 20;
+
+    /// <summary>
+    /// Krok 1: średnia Tz z <paramref name="pastHours"/> godzin pomiaru wstecz (średnie godzinowe
+    /// czujnika ogrodowego) i <paramref name="forecastHours"/> godzin prognozy do przodu - § 7a.
+    /// Odpowiada oknu OK_OD=-2, OK_DO=1 z symulacji: godzina bieżąca to w czasie rzeczywistym
+    /// jeszcze przyszłość, więc bierze ją prognoza. Null, gdy brak jakiegokolwiek pomiaru.
+    /// </summary>
+    public static double? SmoothedOutdoorTemp(
+        IEnumerable<(DateTime TimestampUtc, double Temp)> measured,
+        ForecastData? forecast,
+        DateTime nowUtc,
+        int pastHours,
+        int forecastHours)
+    {
+        var hourly = measured
+            .Where(m => m.TimestampUtc <= nowUtc && m.TimestampUtc > nowUtc.AddHours(-pastHours))
+            .GroupBy(m => (int)Math.Floor((nowUtc - m.TimestampUtc).TotalHours))
+            .Select(g => g.Average(m => m.Temp))
+            .ToList();
+
+        if (hourly.Count == 0)
+        {
+            return null;
+        }
+
+        var window = new List<double>(hourly);
+        if (forecastHours > 0 && forecast != null)
+        {
+            // Prognoza OWM ma pełne godziny - bierzemy najbliższe od „teraz − 30 min”.
+            window.AddRange(forecast.ForecastHours
+                .Where(f => f.Temperature.HasValue && f.DateTime.HasValue
+                            && f.DateTime.Value > nowUtc.AddMinutes(-30)
+                            && f.DateTime.Value <= nowUtc.AddHours(forecastHours))
+                .OrderBy(f => f.DateTime)
+                .Take(forecastHours)
+                .Select(f => f.Temperature!.Value));
+        }
+
+        return window.Average();
+    }
+
+    /// <summary>Krok 2: potrzeba domu = k · (FeedPerKelvin · (T_wewn docelowa − Tz) + FeedOffset) [s/dobę].</summary>
+    public static double Need(HeatingParameters p, double outdoor)
+        => p.FeedCorrectionK * (p.FeedPerKelvin * (p.IndoorTargetForFeed - outdoor) + p.FeedOffset);
+
+    /// <summary>Krok 4: postój dający potrzebę przy danym czasie pracy: praca · 86400 / potrzeba − praca.</summary>
+    public static double PauseFor(int work, double need) => work * 86400.0 / Math.Max(need, 1.0) - work;
+
+    /// <summary>
+    /// Krok 3: czas pracy z histerezą - w górę, dopóki postój wychodzi poniżej minimum; w dół, gdy
+    /// przy krótszym czasie postój wyszedłby ≥ FeedWorkUpHysteresisSec (130 s). Bez histerezy
+    /// czas pracy skakał 9 ↔ 10 s co kilka godzin (symulacja).
+    /// </summary>
+    public static int WorkWithHysteresis(int currentWork, double need, HeatingParameters p)
+    {
+        var (workMin, workMax, pauseMin, _) = Bounds(p);
+        var work = Math.Clamp(currentWork, workMin, workMax);
+        while (work < workMax && PauseFor(work, need) < pauseMin) work++;
+        while (work > workMin && PauseFor(work - 1, need) >= p.FeedWorkUpHysteresisSec) work--;
+        return work;
+    }
+
+    /// <summary>Kroki 2-4 i 6: czas pracy, postój z modelu (z trymem), sufit.</summary>
+    public static DosePlan Plan(HeatingParameters p, double outdoor, int currentWork, int trimSec)
+    {
+        var (_, workMax, pauseMin, pauseMax) = Bounds(p);
+        var need = Need(p, outdoor);
+        var work = WorkWithHysteresis(currentWork, need, p);
+        var rawPause = PauseFor(work, need);
+
+        // Krok 6 (anti-windup): na suficie stoi maks. praca / min. postój i nic się nie zbiera -
+        // brak członu całkującego, więc po ociepleniu od razu schodzi.
+        var ceiling = rawPause < pauseMin;
+        var shortfall = 0.0;
+        if (ceiling)
+        {
+            var capacity = workMax * 86400.0 / (workMax + pauseMin);
+            shortfall = need > 0 ? Math.Max(0, (need - capacity) / need * 100.0) : 0;
+        }
+
+        var modelPause = Math.Clamp(rawPause + trimSec, pauseMin, pauseMax);
+        return new DosePlan(work, modelPause, ceiling, shortfall);
+    }
+
+    /// <summary>
+    /// Krok 5: zmiana tylko gdy minął odstęp i różnica postoju ≥ martwej strefy (albo zmienia się
+    /// czas pracy); krok postoju najwyżej FeedMaxStepSec, zaokrąglenie do 5 s. Przy zmianie czasu
+    /// pracy postój idzie od razu do wartości z modelu - tak jak w symulacji, inaczej dawka
+    /// skoczyłaby o cały czas pracy (9 → 10 s przy starym postoju to +10 %).
+    /// </summary>
+    public static DoseDecision Decide(
+        int currentWork, int currentPause, DosePlan plan,
+        DateTime? lastChangeUtc, DateTime nowUtc, HeatingParameters p)
+    {
+        var (workMin, workMax, pauseMin, pauseMax) = Bounds(p);
+        var targetWork = Math.Clamp(plan.Work, workMin, workMax);
+        var target = Math.Clamp(plan.ModelPause, pauseMin, pauseMax);
+        var outOfBounds = currentWork < workMin || currentWork > workMax
+                          || currentPause < pauseMin || currentPause > pauseMax;
+
+        int newPause;
+        string reason;
+        if (targetWork != currentWork)
+        {
+            newPause = Round5(target, pauseMin, pauseMax);
+            reason = $"czas pracy {currentWork} → {targetWork} s";
+        }
+        else if (Math.Abs(target - currentPause) >= p.FeedDeadbandSec || outOfBounds)
+        {
+            var step = Math.Clamp(target - currentPause, -p.FeedMaxStepSec, p.FeedMaxStepSec);
+            newPause = Round5(currentPause + step, pauseMin, pauseMax);
+            reason = outOfBounds
+                ? $"nastawy poza zakresem ({currentWork}/{currentPause} s)"
+                : $"postój z modelu {target:F0} s, różnica {target - currentPause:+0;-0} s ≥ {p.FeedDeadbandSec} s";
+        }
+        else
+        {
+            return new DoseDecision(false, currentWork, currentPause,
+                $"bez zmian: różnica postoju {target - currentPause:+0;-0} s w martwej strefie {p.FeedDeadbandSec} s");
+        }
+
+        if (newPause == currentPause && targetWork == currentWork)
+        {
+            return new DoseDecision(false, currentWork, currentPause, "bez zmian po zaokrągleniu do 5 s");
+        }
+
+        if (lastChangeUtc.HasValue && nowUtc - lastChangeUtc.Value < TimeSpan.FromHours(p.FeedMinIntervalHours))
+        {
+            var left = TimeSpan.FromHours(p.FeedMinIntervalHours) - (nowUtc - lastChangeUtc.Value);
+            return new DoseDecision(false, targetWork, newPause,
+                $"czeka na odstęp {p.FeedMinIntervalHours} h (jeszcze {left.TotalMinutes:F0} min): {reason}");
+        }
+
+        return new DoseDecision(true, targetWork, newPause, reason);
+    }
+
+    /// <summary>
+    /// Dmuchawa w grzaniu: BlowerMin przy ≤ 3,4 % pracy podajnika, liniowo do BlowerMax przy
+    /// maks. pracy / min. postoju (10 s / 100 s). Zmienia się razem z dawką (§ 9 „Dmuchawa”).
+    /// </summary>
+    public static int BlowerFor(int work, int pause, HeatingParameters p)
+    {
+        var (_, workMax, pauseMin, _) = Bounds(p);
+        var (blowerMin, blowerMax) = BlowerBounds(p);
+        var duty = (double)work / (work + pause);
+        var highDuty = (double)workMax / (workMax + pauseMin);
+        var frac = highDuty > BlowerLowDuty
+            ? Math.Clamp((duty - BlowerLowDuty) / (highDuty - BlowerLowDuty), 0, 1)
+            : 1;
+        return (int)Math.Round(blowerMin + frac * (blowerMax - blowerMin), MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// Ograniczenia dmuchawy od spalin: nie podnosić przy spalinach ≥ 185 °C ani przez 6 h po
+    /// bezpieczniku spalin w HA (#24); przy &gt; 200 °C −2 pkt (nie niżej niż BlowerMin).
+    /// Nigdy poza twarde 28-35 %.
+    /// </summary>
+    public static (int Blower, string? Note) LimitBlower(
+        int target, int current, double? flueTemp, bool safetyAutomationRecent, HeatingParameters p)
+    {
+        var (blowerMin, _) = BlowerBounds(p);
+        string? note = null;
+        var result = target;
+
+        if (flueTemp > 200)
+        {
+            result = current > blowerMin ? Math.Max(blowerMin, current - 2) : current;
+            note = $"spaliny {flueTemp:F0} °C > 200 → dmuchawa −2 pkt";
+        }
+        else if (result > current && flueTemp >= 185)
+        {
+            result = current;
+            note = $"spaliny {flueTemp:F0} °C ≥ 185 → dmuchawy nie podnoszę";
+        }
+        else if (result > current && safetyAutomationRecent)
+        {
+            result = current;
+            note = "bezpiecznik spalin (#24) w ostatnich 6 h → dmuchawy nie podnoszę";
+        }
+
+        return (Math.Clamp(result, DoseLimits.BlowerMin, DoseLimits.BlowerMax), note);
+    }
+
+    /// <summary>
+    /// Korekta k raz na dobę (§ 9): netto = podajnik − HouseCapacity · ΔT_wewn (dziś − wczoraj),
+    /// k ← k + clamp(0,3 · (netto / model(ΔT faktyczne) − k), ±0,05), w granicach 0,6-1,3.
+    /// Model bez k, z faktyczną temperaturą w domu - jak w symulacji. Null = doba nie uczy.
+    /// </summary>
+    public static (double? K, string Reason) CorrectK(double k, DailyBalance day, DailyBalance? dayBefore, HeatingParameters p)
+    {
+        if (!day.Valid)
+            return (null, $"doba pominięta: {day.InvalidReason}");
+        if (day.HeatingHours >= CeilingDayHeatingHours)
+            return (null, $"doba pominięta: grzanie {day.HeatingHours:F1} h ≥ {CeilingDayHeatingHours} h (sufit)");
+
+        var model = p.FeedPerKelvin * (day.IndoorMean!.Value - day.OutdoorMean!.Value) + p.FeedOffset;
+        if (model <= 0)
+            return (null, $"doba pominięta: model {model:F0} s ≤ 0 (ciepło)");
+
+        var dIndoor = dayBefore is { IndoorMean: not null } ? day.IndoorMean!.Value - dayBefore.IndoorMean.Value : 0.0;
+        var net = day.FeedSec!.Value - p.HouseCapacity * dIndoor;
+        var newK = Math.Clamp(k + Math.Clamp(0.3 * (net / model - k), -0.05, 0.05), 0.6, 1.3);
+        newK = Math.Round(newK, 3);
+        return (newK, $"podajnik {day.FeedSec:F0} s, ΔT_wewn {dIndoor:+0.00;-0.00} K → netto {net:F0} s, model {model:F0} s → k {k:F3} → {newK:F3}");
+    }
+
+    /// <summary>
+    /// Bilans doby z migawek (jak a2_doby.py): sekundy podajnika z przyrostów licznika (spadek
+    /// &gt; 5 s = zasyp, licznik od zera), godziny grzania = udział migawek z dmuchawą &gt; 0,
+    /// średnie temperatur. Doba nieważna przy dziurach w danych albo w trybie lato.
+    /// </summary>
+    public static DailyBalance BalanceForDay(IReadOnlyList<DoseSample> samples, DateTime dayStartUtc, DateTime dayEndUtc)
+    {
+        var inDay = samples.Where(s => s.TimestampUtc >= dayStartUtc && s.TimestampUtc < dayEndUtc).ToList();
+        var withBlower = inDay.Where(s => s.BlowerActual.HasValue).ToList();
+        var outdoor = inDay.Where(s => s.OutdoorTemp.HasValue).Select(s => s.OutdoorTemp!.Value).ToList();
+        var indoor = inDay.Where(s => s.IndoorTemp.HasValue).Select(s => s.IndoorTemp!.Value).ToList();
+        var expected = (dayEndUtc - dayStartUtc).TotalMinutes / 5.0;
+
+        double? Mean(List<double> v) => v.Count > 0 ? v.Average() : null;
+        var heatingHours = withBlower.Count > 0
+            ? 24.0 * withBlower.Count(s => s.BlowerActual > 0) / withBlower.Count
+            : 0.0;
+
+        // Licznik: przyrost przypisany do doby późniejszej migawki - poprzednia może być sprzed północy.
+        double feed = 0;
+        var gaps = 0;
+        int? prev = samples.LastOrDefault(s => s.TimestampUtc < dayStartUtc && s.FeederCounterSec.HasValue)?.FeederCounterSec;
+        foreach (var s in inDay.Where(s => s.FeederCounterSec.HasValue))
+        {
+            if (prev.HasValue)
+            {
+                var d = s.FeederCounterSec!.Value - prev.Value;
+                if (d < -5) d = s.FeederCounterSec.Value; // zasyp - licznik od zera
+                if (d >= 0 && d < 400) feed += d;
+                else gaps++;
+            }
+            prev = s.FeederCounterSec;
+        }
+
+        string? invalid = null;
+        if (withBlower.Count < expected * 250 / 288) invalid = $"za mało migawek kotła ({withBlower.Count} z {expected:F0})";
+        else if (outdoor.Count < expected * 100 / 288) invalid = $"za mało odczytów Tz ({outdoor.Count})";
+        else if (indoor.Count < expected * 100 / 288) invalid = $"za mało odczytów z pokoi ({indoor.Count})";
+        else if (gaps > 0) invalid = $"dziury w liczniku podajnika ({gaps})";
+        else if (inDay.Count(s => s.SummerMode == true) > inDay.Count * 0.1) invalid = "tryb lato";
+
+        return new DailyBalance(Mean(outdoor), Mean(indoor), invalid == null ? feed : null, heatingHours, invalid == null, invalid);
+    }
+
+    /// <summary>
+    /// Szybki trym, sygnał „za mało”: dmuchawa chodziła w każdej migawce i kocioł był poniżej
+    /// nastawy − 3 K przez całe okno (§ 9). Wymaga co najmniej 75 % migawek z okna.
+    /// </summary>
+    public static bool BoilerUnderpowered(IReadOnlyList<DoseSample> window, TimeSpan length)
+    {
+        var valid = window.Where(s => s.BlowerActual.HasValue && s.BoilerTemp.HasValue && s.BoilerSetpoint.HasValue).ToList();
+        if (valid.Count < length.TotalMinutes / 5.0 * 0.75) return false;
+        return valid.All(s => s.BlowerActual > 0 && s.BoilerTemp < s.BoilerSetpoint - 3);
+    }
+
+    /// <summary>
+    /// Szybki trym, sygnał „za dużo”: ile razy kocioł wszedł w podtrzymanie. W trybie ręcznym
+    /// sterownik przechodzi w podtrzymanie powyżej nastawy kotła, wraca poniżej nastawy minus
+    /// histereza (instrukcja eCoal V4 § 4.1.3) - liczymy przejścia przez nastawę w górę, z ponownym
+    /// uzbrojeniem dopiero po zejściu poniżej nastawy − 1 K (jak próg podtrzymania w a2_doby.py).
+    /// </summary>
+    public static int StandbyEntries(IReadOnlyList<DoseSample> window)
+    {
+        var count = 0;
+        bool? armed = null;
+        foreach (var s in window.Where(s => s.BoilerTemp.HasValue && s.BoilerSetpoint.HasValue))
+        {
+            var k = s.BoilerTemp!.Value;
+            var z = s.BoilerSetpoint!.Value;
+            armed ??= k < z - 1;
+            if (armed == true && k >= z)
+            {
+                count++;
+                armed = false;
+            }
+            else if (armed == false && k < z - 1)
+            {
+                armed = true;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// Bezpiecznik: kocioł poniżej nastawy − 10 K w każdej migawce przez całe okno (min. 75 % migawek).
+    /// </summary>
+    public static bool BoilerColdFor(IReadOnlyList<DoseSample> window, TimeSpan length)
+    {
+        var valid = window.Where(s => s.BoilerTemp.HasValue && s.BoilerSetpoint.HasValue).ToList();
+        if (valid.Count < length.TotalMinutes / 5.0 * 0.75) return false;
+        return valid.All(s => s.BoilerTemp < s.BoilerSetpoint - 10);
+    }
+
+    /// <summary>
+    /// Licznik sensor.kociol_czas_pracy_podajnika_2, format „30m,034s” (zeruje się przy zasypie).
+    /// Rozumie też godziny („1h,02m,003s”). Null, gdy format nieznany.
+    /// </summary>
+    public static int? ParseFeederCounter(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var matches = Regex.Matches(value, @"(\d+)\s*([hms])", RegexOptions.IgnoreCase);
+        if (matches.Count == 0) return null;
+
+        var total = 0;
+        foreach (Match m in matches)
+        {
+            var n = int.Parse(m.Groups[1].Value);
+            total += char.ToLowerInvariant(m.Groups[2].Value[0]) switch
+            {
+                'h' => n * 3600,
+                'm' => n * 60,
+                _ => n
+            };
+        }
+
+        return total;
+    }
+
+    /// <summary>Widełki z parametrów, zawsze w twardych granicach Pawła.</summary>
+    public static (int WorkMin, int WorkMax, int PauseMin, int PauseMax) Bounds(HeatingParameters p)
+    {
+        var workMin = Math.Clamp(p.FeederWorkMin, DoseLimits.WorkMin, DoseLimits.WorkMax);
+        var workMax = Math.Clamp(p.FeederWorkMax, workMin, DoseLimits.WorkMax);
+        var pauseMin = Math.Clamp(p.FeederPauseMin, DoseLimits.PauseMin, DoseLimits.PauseMax);
+        var pauseMax = Math.Clamp(p.FeederPauseMax, pauseMin, DoseLimits.PauseMax);
+        return (workMin, workMax, pauseMin, pauseMax);
+    }
+
+    public static (int BlowerMin, int BlowerMax) BlowerBounds(HeatingParameters p)
+    {
+        var min = Math.Clamp(p.BlowerMin, DoseLimits.BlowerMin, DoseLimits.BlowerMax);
+        var max = Math.Clamp(p.BlowerMax, min, DoseLimits.BlowerMax);
+        return (min, max);
+    }
+
+    private static int Round5(double value, int min, int max)
+        => Math.Clamp((int)(Math.Round(value / 5.0, MidpointRounding.AwayFromZero) * 5), min, max);
+}

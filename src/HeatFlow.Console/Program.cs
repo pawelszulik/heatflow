@@ -1,8 +1,10 @@
 using HeatFlow.Application;
+using HeatFlow.Core.Dose;
 using HeatFlow.Core.Phases;
 using HeatFlow.Domain;
 using HeatFlow.Infrastructure.Configuration;
 using HeatFlow.Infrastructure.Database;
+using HeatFlow.Infrastructure.EsterownikMapper;
 using HeatFlow.Infrastructure.HomeAssistant;
 using HeatFlow.Infrastructure.OpenWeatherMap;
 using Microsoft.EntityFrameworkCore;
@@ -79,6 +81,13 @@ class Program
             // Uruchom główną pętlę
             var orchestrationService = serviceProvider.GetRequiredService<OrchestrationService>();
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+            // Test zapisu nastaw podajnika przed pierwszym włączeniem automatu dawki (Faza 5)
+            if (args.Length > 0 && args[0] == "--dawka-test-zapisu")
+            {
+                Environment.ExitCode = await RunDoseWriteTestAsync(serviceProvider, args.Skip(1).ToArray());
+                return;
+            }
 
             // Sprawdź czy uruchomione jako Scheduled Task (bez argumentów) czy ręcznie
             if (args.Length == 0)
@@ -216,6 +225,21 @@ class Program
         services.AddScoped<IPhaseService, Phase3ValvesService>();
         services.AddScoped<IPhaseService, Phase4SummerModeService>();
         services.AddScoped<ISummerModeRepository, SummerModeRepository>();
+        services.AddScoped<IPhaseService, Phase5DoseService>();
+        services.AddScoped<IDoseRepository, DoseRepository>();
+        services.AddScoped<DoseControllerWriter>();
+        services.AddScoped<IDoseNotifier, HomeAssistantDiscordNotifier>();
+        services.AddSingleton(new DoseWriteOptions());
+        services.AddSingleton(TimeProvider.System);
+
+        // eSterownikMapper - potwierdzenie zapisu nastaw kotła (Faza 5). Console chodzi na tym samym
+        // CT 200 co mapper (esterownik.service, port 5000), stąd domyślnie localhost.
+        var mapperBaseUrl = configuration["EsterownikMapper:BaseUrl"] ?? "http://127.0.0.1:5000/";
+        services.AddHttpClient<IEsterownikMapperClient, EsterownikMapperClient>(client =>
+        {
+            client.BaseAddress = new Uri(mapperBaseUrl.EndsWith('/') ? mapperBaseUrl : mapperBaseUrl + "/");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
 
         // Database (wymagane)
         var connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -232,6 +256,7 @@ class Program
             
             // Configuration Service (wymaga bazy danych)
             services.AddScoped<IConfigurationService, ConfigurationService>();
+            services.AddScoped<IConfigurationAuditService, ConfigurationAuditService>();
         }
         else
         {
@@ -240,6 +265,90 @@ class Program
 
         // Orchestration Service
         services.AddScoped<OrchestrationService>();
+    }
+
+    /// <summary>
+    /// Test „aktualna ± 1” zapisu nastaw z HA do sterownika (analiza-kociol-nastawy.md § 9 „Zapis do
+    /// sterownika”): dla każdego wybranego rejestru zapis wartości o 1 obok aktualnej, potwierdzenie
+    /// w eSterownikMapperze, przywrócenie i ponowne potwierdzenie. Ta sama ścieżka co automat
+    /// (DoseControllerWriter). Robić z Pawłem przy kotle; nie działa przy włączonym automacie.
+    /// Użycie: HeatFlow.Console --dawka-test-zapisu [praca] [postoj] [dmuchawa]  (domyślnie praca postoj)
+    /// </summary>
+    private static async Task<int> RunDoseWriteTestAsync(IServiceProvider serviceProvider, string[] args)
+    {
+        using var scope = serviceProvider.CreateScope();
+        var mapper = scope.ServiceProvider.GetRequiredService<IEsterownikMapperClient>();
+        var writer = scope.ServiceProvider.GetRequiredService<DoseControllerWriter>();
+        var doseRepository = scope.ServiceProvider.GetRequiredService<IDoseRepository>();
+
+        var registers = new List<DoseRegister>();
+        foreach (var a in args.Length == 0 ? new[] { "praca", "postoj" } : args)
+        {
+            switch (a.ToLowerInvariant())
+            {
+                case "praca": registers.Add(DoseRegister.Work); break;
+                case "postoj": case "postój": registers.Add(DoseRegister.Pause); break;
+                case "dmuchawa": registers.Add(DoseRegister.Blower); break;
+                default:
+                    System.Console.WriteLine($"Nieznany rejestr: {a} (praca / postoj / dmuchawa)");
+                    return 2;
+            }
+        }
+
+        var automat = await doseRepository.GetAutomatSwitchAsync();
+        var doseState = await doseRepository.GetStateAsync();
+        if (automat.Enabled || doseState?.AutomatActive == true)
+        {
+            System.Console.WriteLine("Automat dawki jest włączony - najpierw wyłącz switch.heatflow_dawka_automat.");
+            return 3;
+        }
+
+        var start = await mapper.GetFeedSettingsAsync();
+        if (start == null)
+        {
+            System.Console.WriteLine("eSterownikMapper nie odpowiada (GetAllValues) - test przerwany, nic nie zapisano.");
+            return 4;
+        }
+
+        System.Console.WriteLine($"Sterownik teraz (mapper): praca {start.FeederWork} s, postój {start.FeederPause} s, dmuchawa {start.Blower} %");
+        var plan = registers.Select(r =>
+        {
+            var current = DoseControllerWriter.Value(start, r);
+            var test = DoseControllerWriter.WithinHardLimits(r, current + 1) ? current + 1 : current - 1;
+            return (Register: r, Current: current, Test: test);
+        }).ToList();
+        foreach (var (r, current, test) in plan)
+            System.Console.WriteLine($"  {DoseControllerWriter.EntityId(r)}: {current} → {test} → z powrotem {current}");
+        System.Console.Write("Wpisz 'tak', żeby zapisać: ");
+        if (!string.Equals(System.Console.ReadLine()?.Trim(), "tak", StringComparison.OrdinalIgnoreCase))
+        {
+            System.Console.WriteLine("Przerwane, nic nie zapisano.");
+            return 1;
+        }
+
+        var allOk = true;
+        foreach (var (r, current, test) in plan)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var there = await writer.WriteAsync(r, test);
+            System.Console.WriteLine($"[{sw.Elapsed.TotalSeconds:F0} s] {there.Report}");
+            sw.Restart();
+            var back = await writer.WriteAsync(r, current);
+            System.Console.WriteLine($"[{sw.Elapsed.TotalSeconds:F0} s] przywrócenie: {back.Report}");
+            allOk &= there.Confirmed && back.Confirmed;
+            if (!back.Confirmed)
+            {
+                System.Console.WriteLine($"UWAGA: {DoseControllerWriter.EntityId(r)} nie wrócił na {current} - ustaw ręcznie na panelu.");
+                break;
+            }
+        }
+
+        var end = await mapper.GetFeedSettingsAsync();
+        System.Console.WriteLine(end == null
+            ? "Mapper nie odpowiada na koniec - sprawdź nastawy na panelu."
+            : $"Sterownik na koniec (mapper): praca {end.FeederWork} s, postój {end.FeederPause} s, dmuchawa {end.Blower} %");
+        System.Console.WriteLine(allOk ? "WYNIK: zapis i przywrócenie potwierdzone w mapperze." : "WYNIK: test NIEUDANY.");
+        return allOk ? 0 : 5;
     }
 
     private static async Task LogErrorToDbAsync(IServiceProvider serviceProvider, string message, int? phase, string source)

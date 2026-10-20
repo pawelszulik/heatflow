@@ -29,6 +29,9 @@ public class HeatFlowDbContext : DbContext
     public DbSet<ApplicationErrorLog> ApplicationErrorLogs { get; set; }
     public DbSet<SummerModeLog> SummerModeLogs { get; set; }
     public DbSet<SummerModeSwitchState> SummerModeSwitchStates { get; set; }
+    public DbSet<DoseAutomatSwitch> DoseAutomatSwitches { get; set; }
+    public DbSet<DoseState> DoseStates { get; set; }
+    public DbSet<DoseSample> DoseSamples { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -159,6 +162,14 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.ScoreThresholdMax).HasColumnType("decimal(10,2)");
             entity.Property(e => e.ScoreThresholdDisabled).HasColumnType("decimal(10,2)");
             entity.Property(e => e.SummerModeWarmDayTemp).HasColumnType("decimal(5,2)");
+            // Faza 5 „Dawka”. Wartości domyślne dla istniejącego wiersza nadaje migracja AddDosePhase
+            // (jak przy SummerModeWarmDayTemp) - nie HasDefaultValue tutaj, bo EF przy insercie
+            // podmieniłby wtedy jawne false/0 na wartość domyślną z bazy.
+            entity.Property(e => e.FeedPerKelvin).HasColumnType("decimal(7,2)");
+            entity.Property(e => e.FeedOffset).HasColumnType("decimal(8,2)");
+            entity.Property(e => e.HouseCapacity).HasColumnType("decimal(8,2)");
+            entity.Property(e => e.IndoorTargetForFeed).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.FeedCorrectionK).HasColumnType("decimal(5,3)");
             entity.Property(e => e.ValveTolerance).HasColumnType("decimal(5,2)");
             entity.Property(e => e.ValveRetryDelay).HasColumnType("decimal(5,2)");
             entity.Property(e => e.MinReturnTemp).HasColumnType("decimal(5,2)");
@@ -235,6 +246,35 @@ public class HeatFlowDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.SinceUtc).HasColumnType("datetime2");
+        });
+
+        // Faza 5 „Dawka”
+        modelBuilder.Entity<DoseAutomatSwitch>(entity =>
+        {
+            entity.ToTable("DoseAutomatSwitch");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.ChangedAtUtc).HasColumnType("datetime2");
+            entity.Property(e => e.ChangedBy).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<DoseState>(entity =>
+        {
+            entity.ToTable("DoseState");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.LastReason).HasMaxLength(1000);
+            entity.Property(e => e.LastSelfDisableReason).HasMaxLength(500);
+            entity.Property(e => e.LastKCorrectionDate).HasColumnType("date");
+        });
+
+        modelBuilder.Entity<DoseSample>(entity =>
+        {
+            entity.ToTable("DoseSample");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.TimestampUtc).HasColumnType("datetime2");
+            entity.HasIndex(e => e.TimestampUtc);
         });
 
         // ApplicationErrorLog

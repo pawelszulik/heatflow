@@ -17,6 +17,7 @@ public class OrchestrationServiceTests
     private readonly Mock<ILogger<OrchestrationService>> _loggerMock;
     private readonly Mock<IHeatFlowRepository> _repositoryMock;
     private readonly Mock<IPhaseService> _phase4Mock;
+    private readonly Mock<IPhaseService> _phase5Mock;
     private readonly List<IPhaseService> _phaseServices;
     private OrchestrationService _service;
 
@@ -51,13 +52,19 @@ public class OrchestrationServiceTests
         _phase4Mock.Setup(x => x.ExecuteAsync(It.IsAny<HeatingState>(), It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PhaseResult.SuccessResult(4, 250));
 
+        _phase5Mock = new Mock<IPhaseService>();
+        _phase5Mock.Setup(x => x.PhaseNumber).Returns(5);
+        _phase5Mock.Setup(x => x.ExecuteAsync(It.IsAny<HeatingState>(), It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PhaseResult.SuccessResult(5, 120));
+
         _phaseServices = new List<IPhaseService>
         {
             phase0Mock.Object,
             phase1Mock.Object,
             phase2Mock.Object,
             phase3Mock.Object,
-            _phase4Mock.Object
+            _phase4Mock.Object,
+            _phase5Mock.Object
         };
 
         var errorLoggerMock = new Mock<IApplicationErrorLogger>();
@@ -100,7 +107,7 @@ public class OrchestrationServiceTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(5, result.PhaseResults.Count); // Faza 0 + fazy 1-4
+        Assert.Equal(6, result.PhaseResults.Count); // Faza 0 + fazy 1-5
         _phase4Mock.Verify(x => x.ExecuteAsync(It.Is<HeatingState>(st => st.Forecast == null),
             It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -156,7 +163,7 @@ public class OrchestrationServiceTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(5, result.PhaseResults.Count);
+        Assert.Equal(6, result.PhaseResults.Count);
         _phase4Mock.Verify(x => x.ExecuteAsync(It.Is<HeatingState>(st => st.Forecast == null),
             It.IsAny<HeatingParameters>(), It.IsAny<CancellationToken>()), Times.Once);
     }

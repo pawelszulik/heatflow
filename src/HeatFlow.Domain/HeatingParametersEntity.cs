@@ -54,6 +54,28 @@ public class HeatingParametersEntity
     public int MinDwellMinutes { get; set; }
     public double SummerModeWarmDayTemp { get; set; }
 
+    // Parametry Fazy 5 „Dawka” (wartości domyślne jak w HeatingParameters)
+    public int FeederWorkMin { get; set; } = 7;
+    public int FeederWorkMax { get; set; } = 10;
+    public int FeederPauseMin { get; set; } = 100;
+    public int FeederPauseMax { get; set; } = 320;
+    public int BlowerMin { get; set; } = 30;
+    public int BlowerMax { get; set; } = 35;
+    public double FeedPerKelvin { get; set; } = 255.0;
+    public double FeedOffset { get; set; } = -934.0;
+    public double HouseCapacity { get; set; } = 1549.0;
+    public double IndoorTargetForFeed { get; set; } = 24.0;
+    public double FeedCorrectionK { get; set; } = 1.0;
+    public int FeedSmoothingPastHours { get; set; } = 2;
+    public int FeedSmoothingForecastHours { get; set; } = 1;
+    public int FeedMinIntervalHours { get; set; } = 2;
+    public int FeedDeadbandSec { get; set; } = 15;
+    public int FeedMaxStepSec { get; set; } = 20;
+    public int FeedWorkUpHysteresisSec { get; set; } = 130;
+    public bool DoseRestoreOnDisable { get; set; } = true;
+    public int DoseBoilerStaleMinutes { get; set; } = 30;
+    public int DoseOutdoorStaleMinutes { get; set; } = 120;
+
     // Parametry zaworów
     public double ValveTolerance { get; set; }
     public int ValveRetryCount { get; set; }
@@ -127,6 +149,26 @@ public class HeatingParametersEntity
             ScoreThresholdDisabled = ScoreThresholdDisabled,
             MinDwellMinutes = MinDwellMinutes,
             SummerModeWarmDayTemp = SummerModeWarmDayTemp,
+            FeederWorkMin = FeederWorkMin,
+            FeederWorkMax = FeederWorkMax,
+            FeederPauseMin = FeederPauseMin,
+            FeederPauseMax = FeederPauseMax,
+            BlowerMin = BlowerMin,
+            BlowerMax = BlowerMax,
+            FeedPerKelvin = FeedPerKelvin,
+            FeedOffset = FeedOffset,
+            HouseCapacity = HouseCapacity,
+            IndoorTargetForFeed = IndoorTargetForFeed,
+            FeedCorrectionK = FeedCorrectionK,
+            FeedSmoothingPastHours = FeedSmoothingPastHours,
+            FeedSmoothingForecastHours = FeedSmoothingForecastHours,
+            FeedMinIntervalHours = FeedMinIntervalHours,
+            FeedDeadbandSec = FeedDeadbandSec,
+            FeedMaxStepSec = FeedMaxStepSec,
+            FeedWorkUpHysteresisSec = FeedWorkUpHysteresisSec,
+            DoseRestoreOnDisable = DoseRestoreOnDisable,
+            DoseBoilerStaleMinutes = DoseBoilerStaleMinutes,
+            DoseOutdoorStaleMinutes = DoseOutdoorStaleMinutes,
             ValveTolerance = ValveTolerance,
             ValveRetryCount = ValveRetryCount,
             ValveRetryDelay = ValveRetryDelay,
@@ -190,6 +232,26 @@ public class HeatingParametersEntity
         ScoreThresholdDisabled = parameters.ScoreThresholdDisabled;
         MinDwellMinutes = parameters.MinDwellMinutes;
         SummerModeWarmDayTemp = parameters.SummerModeWarmDayTemp;
+        FeederWorkMin = parameters.FeederWorkMin;
+        FeederWorkMax = parameters.FeederWorkMax;
+        FeederPauseMin = parameters.FeederPauseMin;
+        FeederPauseMax = parameters.FeederPauseMax;
+        BlowerMin = parameters.BlowerMin;
+        BlowerMax = parameters.BlowerMax;
+        FeedPerKelvin = parameters.FeedPerKelvin;
+        FeedOffset = parameters.FeedOffset;
+        HouseCapacity = parameters.HouseCapacity;
+        IndoorTargetForFeed = parameters.IndoorTargetForFeed;
+        FeedCorrectionK = parameters.FeedCorrectionK;
+        FeedSmoothingPastHours = parameters.FeedSmoothingPastHours;
+        FeedSmoothingForecastHours = parameters.FeedSmoothingForecastHours;
+        FeedMinIntervalHours = parameters.FeedMinIntervalHours;
+        FeedDeadbandSec = parameters.FeedDeadbandSec;
+        FeedMaxStepSec = parameters.FeedMaxStepSec;
+        FeedWorkUpHysteresisSec = parameters.FeedWorkUpHysteresisSec;
+        DoseRestoreOnDisable = parameters.DoseRestoreOnDisable;
+        DoseBoilerStaleMinutes = parameters.DoseBoilerStaleMinutes;
+        DoseOutdoorStaleMinutes = parameters.DoseOutdoorStaleMinutes;
         ValveTolerance = parameters.ValveTolerance;
         ValveRetryCount = parameters.ValveRetryCount;
         ValveRetryDelay = parameters.ValveRetryDelay;

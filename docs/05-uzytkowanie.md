@@ -230,6 +230,19 @@ Uwagi: przycisk NIE włącza automatu i nie zmienia `Przywracaj nastawy`; przy w
 to, co zastała (w tym wartości z przycisku). Zapisuje sugestię w całości (cień może być o kilka kroków 20 s dalej od
 sterownika, jeśli długo nie klikano), a nie pojedynczy krok.
 
+### Powiadomienie o nowej sugestii (Discord)
+
+Przy wyłączonym automacie faza 5 wysyła na Discord („HeatFlow: nowa sugestia dawki”) jedną wiadomość, gdy sugestia
+(cień) różni się od tego, co jest w sterowniku: „Postój 180 → 200 s (w górę = mniej węgla); w kotle teraz 7/180 s,
+dmuchawa 30 %; powód: …; ustaw przyciskiem „Ustaw sugerowane” w HA”.
+
+- Tylko w godzinach **8:00-22:00** czasu lokalnego (stałe `SuggestionNotifyFromHour/ToHour` w `Phase5DoseService`).
+  Sugestia, która powstała w nocy, jest zgłaszana o 8:00 - o ile dalej różni się od kotła.
+- Każdą sugestię raz (zapamiętuje to wpis dziennika `Parameter = sugestia_discord` - w jego kolumnach `Controller*`
+  leży ZGŁOSZONA sugestia, nie stan sterownika; bez migracji). Po „Ustaw sugerowane” sugestia = kocioł, więc cisza do
+  następnej zmiany.
+- Przy włączonym automacie nie ma tych wiadomości (automat sam ustawia i zgłasza każdą zmianę).
+
 ## Wyłączenie całego systemu z Home Assistant
 
 Integracja HA tworzy switch **„Sterowanie ogrzewaniem"** (`switch.heatflow_sterowanie_ogrzewaniem`) na urządzeniu HeatFlow. Steruje on polem `SystemConfiguration.SystemEnabled` przez `PUT /api/system/enabled`.

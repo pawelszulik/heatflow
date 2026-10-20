@@ -292,6 +292,9 @@ public class Phase5DoseService : IPhaseService
             // 7. Przycisk „Ustaw sugerowane” (zlecenie z HA): jednorazowy zapis sugerowanych nastaw.
             await HandleApplyRequestAsync(ds, controller, inputs, samples, flueSafetyRecent, parameters, now, run, cancellationToken);
 
+            // 8. Nowa sugestia przy wyłączonym automacie → Discord (tylko w godzinach dnia).
+            await NotifyNewSuggestionAsync(ds, controller, now, run, cancellationToken);
+
             ds.LastReason = Truncate(string.Join(" | ", notes.Prepend(DescribePlan(ds))), 1000);
             await _repository.AddChangeLogAsync(run.Entries, cancellationToken);
             await _repository.SaveStateAsync(ds, cancellationToken);
@@ -306,6 +309,61 @@ public class Phase5DoseService : IPhaseService
             await _errorLogger.LogAsync(ex, PhaseNumber, nameof(Phase5DoseService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
+    }
+
+    /// <summary>Powiadomienie o nowej sugestii idzie na Discord tylko w godzinach lokalnych [od, do) - nocą nie budzimy.</summary>
+    private const int SuggestionNotifyFromHour = 8;
+    private const int SuggestionNotifyToHour = 22;
+
+    /// <summary>
+    /// Przy WYŁĄCZONYM automacie: gdy sugestia (cień) różni się od tego, co jest w sterowniku, a jeszcze jej nie zgłoszono -
+    /// jedna wiadomość na Discord („postój 180 → 200 s, dmuchawa 30 %; w kotle teraz …; powód; ustaw przyciskiem”).
+    /// Sugestia z nocy czeka do 8:00 (o ile dalej się różni od kotła). Każdą sugestię zgłaszamy raz - zapamiętuje to wpis
+    /// dziennika <see cref="DoseLog.SuggestionParameter"/> (bez migracji). Po „Ustaw sugerowane” sugestia = kocioł, więc cisza.
+    /// </summary>
+    private async Task NotifyNewSuggestionAsync(DoseState ds, ControllerFeedSettings? readController, DateTime now, RunLog run, CancellationToken ct)
+    {
+        // Stan sterownika bierzemy z DoseState (aktualizowany po zapisie z przycisku w tym samym przebiegu),
+        // nie ze zmiennej sprzed zapisu.
+        if (ds.AutomatActive || readController == null || ds.ShadowWork == null || ds.ShadowPause == null || ds.ShadowBlower == null
+            || ds.ControllerWork == null || ds.ControllerPause == null || ds.ControllerBlower == null)
+            return;
+        var controller = new ControllerFeedSettings(ds.ControllerWork.Value, ds.ControllerPause.Value, ds.ControllerBlower.Value);
+
+        var local = TimeZoneInfo.ConvertTimeFromUtc(now, _time.LocalTimeZone);
+        if (local.Hour < SuggestionNotifyFromHour || local.Hour >= SuggestionNotifyToHour)
+            return;
+
+        var (work, pause, blower) = (ds.ShadowWork.Value, ds.ShadowPause.Value, ds.ShadowBlower.Value);
+        if (work == controller.FeederWork && pause == controller.FeederPause && blower == controller.Blower)
+            return;
+
+        var last = await _repository.GetLastSuggestionNotificationAsync(ct);
+        if (last != null && last.ControllerWork == work && last.ControllerPause == pause && last.ControllerBlower == blower)
+            return;
+
+        var heads = new List<string>();
+        if (work != controller.FeederWork) heads.Add(DoseLog.Head(DoseLog.Work, controller.FeederWork, work));
+        if (pause != controller.FeederPause) heads.Add(DoseLog.Head(DoseLog.Pause, controller.FeederPause, pause));
+        if (blower != controller.Blower) heads.Add(DoseLog.Head(DoseLog.Blower, controller.Blower, blower));
+
+        var cause = run.Ctx.Ceiling ? "SUFIT"
+            : run.Ctx.TrimSec != 0 && ds.LastTrimCode != null ? ds.LastTrimCode
+            : "POGODA";
+        var text = $"Nowa sugestia dawki: {string.Join("; ", heads)}. W kotle teraz {controller.FeederWork}/{controller.FeederPause} s, " +
+                   $"dmuchawa {controller.Blower} %. Powód: {DoseLog.Why(cause, run.Ctx)}. " +
+                   "Automat jest wyłączony - ustaw przyciskiem „Ustaw sugerowane” w HA.";
+
+        var entry = DoseLog.Entry(run.Ctx, DoseLog.SuggestionParameter, controller.FeederPause, pause, DoseLog.SuggestionCode,
+            DoseLog.StatusInternal, text);
+        entry.ControllerWork = work;       // dla tego wpisu: ZGŁOSZONA sugestia (dedupe), nie stan sterownika
+        entry.ControllerPause = pause;
+        entry.ControllerBlower = blower;
+        run.Entries.Add(entry);
+        run.Notes.Add($"sugestia na Discord: {suggestedText(work, pause, blower)}");
+        await _notifier.NotifyAsync("HeatFlow: nowa sugestia dawki", text, ct);
+
+        static string suggestedText(int w, int p, int b) => $"{w}/{p} s, dmuchawa {b} %";
     }
 
     /// <summary>Zlecenie z przycisku, którego Console nie obsłużył w tym czasie, wygasa (nic nie ustawiono).</summary>

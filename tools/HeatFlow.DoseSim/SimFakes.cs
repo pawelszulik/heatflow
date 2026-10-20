@@ -182,6 +182,9 @@ public sealed class InMemoryDoseRepository : IDoseRepository
     public Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken ct = default)
         => Task.FromResult(Log.AsEnumerable().Reverse().Take(limit).ToList());
 
+    public Task<FeedChangeLog?> GetLastSuggestionNotificationAsync(CancellationToken ct = default)
+        => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "sugestia_discord"));
+
     public Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken ct = default)
     {
         Log.Add(request);

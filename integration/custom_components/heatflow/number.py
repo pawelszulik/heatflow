@@ -49,6 +49,7 @@ PARAM_FIELDS = [
     ("scoreThresholdDisabled", -200, 500, 1),
     ("minDwellMinutes", 0, 120, 1),
     ("summerModeWarmDayTemp", 0, 40, 0.5),
+    ("summerModeForecastHours", 1, 48, 1),
 ]
 
 PARAM_DISPLAY_NAMES = {
@@ -69,6 +70,7 @@ PARAM_DISPLAY_NAMES = {
     "scoreThresholdDisabled": "Próg Score - zawór zamknięty",
     "minDwellMinutes": "Min. czas trzymania zaworu (min)",
     "summerModeWarmDayTemp": "Tryb lato - próg ciepłego dnia (°C)",
+    "summerModeForecastHours": "Tryb lato - okno prognozy ciepłego dnia (h)",
 }
 
 

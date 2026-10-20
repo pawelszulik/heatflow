@@ -53,13 +53,21 @@ public class HeatingParameters
     public int MinDwellMinutes { get; set; }
 
     /// <summary>
-    /// Próg "ciepłego dnia" (°C) dla trybu lato (Faza 4). Max temperatura z najbliższych 24h
-    /// prognozy (albo temperatura zewnętrzna, gdy brak prognozy) >= tej wartości blokuje
-    /// dezaktywację trybu lato i jest wymagana do jego aktywacji.
+    /// Próg "ciepłego dnia" (°C) dla trybu lato (Faza 4). Max temperatura z najbliższych
+    /// SummerModeForecastHours godzin prognozy (albo temperatura zewnętrzna, gdy brak prognozy)
+    /// >= tej wartości blokuje dezaktywację trybu lato i jest wymagana do jego aktywacji.
     /// Inicjalizator 20.0 jest celowy: zero (niepełny PUT, new HeatingParameters()) oznaczałoby
     /// "zawsze ciepło" i tryb lato nigdy nie wróciłby do zimy.
     /// </summary>
     public double SummerModeWarmDayTemp { get; set; } = 20.0;
+
+    /// <summary>
+    /// Okno prognozy "ciepłego dnia" dla Fazy 4 [h], liczone od teraz - to samo przy aktywacji
+    /// i dezaktywacji trybu lato. 6 h (decyzja Pawła 2026-10-20): przy 24 h aktywacja o 12:09
+    /// łapała ciepło dopiero z jutra, choć dziś było 12-15 °C. Spoza zakresu 1-48 (np. 0 z
+    /// niepełnego PUT) Faza 4 bierze 6 h.
+    /// </summary>
+    public int SummerModeForecastHours { get; set; } = 6;
 
     // Parametry zaworów
     public double ValveTolerance { get; set; }

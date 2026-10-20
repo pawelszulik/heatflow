@@ -399,6 +399,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int>("ScoreUsageSoonBonus")
                         .HasColumnType("int");
 
+                    b.Property<int>("SummerModeForecastHours")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("SummerModeWarmDayTemp")
                         .HasColumnType("decimal(5,2)");
 

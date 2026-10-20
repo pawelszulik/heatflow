@@ -98,6 +98,7 @@ public static class ConfigurationSeed
 
             // Parametry trybu lato (Faza 4)
             SummerModeWarmDayTemp = 20.0,
+            SummerModeForecastHours = 6,
 
             // Parametry zaworów
             ValveTolerance = 0.1,

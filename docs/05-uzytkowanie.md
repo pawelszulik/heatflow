@@ -157,10 +157,12 @@ Automatyczne wyłączenie ogrzewania (przejście w tryb letni) przy ciepłej pog
 
 #### Ciepły dzień
 
-„Ciepły dzień" to sytuacja, w której **maksymalna temperatura z prognozy** (cache `ForecastDataCache`, zapisywany przez Fazę 0), policzona w oknie liczonym **od teraz** po rzeczywistym znaczniku czasu godziny prognozy (nie po pozycji na liście), jest **>= `SummerModeWarmDayTemp`** (domyślnie 20°C, parametr edytowalny z HA jako „Tryb lato - próg ciepłego dnia"). Długość okna zależy od kierunku:
+„Ciepły dzień" to sytuacja, w której **maksymalna temperatura z prognozy** (cache `ForecastDataCache`, zapisywany przez Fazę 0), policzona w oknie liczonym **od teraz** po rzeczywistym znaczniku czasu godziny prognozy (nie po pozycji na liście), jest **>= `SummerModeWarmDayTemp`** (domyślnie 20°C, parametr edytowalny z HA jako „Tryb lato - próg ciepłego dnia"). Okno to najbliższe **`SummerModeForecastHours` godzin** (domyślnie **6**, w HA „Tryb lato - okno prognozy ciepłego dnia (h)", zakres 1–48; wartość spoza zakresu = 6) – **to samo przy aktywacji i dezaktywacji**:
 
-- **Aktywacja** (zima → lato): najbliższe **24 godziny**.
-- **Dezaktywacja** (lato → zima): najbliższe **6 godzin** – celowo krócej. Okno 24h przy dezaktywacji zawsze łapało jakieś ciepłe popołudnie (dzisiejsze albo jutrzejsze), więc blokowało powrót na zimę bezterminowo, nawet wieczorem przy realnie wychłodzonym domu (patrz przykład niżej).
+- **Aktywacja** (zima → lato): ciepło musi być w najbliższych 6h, nie jutro. Do 2026-10-20 aktywacja patrzyła na 24h i o 12:09 włączyła lato przy 12–15°C w ogrodzie, bo okno sięgnęło jutrzejszego przedpołudnia z prognozą ≥ 18°C.
+- **Dezaktywacja** (lato → zima): okno 24h zawsze łapało jakieś ciepłe popołudnie (dzisiejsze albo jutrzejsze), więc blokowało powrót na zimę bezterminowo, nawet wieczorem przy realnie wychłodzonym domu (patrz przykład niżej).
+
+Godziny prognozy w cache są w **UTC** (Faza 0 zapisuje znacznik z OpenWeatherMap przez `DateTimeOffset.FromUnixTimeSeconds(...).DateTime`, w JSON bez strefy, np. `"2026-10-21T12:00:00"` = 14:00 czasu polskiego) i są porównywane z bieżącym czasem UTC – okno nie jest przesunięte.
 
 Gdy w oknie nie ma żadnej prognozowanej temperatury (pusty cache, cache starszy niż 6h, brak temperatur, brak współrzędnych) – zamiast prognozy brana jest **aktualna temperatura zewnętrzna** (`BoilerState.TempExternal`). Przy awarii odczytu z HA temperatura ta wynosi 0°C, czyli „nie jest ciepło" – bezpieczny kierunek.
 
@@ -178,7 +180,7 @@ Warunki **wszystkie muszą być spełnione**:
 - Godzina mieści się w przedziale **06:00 – 13:59**.
 - Temperatura zewnętrzna (`BoilerState.TempExternal`) **> 10°C**.
 - **Żaden** włączony pokój nie ma realnego deficytu (`TempDeficit > 0`).
-- **Ciepły dzień** (max prognozy najbliższych 24h >= `SummerModeWarmDayTemp`).
+- **Ciepły dzień** (max prognozy najbliższych `SummerModeForecastHours` = 6h >= `SummerModeWarmDayTemp`).
 - Dziś nie było jeszcze aktywacji.
 
 Jeśli warunki są spełnione – wywołuje usługę `turn_on` na przełączniku `switch.kociol_tryb_zima_lato` i zapisuje aktywację w `SummerModeLog`.
@@ -191,7 +193,7 @@ Warunki **wszystkie muszą być spełnione**:
 - Co najmniej **2 pokoje** mają klasyfikację **Max**.
 - Dla tych pokoi: `TempActual < TempTarget - 1°C`.
 - Jeśli dziś była aktywacja – musi minąć co najmniej **3 godziny**.
-- **Nie jest** ciepły dzień (max prognozy najbliższych **6h** < `SummerModeWarmDayTemp`).
+- **Nie jest** ciepły dzień (max prognozy najbliższych `SummerModeForecastHours` = **6h** < `SummerModeWarmDayTemp`).
 - Dziś nie było jeszcze deaktywacji.
 
 Jeśli warunki są spełnione – wywołuje usługę `turn_off` na przełączniku i zapisuje deaktywację.

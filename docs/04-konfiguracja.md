@@ -101,7 +101,8 @@ Tabela zawiera **jeden rekord** (`Id = 1`) ze wszystkimi parametrami algorytmu.
 
 | Pole | Domyślnie | Opis |
 |------|-----------|------|
-| `SummerModeWarmDayTemp` | 20.0 | Próg „ciepłego dnia" (°C). Max temperatura z najbliższych 24h prognozy (lub temperatura zewnętrzna, gdy brak prognozy) >= tej wartości blokuje wyjście z trybu lato i jest wymagana do wejścia w tryb lato. Edytowalny z HA. |
+| `SummerModeWarmDayTemp` | 20.0 | Próg „ciepłego dnia" (°C). Max temperatura z najbliższych `SummerModeForecastHours` godzin prognozy (lub temperatura zewnętrzna, gdy brak prognozy) >= tej wartości blokuje wyjście z trybu lato i jest wymagana do wejścia w tryb lato. Edytowalny z HA. |
+| `SummerModeForecastHours` | 6 | Okno prognozy „ciepłego dnia" w godzinach od teraz – to samo przy wejściu i wyjściu z trybu lato (decyzja Pawła 2026-10-20, wcześniej aktywacja 24h). Zakres 1–48, poza nim 6. Edytowalny z HA. |
 
 #### Parametry pieca (nieużywane bezpośrednio – logika w Fazie 0/4)
 

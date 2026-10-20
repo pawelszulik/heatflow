@@ -123,6 +123,11 @@ public class Phase5DoseService : IPhaseService
             var ds = await _repository.GetStateAsync(cancellationToken) ?? new DoseState();
             var automatSwitch = await _repository.GetAutomatSwitchAsync(cancellationToken);
 
+            if (parameters.DoseTargetFromRooms && parameters.DoseTargetUseActual)
+            {
+                await UpdateRoomActualsAsync(ds, rooms, parameters, now, cancellationToken);
+            }
+
             if (inputs.BoilerDataUtc.HasValue) ds.LastBoilerDataUtc = inputs.BoilerDataUtc;
             if (inputs.OutdoorDataUtc.HasValue) ds.LastOutdoorDataUtc = inputs.OutdoorDataUtc;
 
@@ -316,15 +321,34 @@ public class Phase5DoseService : IPhaseService
         }
 
         var currentWork = ds.ControllerWork ?? ds.PlannedWork ?? p.FeederWorkMin;
-        // Cel domu: z celów pokoi ważonych stratami (albo stała), wzrost ograniczony, spadek od razu.
-        var (rawTarget, source, roomTargets) = HouseTargetFor(rooms, state, p);
+        // Cel domu: z pokoi ważonych stratami (pokój = wyższa z: cel, faktyczna wygładzona) albo stała;
+        // wzrost od celów ograniczony i z dodatkiem na dogrzanie, spadek od razu.
+        var actuals = p.DoseTargetUseActual
+            ? DoseCalculator.ParseRoomActuals(ds.RoomActualSmoothed).ToDictionary(x => x.Key, x => x.Value.Value)
+            : null;
+        var (house, rawTarget, source, inputs) = HouseTargetFor(rooms, state, p, actuals);
         var hours = ds.LastCalcUtc == null ? 0 : (now - ds.LastCalcUtc.Value).TotalHours;
-        var (usedTarget, bonus) = DoseCalculator.LimitTargetRise(rawTarget, ds.HouseTargetUsed, hours, p);
-        LogHouseTargetChange(ds, rawTarget, source, roomTargets, run);
+        var previousUsed = ds.HouseTargetUsed;
+        if (previousUsed.HasValue && ds.HouseTarget.HasValue && source == ds.HouseTargetSource && source == "pokoje"
+            && ds.RoomTargetsLastCalc != null)
+        {
+            // Zmiana od samych faktycznych (cele jak przy poprzednim liczeniu) przechodzi od razu i bez
+            // dodatku na dogrzanie: dom już ma tę temperaturę, nie trzeba go do niej grzać. Ograniczenie
+            // wzrostu i dodatek dotyczą tylko wzrostu celów (harmonogram, Paweł podnosi nastawy).
+            var lastTargets = ParseTargets(ds.RoomTargetsLastCalc);
+            var atLastTargets = DoseCalculator.CombineHouseTarget(
+                inputs.Select(r => r with { Target = lastTargets.GetValueOrDefault(r.Name, r.Target) }).ToList(), actuals, p).Target;
+            if (atLastTargets.HasValue) previousUsed += atLastTargets.Value - ds.HouseTarget.Value;
+        }
+        var (usedTarget, bonus) = DoseCalculator.LimitTargetRise(rawTarget, previousUsed, hours, p);
+        LogHouseTargetChange(ds, rawTarget, source, house, run);
         ds.HouseTarget = Math.Round(rawTarget, 2);
+        ds.HouseTargetBase = house.BaseTarget.HasValue ? Math.Round(house.BaseTarget.Value, 2) : null;
         ds.HouseTargetUsed = Math.Round(usedTarget, 3);
         ds.HouseTargetSource = source;
         ds.StorageBonusSec = Math.Round(bonus);
+        ds.RoomTargetsLastCalc = source == "pokoje" ? FormatTargets(house.Rooms) : null;
+        ds.HouseTargetActualRooms = Truncate(string.Join(";", house.Rooms.Where(r => r.ByActual).Select(r => r.Name)), 500);
 
         EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run);
         var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec, usedTarget, bonus);
@@ -883,35 +907,61 @@ public class Phase5DoseService : IPhaseService
             : null;
     }
 
-    /// <summary>Cel domu: z pokoi (ważony HeatLossW) albo stała IndoorTargetForFeed - też awaryjnie.</summary>
-    private static (double Target, string Source, List<(string Name, double Target, double Weight)> Rooms) HouseTargetFor(
-        IReadOnlyList<RoomConfiguration> rooms, HeatingState state, HeatingParameters p)
+    /// <summary>
+    /// Faktyczne temperatury pokoi z wagą (HeatLossW) do celu domu - ten sam odczyt co w Fazie 1
+    /// (sensor albo current_temperature głowicy), wygładzone średnią wykładniczą DoseActualSmoothingHours.
+    /// Co przebieg, żeby średnia miała gęste próbki.
+    /// </summary>
+    private async Task UpdateRoomActualsAsync(DoseState ds, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
+        DateTime now, CancellationToken ct)
     {
-        if (!p.DoseTargetFromRooms)
-            return (p.IndoorTargetForFeed, "stała", new());
-        var (target, list) = DoseCalculator.HouseTarget(rooms, state.CurrentTime, state.IsWeekend);
-        return target.HasValue
-            ? (target.Value, "pokoje", list)
-            : (p.IndoorTargetForFeed, "stała - brak wag/celów pokoi", list);
+        var readings = new Dictionary<string, double>();
+        foreach (var room in rooms.Where(r => r.HeatLossW > 0 && !string.IsNullOrWhiteSpace(r.SensorTemperatureEntityId)))
+        {
+            var v = await ReadRoomTemperatureAsync(room.SensorTemperatureEntityId, ct);
+            if (v is > -30 and < 60) readings[room.Name] = v.Value;
+        }
+        var smoothed = DoseCalculator.SmoothRoomActuals(DoseCalculator.ParseRoomActuals(ds.RoomActualSmoothed), readings, now,
+            p.DoseActualSmoothingHours);
+        ds.RoomActualSmoothed = Truncate(DoseCalculator.FormatRoomActuals(smoothed), 1000);
     }
 
-    /// <summary>
-    /// Zmiana celu domu o ≥ 0,3 K (albo zmiana źródła) - osobny wpis CEL_DOMU z rozbiciem, które pokoje
-    /// zmieniły cel. Pierwsze liczenie zapisuje punkt odniesienia z jednym wpisem.
-    /// </summary>
-    private static void LogHouseTargetChange(DoseState ds, double target, string source,
-        List<(string Name, double Target, double Weight)> rooms, RunLog run)
+    /// <summary>Cel domu: z pokoi (ważony HeatLossW, z faktycznymi) albo stała IndoorTargetForFeed - też awaryjnie.</summary>
+    private static (HouseTargetResult House, double Target, string Source, List<RoomTargetInput> Inputs) HouseTargetFor(
+        IReadOnlyList<RoomConfiguration> rooms, HeatingState state, HeatingParameters p, IReadOnlyDictionary<string, double>? actuals)
     {
-        string Snap() => string.Join(";", rooms.OrderBy(r => r.Name)
-            .Select(r => $"{r.Name}={r.Target.ToString("0.##", CultureInfo.InvariantCulture)}"));
+        var empty = new HouseTargetResult(null, null, new List<RoomTargetPart>(), null, false);
+        if (!p.DoseTargetFromRooms)
+            return (empty, p.IndoorTargetForFeed, "stała", new());
+        var inputs = DoseCalculator.RoomTargets(rooms, state.CurrentTime, state.IsWeekend);
+        var house = DoseCalculator.CombineHouseTarget(inputs, actuals, p);
+        return house.Target.HasValue
+            ? (house, house.Target.Value, "pokoje", inputs)
+            : (house, p.IndoorTargetForFeed, "stała - brak wag/celów pokoi", inputs);
+    }
+
+    private static Dictionary<string, double> ParseTargets(string? text)
+        => (text ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Split('='))
+            .Where(x => x.Length == 2 && double.TryParse(x[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            .ToDictionary(x => x[0], x => double.Parse(x[1], CultureInfo.InvariantCulture));
+
+    private static string FormatTargets(IEnumerable<RoomTargetPart> rooms)
+        => string.Join(";", rooms.OrderBy(r => r.Name).Select(r => $"{r.Name}={r.Target.ToString("0.##", CultureInfo.InvariantCulture)}"));
+
+    /// <summary>
+    /// Zmiana celu domu o ≥ 0,3 K (albo zmiana źródła) - osobny wpis CEL_DOMU: które pokoje zmieniły cel,
+    /// które weszły po faktycznej, a które po celu, cel z samych celów i czy zadziałało przycięcie.
+    /// Pierwsze liczenie zapisuje punkt odniesienia z jednym wpisem (z wagami).
+    /// </summary>
+    private static void LogHouseTargetChange(DoseState ds, double target, string source, HouseTargetResult house, RunLog run)
+    {
         var sourceChanged = ds.HouseTargetSource != null && ds.HouseTargetSource != source;
         if (ds.HouseTargetLogged.HasValue && Math.Abs(target - ds.HouseTargetLogged.Value) < 0.3 && !sourceChanged)
             return;
 
-        var previous = (ds.RoomTargetsSnapshot ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .Select(x => x.Split('='))
-            .Where(x => x.Length == 2)
-            .ToDictionary(x => x[0], x => double.Parse(x[1], CultureInfo.InvariantCulture));
+        var rooms = house.Rooms;
+        var previous = ParseTargets(ds.RoomTargetsSnapshot);
         var changes = rooms
             .Where(r => !previous.TryGetValue(r.Name, out var old) || Math.Abs(old - r.Target) > 0.01)
             .Select(r => previous.TryGetValue(r.Name, out var old)
@@ -923,19 +973,42 @@ public class Phase5DoseService : IPhaseService
         if (source != "pokoje")
             why = $"źródło: {source} (IndoorTargetForFeed)";
         else if (ds.HouseTargetLogged == null)
-            why = $"cel z pokoi ważony stratami ({rooms.Count} pokoi, Σ {weightSum:0} W): " +
-                  string.Join(", ", rooms.OrderByDescending(r => r.Weight).Select(r => $"{r.Name} {DoseLog.Number(r.Target)} °C × {r.Weight:0} W"));
+            why = $"cel z pokoi ważony stratami ({rooms.Count} pokoi, Σ {weightSum:0} W): " + (run.Ctx.Parameters.DoseTargetUseActual
+                ? DescribeRooms(house, run.Ctx.Parameters)
+                : string.Join(", ", rooms.OrderByDescending(r => r.Weight).Select(r => $"{r.Name} {DoseLog.Number(r.Target)} °C × {r.Weight:0} W")));
         else
-            why = changes.Count > 0 ? $"zmiany celów pokoi: {string.Join(", ", changes)}" : "zmiana wag pokoi";
+            why = (changes.Count > 0 ? $"zmiany celów pokoi: {string.Join(", ", changes)}" : "zmiana faktycznych temperatur albo wag pokoi")
+                  + "; " + DescribeRooms(house, run.Ctx.Parameters);
         var tail = ds.HouseTargetLogged.HasValue && target > ds.HouseTargetLogged.Value
-            ? $"; dawka rośnie stopniowo (≤ {DoseLog.Number(run.Ctx.Parameters.DoseTargetRiseKPerHour, "0.00")} K/h, z dodatkiem na dogrzanie domu)"
+            ? changes.Count > 0
+                ? $"; wzrost od celów - dawka rośnie stopniowo (≤ {DoseLog.Number(run.Ctx.Parameters.DoseTargetRiseKPerHour, "0.00")} K/h, z dodatkiem na dogrzanie domu)"
+                : "; wzrost od faktycznych - od razu, bez dodatku na dogrzanie"
             : ds.HouseTargetLogged.HasValue ? "; niższy cel działa od razu" : "";
 
         run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.HouseTargetParameter, ds.HouseTargetLogged ?? target, target, "CEL_DOMU",
             DoseLog.StatusInternal,
             $"{DoseLog.Head(DoseLog.HouseTargetParameter, ds.HouseTargetLogged ?? target, target)}: {why}{tail}."));
         ds.HouseTargetLogged = Math.Round(target, 2);
-        ds.RoomTargetsSnapshot = Snap();
+        ds.RoomTargetsSnapshot = FormatTargets(rooms);
+    }
+
+    /// <summary>„po faktycznej: sien 25,3 (cel 22); po celu: salon 26, …; z samych celów 21,95 °C”.</summary>
+    private static string DescribeRooms(HouseTargetResult house, HeatingParameters p)
+    {
+        if (!p.DoseTargetUseActual) return $"faktyczne wyłączone (DoseTargetUseActual) - same cele";
+        var byActual = house.Rooms.Where(r => r.ByActual).OrderByDescending(r => (r.Used - r.Target) * r.Weight)
+            .Select(r => $"{r.Name} {DoseLog.Number(r.Used)} (cel {DoseLog.Number(r.Target)}" +
+                         (r.Actual > house.RoomCap + 0.05 ? $", fakt. {DoseLog.Number(r.Actual)} przycięta do {DoseLog.Number(house.RoomCap)}" : "") + ")")
+            .ToList();
+        var byTarget = house.Rooms.Where(r => !r.ByActual).OrderByDescending(r => r.Weight)
+            .Select(r => $"{r.Name} {DoseLog.Number(r.Target)}" + (r.Actual.HasValue ? "" : " (brak odczytu)"))
+            .ToList();
+        var text = $"po faktycznej: {(byActual.Count > 0 ? string.Join(", ", byActual) : "żaden")}; " +
+                   $"po celu: {(byTarget.Count > 0 ? string.Join(", ", byTarget) : "żaden")}; " +
+                   $"z samych celów {DoseLog.Number(house.BaseTarget, "0.00")} °C";
+        if (house.HouseCapped)
+            text += $", przycięty do celu z celów + {DoseLog.Number(p.DoseActualMaxAboveTargetsK)} K";
+        return text;
     }
 
     private static bool IsValid(EntityState? state)

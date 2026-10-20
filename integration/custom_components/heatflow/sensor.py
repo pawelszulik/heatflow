@@ -203,6 +203,8 @@ class HeatFlowDoseSensor(CoordinatorEntity, SensorEntity):
             "cel_domu_z_pokoi": dose.get("houseTarget"),
             "cel_domu_uzyty": dose.get("houseTargetUsed"),
             "cel_domu_zrodlo": dose.get("houseTargetSource"),
+            "cel_domu_z_samych_celow": dose.get("houseTargetBase"),
+            "pokoje_po_faktycznej": dose.get("houseTargetActualRooms"),
             "dogrzewanie_domu_s_na_dobe": dose.get("storageBonusSec"),
             "trym_s": dose.get("trimSec"),
             "sufit": dose.get("ceiling"),

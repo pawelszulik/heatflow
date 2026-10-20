@@ -7,7 +7,7 @@ using HeatFlow.DoseSim;
 // Wirtualne testy Fazy 5 „Dawka” - bez HA, mappera i bazy. Patrz README.md obok.
 if (args.Length < 1)
 {
-    Console.WriteLine("Użycie: HeatFlow.DoseReplay <migawki.csv> [plik_raportu.md] [katalog_na_tz|-] [cele-pokoi.csv]");
+    Console.WriteLine("Użycie: HeatFlow.DoseReplay <migawki.csv> [plik_raportu.md] [katalog_na_tz|-] [cele-pokoi.csv] [fakt-pokoi.csv]");
     return 2;
 }
 
@@ -18,6 +18,7 @@ DateTime Utc(int y, int m, int d) => TimeZoneInfo.ConvertTimeToUtc(new DateTime(
 
 var rows = HmsRow.ReadCsv(args[0]).ToList();
 var roomTargets = args.Length > 3 ? ReplayRunner.ReadRoomTargets(args[3]) : null;
+var roomActuals = args.Length > 4 ? ReplayRunner.ReadRoomTargets(args[4]) : null;
 var ConfigurationSeedRooms = HeatFlow.Infrastructure.Database.ConfigurationSeed.DoseIndoorMeanRooms;
 var report = new StringBuilder();
 void W(string s = "") { report.AppendLine(s); Console.WriteLine(s); }
@@ -56,18 +57,56 @@ void ReplayTable(ReplayResult r)
 
 // ---------- 1. Replay: automat włączony (pętla otwarta) ----------
 var sw = System.Diagnostics.Stopwatch.StartNew();
-var on = await ReplayRunner.RunAsync(rows, automatOn: true, roomTargets: roomTargets);
+// on = bieżąca wersja (cel z pokoi, pokój = max(cel, faktyczna)); onTargets = poprzednia (same cele); onFixed = stała 24 °C.
+var on = await ReplayRunner.RunAsync(rows, automatOn: true, roomTargets: roomTargets, roomActuals: roomActuals);
+var onTargets = roomActuals == null ? on
+    : await ReplayRunner.RunAsync(rows, automatOn: true, parameters: new HeatingParameters { DoseTargetUseActual = false }, roomTargets: roomTargets);
 var onFixed = await ReplayRunner.RunAsync(rows, automatOn: true);
 W($"## 1. Replay historii, automat włączony (pętla otwarta, {sw.Elapsed.TotalSeconds:F0} s)");
 W();
 W("Kocioł i dom w danych reagowały na nastawy Pawła, nie automatu - więc trym od kotła i bezpieczniki widzą tamten kocioł. Po samowyłączeniu „Paweł” włącza automat ponownie po 6 h. " +
-  (roomTargets == null ? "Cel domu: stała 24 °C (brak pliku z celami pokoi)." : "Cel domu: cele pokoi ważone stratami (HeatLossW), cele z RoomState - średnie tygodniowe, przed 2026-01-26 jak w pierwszym tygodniu."));
+  (roomTargets == null ? "Cel domu: stała 24 °C (brak pliku z celami pokoi)." : "Cel domu: cele pokoi ważone stratami (HeatLossW), cele z RoomState - średnie tygodniowe, przed 2026-01-26 jak w pierwszym tygodniu.") +
+  (roomActuals == null ? "" : " Pokój = wyższa z: cel, faktyczna (wygładzona 24 h); faktyczne: 7 czujników BMx280 z migawek co 5 min, pozostałe pokoje (głowice, DHT) - średnie tygodniowe z RoomState. Przycięcie: najwyższy cel pokoju, cel z celów + 2 K."));
 W();
 W($"Błędy fazy: {on.Harness.Errors.Errors.Count}; przekroczenia granic 7–10 s / 100–320 s / 28–35 %: {on.LimitViolations.Count + onFixed.LimitViolations.Count}.");
 W();
 ReplayTable(on);
 
-W("### Cel z pokoi vs stała 24 °C (poprzednia wersja) - plan dawki i zużycie");
+if (roomActuals != null)
+{
+    W("### Cel z faktycznymi (ta wersja) vs same cele (poprzednia) vs nastawy Pawła");
+    W();
+    W("Plan jak niżej (dawka nastawiona przez automat przy 24 h grzania, gdy aktywny). „Po faktycznej” - pokoje, które najczęściej weszły do celu po faktycznej.");
+    W();
+    W("| Okres | Cel z samych celów | Cel z faktycznymi | Przycięty (+2 K) [% czasu] | Plan same cele [s/d] | Plan z faktycznymi [s/d] | Różnica [kg/d] | Godz. sufit: cele → fakt. | Nastawy Pawła [s/d] | Z faktycznymi vs Paweł [kg/d] | Po faktycznej (udział czasu) |");
+    W("|---|---|---|---|---|---|---|---|---|---|---|");
+    foreach (var (name, from, to) in periods)
+    {
+        double Plan(ReplayResult r) => r.Steps.Where(x => x.Utc >= from && x.Utc < to && x.AutomatActive)
+            .Select(x => x.SimWork * 86400.0 / (x.SimWork + x.SimPause)).DefaultIfEmpty().Average();
+        double Ceil(ReplayResult r) => r.Steps.Count(x => x.Utc >= from && x.Utc < to && x.Ceiling) * 5 / 60.0;
+        var steps = on.Steps.Where(x => x.Utc >= from && x.Utc < to && x.HouseTarget.HasValue).ToList();
+        var baseT = steps.Where(x => x.HouseTargetBase.HasValue).Select(x => x.HouseTargetBase!.Value).DefaultIfEmpty().Average();
+        var withA = steps.Select(x => x.HouseTarget!.Value).DefaultIfEmpty().Average();
+        var capped = steps.Count(x => x.HouseTargetBase.HasValue && x.HouseTarget >= x.HouseTargetBase + 2.0 - 0.01) / (double)Math.Max(1, steps.Count);
+        var byActual = steps.SelectMany(x => (x.ActualRooms ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+            .GroupBy(n => n).OrderByDescending(g => g.Count())
+            .Select(g => $"{g.Key} {g.Count() / (double)Math.Max(1, steps.Count):P0}");
+        var pt = Plan(onTargets);
+        var pa = Plan(on);
+        var pawel = on.Steps.Where(x => x.Utc >= from && x.Utc < to && x.AutomatActive && x.ActualWork > 0 && x.ActualPause > 0)
+            .Select(x => x.ActualWork!.Value * 86400.0 / (x.ActualWork.Value + x.ActualPause!.Value)).DefaultIfEmpty().Average();
+        W($"| {name} | {baseT:F2} °C | {withA:F2} °C | {capped:P0} | {pt:F0} | {pa:F0} | {(pa - pt) * 4.25 / 1000:+0.0;-0.0} | {Ceil(onTargets):F0} → {Ceil(on):F0} | {pawel:F0} | {(pa - pawel) * 4.25 / 1000:+0.0;-0.0} | {string.Join(", ", byActual)} |");
+    }
+    W();
+    W("Przykładowe wpisy CEL_DOMU:");
+    W();
+    foreach (var e in on.Log.Where(e => e.ReasonCode == "CEL_DOMU").Take(4))
+        W($"- {Local(e.TimestampUtc):yyyy-MM-dd HH:mm} {e.Message}");
+    W();
+}
+
+W("### Cel z pokoi vs stała 24 °C - plan dawki i zużycie");
 W();
 W("Plan = średnia dawka nastawiona przez automat (praca/(praca+postój) · 86 400 s, czyli przy 24 h grzania), gdy aktywny. " +
   "Nastawy Pawła = ta sama miara dla nastaw ze sterownika. Licznik = faktyczne zużycie z HMS (mniejsze od nominalnego o podtrzymania). 1 s = 4,25 g (§ 3).");
@@ -205,9 +244,10 @@ W("### Cele pokoi ważone stratami a pomiar do korekty k (14 dni, f = 1,0)");
 W();
 W("Pokoje jak w bazie dziś: cele (garaż 6 °C … salon 26 °C), wagi HeatLossW, cel domu = " +
   $"{DoseCalculator.HouseTarget(SimDefaults.AllRooms(), DateTime.Now, false).Target:F2} °C. Czujniki pokoi = temperatura domu (ważona) + przesunięcie pokoju z RoomState 2026-10-20 " +
-  "(7 czujników BMx280 średnio +1,88 K, garaż −9,8 K). „Tin” = temperatura domu ważona stratami.");
+  "(7 czujników BMx280 średnio +1,88 K, garaż −9,8 K). „Tin” = temperatura domu ważona stratami. " +
+  "„Cel instalacji” = temperatura domu, przy której każdy pokój ma swój cel: max(cel pokoju − przesunięcie) = 24,59 °C (grześ, balkonowy) - do niej ciągną zawory. Cel domu w Fazie 5: z faktycznymi (ta wersja).");
 W();
-W("| Okres | Pomiar do k | Cel domu | Tin (ost. 3 doby) | Tin − cel | Średnia 7 czujników | k: 3 → 7 → 14 | Zmian/dobę | Ostrzeżenia „kocioł zimny” | Śr. dawka [s/d] | Granice |");
+W("| Okres | Pomiar do k | Cel instalacji | Tin (ost. 3 doby) | Tin − cel | Średnia 7 czujników | k: 3 → 7 → 14 | Zmian/dobę | Ostrzeżenia „kocioł zimny” | Śr. dawka [s/d] | Granice |");
 W("|---|---|---|---|---|---|---|---|---|---|---|");
 foreach (var (name, from) in new[] { ("luty", Utc(2026, 2, 1)), ("marzec", Utc(2026, 3, 1)), ("październik", Utc(2026, 10, 6)) })
 foreach (var weighted in new[] { false, true })
@@ -226,11 +266,13 @@ W();
 
 W("### Podniesienie celów wszystkich pokoi o 1 K (marzec, f = 1,0, cele dzisiejsze, 4. doba 22:00 UTC)");
 W();
+W("Same cele, dom bez przesunięć pokoi (zawory ciągną do celu domu) - sprawdza ograniczenie wzrostu celu i dodatek na dogrzanie; wzrost celu od faktycznych idzie od razu i bez dodatku.");
+W();
 {
     var from = Utc(2026, 3, 1);
     var atStep = from.AddDays(3).AddHours(22);
-    var r = await ClosedLoopRunner.RunAsync(hourly, from, 7, 1.0, new HeatingParameters(), startAtModel: true,
-        rooms: SimDefaults.AllRooms(), roomOffsets: SimDefaults.RoomOffsetsToday,
+    var r = await ClosedLoopRunner.RunAsync(hourly, from, 7, 1.0, new HeatingParameters { DoseTargetUseActual = false }, startAtModel: true,
+        rooms: SimDefaults.AllRooms(),
         faults: new[] { new Fault(FaultKind.TargetStep, atStep, from.AddDays(7), 1.0) });
     var after = r.Hours.Where(h => h.Utc >= atStep).ToList();
     var reached = after.FirstOrDefault(h => h.HouseTargetUsed >= h.Goal - 0.01);
@@ -243,6 +285,58 @@ W();
         W($"- {Local(e.TimestampUtc):dd.MM HH:mm} [{e.Status}, {e.ReasonCode}] {e.Message}");
     W();
 }
+
+// ---------- 2b. Cel z faktycznymi vs same cele: czy pokoje 25-26 °C trzymają cel ----------
+var periods14 = new[] { ("luty", Utc(2026, 2, 1)), ("marzec", Utc(2026, 3, 1)), ("październik", Utc(2026, 10, 6)) };
+var allRooms = SimDefaults.AllRooms();
+var highRooms = allRooms.Where(r => r.TempTarget >= 25).Select(r => r.Name).ToList();
+W("### Cel z faktycznymi vs same cele - czy pokoje z celem 25–26 °C trzymają cel (14 dni, f = 1,0)");
+W();
+W($"Pokoje i przesunięcia jak wyżej; pokoje z celem ≥ 25 °C: {string.Join(", ", highRooms)}. „Przeciek” = część nadwyżki ognia, która omija zawory (0 = zawory trzymają dom, 0,5 = połowa nadmiaru i tak grzeje dom). " +
+  "Pokój „pod celem” = temperatura pokoju niżej niż cel − 0,3 K; „najzimniejszy” = pokój z celem ≥ 25 °C najdalej od celu (średnio, ost. 4 doby).");
+W();
+W("| Okres | Przeciek | Cel domu | Cel domu (ost. 4 doby) | Tin (ost. 4 doby) / cel instalacji | Pokoje pod celem | Najzimniejszy z 25–26 °C | k końcowe | Plan [s/d] | Godz. sufit | Zmian/dobę | Granice |");
+W("|---|---|---|---|---|---|---|---|---|---|---|---|");
+foreach (var (name, from) in periods14)
+foreach (var leak in new[] { 0.0, 0.5 })
+foreach (var (label, p) in new[] { ("same cele", new HeatingParameters { DoseTargetUseActual = false }), ("z faktycznymi", new HeatingParameters()),
+             ("z faktycznymi, garaż po celu", new HeatingParameters()) })
+{
+    var rooms = SimDefaults.AllRooms();
+    if (label.Contains("garaż")) rooms.First(r => r.Name == "garaz").DoseUseActual = false;
+    var r = await ClosedLoopRunner.RunAsync(hourly, from, 14, 1.0, p, startAtModel: true, rooms: rooms,
+        roomOffsets: SimDefaults.RoomOffsetsToday, uncontrolledShare: leak);
+    var last = r.Hours.Where(h => h.Utc >= from.AddDays(10)).ToList();
+    var tin = last.Average(h => h.Indoor);
+    var worst = highRooms.Select(n => (Name: n, Gap: tin + SimDefaults.RoomOffsetsToday[n] - rooms.First(x => x.Name == n).TempTarget))
+        .OrderBy(x => x.Gap).First();
+    var plan = r.Hours.Where(h => h.Utc >= from.AddDays(2)).Average(h => h.Work * 86400.0 / (h.Work + h.Pause));
+    W($"| {name} | {leak:F1} | {label} | {last.Average(h => h.HouseTargetUsed ?? 0):F2} °C | {tin:F2} / {last[0].Goal:F2} °C | {last.Average(h => h.RoomsBelowTarget):F1} | {worst.Name} {Signed(worst.Gap)} K | {r.Hours.Last().K:F2} | {plan:F0} | {r.CeilingHours:F0} | {r.ChangesPerDay:F1} | {(r.LimitViolations.Count == 0 && r.Harness.Errors.Errors.Count == 0 ? "OK" : "BŁĄD")} |");
+}
+W();
+
+// ---------- 2c. Nadmiar paliwa: sprzężenie dodatnie ----------
+W("### Nadmiar paliwa: k startowe 1,3 przy domu f = 0,8 (marzec, 21 dni)");
+W();
+W("Automat zaczyna z k = 1,3, a dom potrzebuje 0,8 modelu - dawka ~60 % za duża. Pytanie: czy przy celu z faktycznymi temperatura domu rośnie dzień po dniu (więcej paliwa → cieplej → wyższy cel → więcej paliwa). " +
+  "Tin = średnia doby; „bez granicy” = przycięcie tylko do najwyższego celu pokoju (26 °C), bez „cel z celów + 2 K”.");
+W();
+W("| Przeciek | Wariant | Tin doba 1 → 7 → 14 → 21 | Tin maks. (doba) | Cel domu doba 21 | k doba 7 → 21 | Godz. grzania/dobę (ost. 7) |");
+W("|---|---|---|---|---|---|---|");
+foreach (var leak in new[] { 0.0, 0.5, 0.9, 1.0 })
+foreach (var (label, p) in new[] { ("same cele", new HeatingParameters { DoseTargetUseActual = false, FeedCorrectionK = 1.3 }),
+             ("z faktycznymi (+2 K)", new HeatingParameters { FeedCorrectionK = 1.3 }),
+             ("z faktycznymi, bez granicy", new HeatingParameters { FeedCorrectionK = 1.3, DoseActualMaxAboveTargetsK = 6 }) })
+{
+    var from = Utc(2026, 3, 1);
+    var r = await ClosedLoopRunner.RunAsync(hourly, from, 21, 0.8, p, startAtModel: true, rooms: SimDefaults.AllRooms(),
+        roomOffsets: SimDefaults.RoomOffsetsToday, uncontrolledShare: leak);
+    var daily = r.Hours.GroupBy(h => (h.Utc - from).Days).OrderBy(g => g.Key).Select(g => (Tin: g.Average(h => h.Indoor), K: g.Last().K,
+        Target: g.Average(h => h.HouseTargetUsed ?? 0), Heat: g.Count(h => h.Heating))).ToList();
+    var maxDay = daily.Select((d, i) => (d.Tin, i)).MaxBy(x => x.Tin);
+    W($"| {leak:F1} | {label} | {daily[0].Tin:F2} → {daily[6].Tin:F2} → {daily[13].Tin:F2} → {daily[^1].Tin:F2} | {maxDay.Tin:F2} ({maxDay.i + 1}) | {daily[^1].Target:F2} | {daily[6].K:F2} → {daily[^1].K:F2} | {daily.TakeLast(7).Average(d => d.Heat):F1} |");
+}
+W();
 
 W("### Usterki (marzec, f = 1,0, „kocioł zimny” = 0, usterka 4. doby o 10:00 UTC)");
 W();

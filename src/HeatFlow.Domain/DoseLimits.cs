@@ -53,6 +53,8 @@ public static class DoseLimits
         Range(nameof(p.IndoorTargetForFeed), p.IndoorTargetForFeed, 18, 26);
         Range(nameof(p.DoseTargetRiseKPerHour), p.DoseTargetRiseKPerHour, 0.01, 1.0);
         Range(nameof(p.DoseStorageBonusMaxSec), p.DoseStorageBonusMaxSec, 0, 8000);
+        Range(nameof(p.DoseActualSmoothingHours), p.DoseActualSmoothingHours, 3, 72);
+        Range(nameof(p.DoseActualMaxAboveTargetsK), p.DoseActualMaxAboveTargetsK, 0, 6);
         Range(nameof(p.FeedKMin), p.FeedKMin, 0.3, 1.0);
         Range(nameof(p.FeedKMax), p.FeedKMax, 1.0, 2.0);
         Range(nameof(p.FeedCorrectionK), p.FeedCorrectionK, Math.Max(0.3, p.FeedKMin), Math.Min(2.0, p.FeedKMax));

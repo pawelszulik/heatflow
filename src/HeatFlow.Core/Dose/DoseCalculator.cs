@@ -17,6 +17,19 @@ public record DosePlan(int Work, double ModelPause, bool Ceiling, double Shortfa
 public record DoseDecision(bool Change, int Work, int Pause, string Reason,
     bool WaitingForInterval = false, double MinutesSinceLastChange = 0);
 
+/// <summary>Cel pokoju po harmonogramie, waga HeatLossW i czy jego faktyczna może podnieść cel (DoseUseActual).</summary>
+public record RoomTargetInput(string Name, double Target, double Weight, bool UseActual = true);
+
+/// <summary>Wkład pokoju do celu domu: cel, faktyczna wygładzona, użyta wartość i czy weszła po faktycznej.</summary>
+public record RoomTargetPart(string Name, double Target, double? Actual, double Used, double Weight, bool ByActual);
+
+/// <summary>
+/// Cel domu (z faktycznymi, po przycięciu) i cel z samych celów pokoi. <paramref name="RoomCap"/> - najwyższy
+/// cel wśród pokoi z wagą, <paramref name="HouseCapped"/> - zadziałała granica „cel z celów + X K”.
+/// </summary>
+public record HouseTargetResult(double? Target, double? BaseTarget, IReadOnlyList<RoomTargetPart> Rooms, double? RoomCap,
+    bool HouseCapped);
+
 /// <summary>Bilans jednej doby do korekty k.</summary>
 /// <param name="FeedSec">Sekundy pracy podajnika z licznika (null = dziura w danych).</param>
 /// <param name="HeatingHours">Godziny z dmuchawą &gt; 0 (grzanie, nie podtrzymanie).</param>
@@ -85,19 +98,108 @@ public static class DoseCalculator
     public static (double? Target, List<(string Name, double Target, double Weight)> Rooms) HouseTarget(
         IEnumerable<RoomConfiguration> rooms, DateTime localTime, bool isWeekend)
     {
-        var list = rooms
+        var list = RoomTargets(rooms, localTime, isWeekend).Select(x => (x.Name, x.Target, x.Weight)).ToList();
+        if (list.Count == 0) return (null, list);
+        return (list.Sum(x => x.Target * x.Weight) / list.Sum(x => x.Weight), list);
+    }
+
+    /// <summary>
+    /// Cele pokoi z wagą (HeatLossW &gt; 0) po harmonogramie, jak w <see cref="HouseTarget"/>, z flagą
+    /// RoomConfiguration.DoseUseActual.
+    /// </summary>
+    public static List<RoomTargetInput> RoomTargets(IEnumerable<RoomConfiguration> rooms, DateTime localTime, bool isWeekend)
+        => rooms
             .Where(r => r.HeatLossW > 0)
             .Select(r =>
             {
                 var room = r.ToRoom();
                 var active = Utils.ScheduleHelper.IsTimeInRange(localTime, room.HeatingSchedule, isWeekend);
-                return (r.Name, Target: room.GetTargetTemperature(active), Weight: r.HeatLossW);
+                return new RoomTargetInput(r.Name, room.GetTargetTemperature(active), r.HeatLossW, r.DoseUseActual);
             })
             .Where(x => x.Target > 0)
             .ToList();
-        if (list.Count == 0) return (null, list);
-        return (list.Sum(x => x.Target * x.Weight) / list.Sum(x => x.Weight), list);
+
+    /// <summary>
+    /// Cel domu z pokojem liczonym jako wyższa z dwóch: cel albo faktyczna (wygładzona) - decyzja Pawła
+    /// 2026-10-20. Nadwyżka faktycznej ponad cel:
+    /// <list type="bullet">
+    /// <item>przycięta do najwyższego celu wśród pokoi z wagą (pokój cieplejszy niż ktokolwiek chce nie podbija celu dalej),</item>
+    /// <item>cały cel domu ≤ cel z samych celów + DoseActualMaxAboveTargetsK (granica sprzężenia dodatniego).</item>
+    /// </list>
+    /// Bez faktycznych (albo przy DoseTargetUseActual = wył.) = cel z samych celów.
+    /// </summary>
+    public static HouseTargetResult CombineHouseTarget(IReadOnlyList<RoomTargetInput> rooms,
+        IReadOnlyDictionary<string, double>? actuals, HeatingParameters p)
+    {
+        if (rooms.Count == 0) return new HouseTargetResult(null, null, new List<RoomTargetPart>(), null, false);
+        var weightSum = rooms.Sum(r => r.Weight);
+        var baseTarget = rooms.Sum(r => r.Target * r.Weight) / weightSum;
+        var roomCap = rooms.Max(r => r.Target);
+        var useActual = p.DoseTargetUseActual && actuals != null;
+
+        var parts = rooms.Select(r =>
+        {
+            double? actual = actuals != null && actuals.TryGetValue(r.Name, out var a) ? a : null;
+            var used = r.Target;
+            if (useActual && r.UseActual && actual > r.Target)
+                used = Math.Min(actual.Value, roomCap);
+            return new RoomTargetPart(r.Name, r.Target, actual, used, r.Weight, used > r.Target + 0.005);
+        }).ToList();
+
+        var target = parts.Sum(x => x.Used * x.Weight) / weightSum;
+        var houseCap = baseTarget + p.DoseActualMaxAboveTargetsK;
+        var capped = useActual && target > houseCap;
+        return new HouseTargetResult(capped ? houseCap : target, baseTarget, parts, roomCap, capped);
     }
+
+    /// <summary>
+    /// Wygładza faktyczne temperatury pokoi średnią wykładniczą o stałej <paramref name="tauHours"/>,
+    /// każdy pokój ze swoim czasem ostatniego odczytu. Przerwa dłuższa niż 3·τ = start od nowa od odczytu;
+    /// pokój bez odczytu przez τ wypada (liczy się po celu), żeby martwy czujnik nie trzymał starej wartości.
+    /// </summary>
+    public static Dictionary<string, (double Value, DateTime Utc)> SmoothRoomActuals(
+        IReadOnlyDictionary<string, (double Value, DateTime Utc)> previous, IReadOnlyDictionary<string, double> readings,
+        DateTime nowUtc, double tauHours)
+    {
+        var result = new Dictionary<string, (double Value, DateTime Utc)>();
+        foreach (var (name, x) in readings)
+        {
+            if (previous.TryGetValue(name, out var prev))
+            {
+                var dt = (nowUtc - prev.Utc).TotalHours;
+                if (dt <= 0) { result[name] = prev; continue; }
+                if (dt <= 3 * tauHours)
+                {
+                    result[name] = (prev.Value + (x - prev.Value) * (1 - Math.Exp(-dt / tauHours)), nowUtc);
+                    continue;
+                }
+            }
+            result[name] = (x, nowUtc);
+        }
+        foreach (var (name, prev) in previous)
+            if (!result.ContainsKey(name) && (nowUtc - prev.Utc).TotalHours <= tauHours)
+                result[name] = prev;
+        return result;
+    }
+
+    /// <summary>„salon=24.31@202610201530;…” ↔ słownik (czas UTC).</summary>
+    public static Dictionary<string, (double Value, DateTime Utc)> ParseRoomActuals(string? text)
+    {
+        var result = new Dictionary<string, (double Value, DateTime Utc)>();
+        foreach (var item in (text ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var m = Regex.Match(item, @"^([^=]+)=(-?[0-9.]+)@([0-9]{12})$");
+            if (!m.Success) continue;
+            result[m.Groups[1].Value] = (double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture),
+                DateTime.SpecifyKind(DateTime.ParseExact(m.Groups[3].Value, "yyyyMMddHHmm",
+                    System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc));
+        }
+        return result;
+    }
+
+    public static string FormatRoomActuals(IReadOnlyDictionary<string, (double Value, DateTime Utc)> actuals)
+        => string.Join(";", actuals.OrderBy(x => x.Key).Select(x =>
+            $"{x.Key}={x.Value.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}@{x.Value.Utc:yyyyMMddHHmm}"));
 
     /// <summary>
     /// Cel użyty w modelu: spadek od razu (dom stygnie sam), wzrost najwyżej o DoseTargetRiseKPerHour

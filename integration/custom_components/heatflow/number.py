@@ -101,6 +101,8 @@ PARAM_FIELDS = [
     ("doseBlowerLowDuty", 0.01, 0.09, 0.001),
     ("doseTargetRiseKPerHour", 0.01, 1.0, 0.01),
     ("doseStorageBonusMaxSec", 0, 8000, 100),
+    ("doseActualSmoothingHours", 3, 72, 1),
+    ("doseActualMaxAboveTargetsK", 0, 6, 0.1),
 ]
 
 PARAM_DISPLAY_NAMES = {
@@ -162,6 +164,8 @@ PARAM_DISPLAY_NAMES = {
     "doseBlowerLowDuty": "Dawka - dmuchawa minimum przy udziale pracy",
     "doseTargetRiseKPerHour": "Dawka - wzrost celu domu (K/h)",
     "doseStorageBonusMaxSec": "Dawka - max dodatek na dogrzanie (s na dobę)",
+    "doseActualSmoothingHours": "Dawka - wygładzanie faktycznej pokoju (h)",
+    "doseActualMaxAboveTargetsK": "Dawka - cel z faktycznymi max ponad cele (K)",
 }
 
 

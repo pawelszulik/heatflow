@@ -57,6 +57,8 @@ public class DoseController : ControllerBase
             houseTarget = state.HouseTarget,
             houseTargetUsed = state.HouseTargetUsed,
             houseTargetSource = state.HouseTargetSource,
+            houseTargetBase = state.HouseTargetBase,
+            houseTargetActualRooms = state.HouseTargetActualRooms,
             storageBonusSec = state.StorageBonusSec,
             ceiling = state.Ceiling,
             shortfallPct = state.ShortfallPct,

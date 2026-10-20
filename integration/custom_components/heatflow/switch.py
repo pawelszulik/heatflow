@@ -29,6 +29,7 @@ async def async_setup_entry(
         HeatFlowDoseRestoreSwitchEntity(coordinator, entry),
         HeatFlowParamBoolSwitchEntity(coordinator, entry, "doseTargetFromRooms", "Dawka cel z pokoi", "mdi:home-group"),
         HeatFlowParamBoolSwitchEntity(coordinator, entry, "doseIndoorMeasureWeighted", "Dawka pomiar ważony", "mdi:scale-balance"),
+        HeatFlowParamBoolSwitchEntity(coordinator, entry, "doseTargetUseActual", "Dawka cel z faktycznych", "mdi:thermometer-chevron-up"),
     ]
     for room in rooms:
         name = room.get("name") or room.get("Name")
@@ -40,6 +41,8 @@ async def async_setup_entry(
             entities.append(RoomSwitchEntity(coordinator, entry, name, "automation_disabled"))
         if "useForDoseIndoorMean" in room or "UseForDoseIndoorMean" in room:
             entities.append(RoomSwitchEntity(coordinator, entry, name, "use_for_dose_indoor_mean"))
+        if "doseUseActual" in room or "DoseUseActual" in room:
+            entities.append(RoomSwitchEntity(coordinator, entry, name, "dose_use_actual"))
     async_add_entities(entities)
 
 
@@ -264,6 +267,8 @@ ROOM_SWITCH_FIELDS = {
     "automation_disabled": ("automationDisabled", "Automatyka wyłączona"),
     # Faza 5 „Dawka”: czy czujnik pokoju wchodzi do średniej temperatury w domu (bilans do korekty k).
     "use_for_dose_indoor_mean": ("useForDoseIndoorMean", "Dawka: średnia w domu"),
+    # Czy faktyczna temperatura pokoju może podnieść jego wkład do celu domu ponad cel.
+    "dose_use_actual": ("doseUseActual", "Dawka: cel z faktycznej"),
 }
 
 

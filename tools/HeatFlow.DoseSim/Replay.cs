@@ -49,7 +49,7 @@ public sealed record HmsRow(DateTime Utc, IReadOnlyDictionary<string, string> Va
 /// <summary>Krok replayu: co sterownik miał naprawdę (Paweł) i co by miał z automatem.</summary>
 public record ReplayStep(DateTime Utc, int? ActualWork, int? ActualPause, int? ActualBlower,
     int SimWork, int SimPause, int SimBlower, bool AutomatActive, bool Ceiling, double K, double? Outdoor,
-    double? HouseTarget = null, double? NeedSecPerDay = null);
+    double? HouseTarget = null, double? NeedSecPerDay = null, double? HouseTargetBase = null, string? ActualRooms = null);
 
 public sealed class ReplayResult
 {
@@ -82,7 +82,8 @@ public static class ReplayRunner
     public static async Task<ReplayResult> RunAsync(IReadOnlyList<HmsRow> rows, bool automatOn,
         TimeSpan? reEnableAfter = null, HeatingParameters? parameters = null, DateTime? fromUtc = null, DateTime? toUtc = null,
         bool neutralBoiler = false,
-        IReadOnlyList<(DateTime FromUtc, Dictionary<string, double> Targets)>? roomTargets = null)
+        IReadOnlyList<(DateTime FromUtc, Dictionary<string, double> Targets)>? roomTargets = null,
+        IReadOnlyList<(DateTime FromUtc, Dictionary<string, double> Targets)>? roomActuals = null)
     {
         reEnableAfter ??= TimeSpan.FromHours(6);
         var hourlyTz = HourlyOutdoor(rows);
@@ -120,6 +121,14 @@ public static class ReplayRunner
             }
 
             PublishLatest(h, latest, t);
+            if (roomActuals is { Count: > 0 })
+            {
+                // Faktyczne pokoi bez kolumny w migawkach (głowice, DHT, garaż…) - tygodniowe średnie z RoomState.
+                var week = roomActuals.LastOrDefault(x => x.FromUtc <= t);
+                var actuals = week.Targets ?? roomActuals[0].Targets;
+                foreach (var room in h.Config.Rooms.Where(r => !r.UseForDoseIndoorMean && actuals.ContainsKey(r.Name)))
+                    h.Ha.Set(room.SensorTemperatureEntityId, actuals[room.Name], t);
+            }
             if (neutralBoiler && latest.TryGetValue("nastawa", out var z)
                 && double.TryParse(z.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var zv))
             {
@@ -160,7 +169,7 @@ public static class ReplayRunner
             result.Steps.Add(new ReplayStep(t,
                 ToInt(latest, "praca"), ToInt(latest, "postoj"), ToInt(latest, "dmuchawa"),
                 c.FeederWork, c.FeederPause, c.Blower, st.AutomatActive, st.Ceiling, h.Parameters.FeedCorrectionK,
-                st.OutdoorSmoothed, st.HouseTargetUsed, st.NeedSecPerDay));
+                st.OutdoorSmoothed, st.HouseTargetUsed, st.NeedSecPerDay, st.HouseTargetBase, st.HouseTargetActualRooms));
         }
 
         return result;

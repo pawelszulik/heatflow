@@ -62,6 +62,21 @@ public class DoseState
     public double? HouseTargetLogged { get; set; }
     public string? RoomTargetsSnapshot { get; set; }
 
+    /// <summary>Cel domu z samych celów pokoi (bez faktycznych) w ostatnim liczeniu [°C].</summary>
+    public double? HouseTargetBase { get; set; }
+
+    /// <summary>
+    /// Wygładzone faktyczne temperatury pokoi do celu domu, każda z chwilą ostatniego odczytu:
+    /// „salon=24.31@202610201530;hol=…” (czas UTC yyyyMMddHHmm).
+    /// </summary>
+    public string? RoomActualSmoothed { get; set; }
+
+    /// <summary>Cele pokoi z ostatniego liczenia („salon=26;hol=25”) - do oddzielenia wzrostu celu od wzrostu faktycznych.</summary>
+    public string? RoomTargetsLastCalc { get; set; }
+
+    /// <summary>Pokoje, które w ostatnim liczeniu weszły do celu domu po faktycznej („sien;garaz”).</summary>
+    public string? HouseTargetActualRooms { get; set; }
+
     /// <summary>Kocioł na suficie: przy maks. czasie pracy postój wyszedłby poniżej minimum.</summary>
     public bool Ceiling { get; set; }
 

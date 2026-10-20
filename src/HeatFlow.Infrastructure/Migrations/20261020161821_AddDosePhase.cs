@@ -232,6 +232,13 @@ namespace HeatFlow.Infrastructure.Migrations
                 nullable: false,
                 defaultValue: "");
 
+            migrationBuilder.AddColumn<bool>(
+                name: "DoseUseActual",
+                table: "RoomConfiguration",
+                type: "bit",
+                nullable: false,
+                defaultValue: true);
+
             migrationBuilder.AddColumn<decimal>(
                 name: "HeatLossW",
                 table: "RoomConfiguration",
@@ -259,6 +266,20 @@ namespace HeatFlow.Infrastructure.Migrations
                 type: "int",
                 nullable: false,
                 defaultValue: 30);
+
+            migrationBuilder.AddColumn<decimal>(
+                name: "DoseActualMaxAboveTargetsK",
+                table: "HeatingParameters",
+                type: "decimal(4,2)",
+                nullable: false,
+                defaultValue: 2m);
+
+            migrationBuilder.AddColumn<decimal>(
+                name: "DoseActualSmoothingHours",
+                table: "HeatingParameters",
+                type: "decimal(5,1)",
+                nullable: false,
+                defaultValue: 24m);
 
             migrationBuilder.AddColumn<decimal>(
                 name: "DoseBlowerLowDuty",
@@ -364,6 +385,13 @@ namespace HeatFlow.Infrastructure.Migrations
                 type: "decimal(5,3)",
                 nullable: false,
                 defaultValue: 0.07m);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "DoseTargetUseActual",
+                table: "HeatingParameters",
+                type: "bit",
+                nullable: false,
+                defaultValue: true);
 
             migrationBuilder.AddColumn<int>(
                 name: "DoseTrimLimitSec",
@@ -567,6 +595,10 @@ namespace HeatFlow.Infrastructure.Migrations
                     StorageBonusSec = table.Column<double>(type: "float", nullable: false),
                     HouseTargetLogged = table.Column<double>(type: "float", nullable: true),
                     RoomTargetsSnapshot = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    HouseTargetBase = table.Column<double>(type: "float", nullable: true),
+                    RoomActualSmoothed = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    RoomTargetsLastCalc = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    HouseTargetActualRooms = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
                     Ceiling = table.Column<bool>(type: "bit", nullable: false),
                     ShortfallPct = table.Column<double>(type: "float", nullable: false),
                     TrimSec = table.Column<int>(type: "int", nullable: false),
@@ -753,6 +785,10 @@ UPDATE RoomConfiguration SET HeatLossW = CASE Name WHEN ''balkonowy'' THEN 1344 
                 table: "SystemConfiguration");
 
             migrationBuilder.DropColumn(
+                name: "DoseUseActual",
+                table: "RoomConfiguration");
+
+            migrationBuilder.DropColumn(
                 name: "HeatLossW",
                 table: "RoomConfiguration");
 
@@ -766,6 +802,14 @@ UPDATE RoomConfiguration SET HeatLossW = CASE Name WHEN ''balkonowy'' THEN 1344 
 
             migrationBuilder.DropColumn(
                 name: "BlowerMin",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseActualMaxAboveTargetsK",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseActualSmoothingHours",
                 table: "HeatingParameters");
 
             migrationBuilder.DropColumn(
@@ -826,6 +870,10 @@ UPDATE RoomConfiguration SET HeatLossW = CASE Name WHEN ''balkonowy'' THEN 1344 
 
             migrationBuilder.DropColumn(
                 name: "DoseTargetRiseKPerHour",
+                table: "HeatingParameters");
+
+            migrationBuilder.DropColumn(
+                name: "DoseTargetUseActual",
                 table: "HeatingParameters");
 
             migrationBuilder.DropColumn(

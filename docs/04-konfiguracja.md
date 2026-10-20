@@ -239,6 +239,18 @@ dogrzanie domu `HouseCapacity · tempo` (≤ `DoseStorageBonusMaxSec`). `DoseTar
 `IndoorTargetForFeed` (też awaryjnie, gdy żaden pokój nie ma wagi). Pomiar do korekty k: 7 czujników z flagą
 (domyślnie) albo `DoseIndoorMeasureWeighted` = wszystkie pokoje ważone HeatLossW.
 
+**Cel pokoju = wyższa z dwóch: cel albo faktyczna** (`DoseTargetUseActual`, domyślnie wł., decyzja Pawła
+2026-10-20) - pokój cieplejszy niż cel i tak zabiera ciepło, więc liczy się po faktycznej temperaturze
+(odczyt jak w Fazie 1: sensor albo `current_temperature` głowicy). Faktyczna wygładzona średnią wykładniczą
+`DoseActualSmoothingHours` (24 h - tłumi dobowe wahania od słońca ~6×; 3 h tłumi je tylko ~1,3×). Przycięcie
+od góry, żeby nadmiar paliwa nie podbijał celu sam siebie: faktyczna pokoju najwyżej do najwyższego celu wśród
+pokoi z wagą (dziś 26 °C), a cały cel domu ≤ cel z samych celów + `DoseActualMaxAboveTargetsK` (2 K).
+Wzrost celu od faktycznych działa od razu i bez dodatku na dogrzanie (dom już ma tę temperaturę); ograniczenie
+`DoseTargetRiseKPerHour` i dodatek dotyczą tylko wzrostu celów. Wpis CEL_DOMU w dzienniku podaje, które pokoje
+weszły po faktycznej, a które po celu. **`RoomConfiguration.DoseUseActual`** (domyślnie wł.; w HA switch
+„Dawka: cel z faktycznej” w pokoju) = wył. → pokój zawsze po celu - np. garaż, ciepły od cudzego ciepła
+(średnio ~16 °C przy celu 6 °C, zawór zamknięty), podnosi cel domu o 0,9–1,2 K.
+
 **`HeatingParameters`** - wszystkie progi Fazy 5 (`Feed*`, `Dose*`, `Blower*`, `Feeder*Min/Max`), z walidacją
 w `DoseLimits.Validate` i gałkami w HA (`number.heatflow_parametry_dawka_*`).
 

@@ -120,7 +120,8 @@ public class DoseHouseTargetTests
     [Fact]
     public async Task Phase_RoomTargets_PogodaEntryNamesHouseTarget_AndTargetChangeGetsOwnEntry()
     {
-        var h = new DoseHarness(new ControllerFeedSettings(7, 160, 35));
+        // Same cele (bez faktycznych) - mechanika wpisów CEL_DOMU; faktyczne: DoseActualTargetTests.
+        var h = new DoseHarness(new ControllerFeedSettings(7, 160, 35), new HeatingParameters { DoseTargetUseActual = false });
         h.Config.Rooms = SimDefaults.AllRooms();
         h.Repo.Switch.Enabled = true;
         h.Publish(new DoseInputsSnapshot(-5, 24, 66, 67, 140, 35, 1000, false, true), Now);
@@ -195,7 +196,7 @@ public class DoseHouseTargetTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ClosedLoop_RoomTargets_IndoorReachesHouseTarget_KStable(bool weighted)
+    public async Task ClosedLoop_RoomTargets_IndoorReachesInstallationGoal_KStable(bool weighted)
     {
         var from = Start(3, 1);
         var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), from, 14, 1.0,
@@ -204,6 +205,7 @@ public class DoseHouseTargetTests
 
         Assert.Empty(r.LimitViolations);
         Assert.Empty(r.Harness.Errors.Errors);
+        // Goal = cel instalacji: temperatura domu, przy której każdy pokój ma swój cel (24,59 °C dziś).
         var last = r.Hours.Where(h => h.Utc >= from.AddDays(11)).ToList();
         Assert.InRange(last.Average(h => h.Indoor - h.Goal), -0.3, 0.3);
         // k stabilne w ostatnich 4 dobach (zmiana ≤ 0,1)
@@ -219,15 +221,17 @@ public class DoseHouseTargetTests
     {
         var from = Start(3, 1);
         var at = from.AddDays(3).AddHours(22);
-        var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), from, 6, 1.0, new HeatingParameters(), startAtModel: true,
-            rooms: SimDefaults.AllRooms(), roomOffsets: SimDefaults.RoomOffsetsToday,
+        // Same cele i dom bez przesunięć pokoi (zawory ciągną do celu domu): test ograniczenia wzrostu celu
+        // i dodatku na dogrzanie - wzrost od faktycznych idzie bez nich (DoseActualTargetTests).
+        var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), from, 6, 1.0, new HeatingParameters { DoseTargetUseActual = false },
+            startAtModel: true, rooms: SimDefaults.AllRooms(),
             faults: new[] { new Fault(FaultKind.TargetStep, at, from.AddDays(6), 1.0) });
 
         Assert.Empty(r.LimitViolations);
         Assert.True(r.MinHoursBetweenChanges() >= 2.0 - 1e-9);
         var after = r.Hours.Where(h => h.Utc >= at).ToList();
         Assert.Contains(after, h => h.StorageBonusSec > 0);
-        var reached = after.First(h => h.HouseTargetUsed >= h.Goal - 0.01);
+        var reached = after.First(h => h.HouseTargetUsed >= after.Last().HouseTargetBase - 0.01);
         Assert.InRange((reached.Utc - at).TotalHours, 12, 17);
         Assert.Contains(r.Log, e => e.ReasonCode == "CEL_DOMU" && e.TimestampUtc >= at && e.Direction == "w górę");
         Assert.True(after.Last().Indoor > after.First().Indoor + 0.5, "dom się dogrzewa");

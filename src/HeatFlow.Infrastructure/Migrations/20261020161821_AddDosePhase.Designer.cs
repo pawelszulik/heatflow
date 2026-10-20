@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HeatFlow.Infrastructure.Migrations
 {
     [DbContext(typeof(HeatFlowDbContext))]
-    [Migration("20261020154942_AddDosePhase")]
+    [Migration("20261020161821_AddDosePhase")]
     partial class AddDosePhase
     {
         /// <inheritdoc />
@@ -264,6 +264,13 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<double?>("HouseTarget")
                         .HasColumnType("float");
 
+                    b.Property<string>("HouseTargetActualRooms")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<double?>("HouseTargetBase")
+                        .HasColumnType("float");
+
                     b.Property<double?>("HouseTargetLogged")
                         .HasColumnType("float");
 
@@ -335,6 +342,14 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<int?>("PlannedWork")
                         .HasColumnType("int");
+
+                    b.Property<string>("RoomActualSmoothed")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("RoomTargetsLastCalc")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("RoomTargetsSnapshot")
                         .HasMaxLength(1000)
@@ -604,6 +619,12 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<decimal>("DeficitHighP3Base")
                         .HasColumnType("decimal(5,2)");
 
+                    b.Property<decimal>("DoseActualMaxAboveTargetsK")
+                        .HasColumnType("decimal(4,2)");
+
+                    b.Property<decimal>("DoseActualSmoothingHours")
+                        .HasColumnType("decimal(5,1)");
+
                     b.Property<decimal>("DoseBlowerLowDuty")
                         .HasColumnType("decimal(6,4)");
 
@@ -654,6 +675,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<decimal>("DoseTargetRiseKPerHour")
                         .HasColumnType("decimal(5,3)");
+
+                    b.Property<bool>("DoseTargetUseActual")
+                        .HasColumnType("bit");
 
                     b.Property<int>("DoseTrimLimitSec")
                         .HasColumnType("int");
@@ -838,6 +862,9 @@ namespace HeatFlow.Infrastructure.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<bool>("AutomationDisabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("DoseUseActual")
                         .HasColumnType("bit");
 
                     b.Property<decimal>("HeatLossW")

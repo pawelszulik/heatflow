@@ -28,7 +28,8 @@ public record Fault(FaultKind Kind, DateTime FromUtc, DateTime ToUtc, double Val
 
 public record HourRecord(DateTime Utc, double Outdoor, double Indoor, double Boiler, bool Heating, int Work, int Pause,
     int Blower, double K, bool Ceiling, bool AutomatActive, int TrimSec, double Goal = 24, double? HouseTargetUsed = null,
-    double StorageBonusSec = 0, double? MeasuredIndoor = null);
+    double StorageBonusSec = 0, double? MeasuredIndoor = null, double? HouseTargetBase = null, int RoomsBelowTarget = 0,
+    double WorstRoomDeficit = 0);
 
 /// <summary>Wynik przebiegu w pętli zamkniętej.</summary>
 public sealed class ClosedLoopResult
@@ -119,7 +120,9 @@ public static class ClosedLoopRunner
         bool automatOn = true,
         bool startAtModel = false,
         List<RoomConfiguration>? rooms = null,
-        IReadOnlyDictionary<string, double>? roomOffsets = null)
+        IReadOnlyDictionary<string, double>? roomOffsets = null,
+        double uncontrolledShare = 0,
+        double? startIndoor = null)
     {
         faults ??= Array.Empty<Fault>();
         var p0 = parameters ?? new HeatingParameters();
@@ -134,14 +137,22 @@ public static class ClosedLoopRunner
         var harness = new DoseHarness(initial, p0);
         if (rooms != null) harness.Config.Rooms = rooms;
         var baseTargets = harness.Config.Rooms.ToDictionary(r => r.Name, r => r.TempTarget);
-        // Cel, do którego „ciągną” pokoje (głowice + fazy 1-3) - ten sam cel domu, co w Fazie 5.
-        double Goal() => harness.Parameters.DoseTargetFromRooms
-            ? DoseCalculator.HouseTarget(harness.Config.Rooms, DateTime.Now, false).Target ?? harness.Parameters.IndoorTargetForFeed
-            : harness.Parameters.IndoorTargetForFeed;
+        // Cel, do którego „ciągną” pokoje (głowice + fazy 1-3). Z przesunięciami pokoi: zawory zamykają się,
+        // gdy każdy pokój ma swój cel, czyli przy temperaturze domu max(cel pokoju − przesunięcie) -
+        // „cel instalacji” (pokoje cieplejsze od średniej dochodzą do celu wcześniej, zimniejsze później).
+        // Bez przesunięć - cel domu z samych celów pokoi (albo stała).
+        double Goal()
+        {
+            if (roomOffsets != null && harness.Config.Rooms.Any(r => r.HeatLossW > 0))
+                return InstallationGoal(harness.Config.Rooms, roomOffsets);
+            return harness.Parameters.DoseTargetFromRooms
+                ? DoseCalculator.HouseTarget(harness.Config.Rooms, DateTime.Now, false).Target ?? harness.Parameters.IndoorTargetForFeed
+                : harness.Parameters.IndoorTargetForFeed;
+        }
         harness.Repo.Switch.Enabled = automatOn;
         var plant = new VirtualPlant(trueFactor,
             (double)initial.FeederWork / (initial.FeederWork + initial.FeederPause) * 86400.0,
-            Goal()) { Indoor = Goal() };
+            Goal()) { Indoor = startIndoor ?? Goal(), UncontrolledShare = uncontrolledShare };
 
         var series = hourlyTz.OrderBy(x => x.Utc).ToList();
         double? BaseTz(DateTime t) => Interpolate(series, t);
@@ -218,12 +229,28 @@ public static class ClosedLoopRunner
                 var c = harness.Controller.Settings;
                 result.Hours.Add(new HourRecord(t, outdoor, plant.Indoor, plant.Boiler, plant.Heating, c.FeederWork,
                     c.FeederPause, c.Blower, harness.Parameters.FeedCorrectionK, st.Ceiling, st.AutomatActive, st.TrimSec,
-                    plant.IndoorGoal, st.HouseTargetUsed, st.StorageBonusSec, harness.Repo.Samples.LastOrDefault()?.IndoorTemp));
+                    plant.IndoorGoal, st.HouseTargetUsed, st.StorageBonusSec, harness.Repo.Samples.LastOrDefault()?.IndoorTemp,
+                    st.HouseTargetBase, RoomsBelow(harness.Config.Rooms, roomOffsets, plant.Indoor, 0.3),
+                    WorstDeficit(harness.Config.Rooms, roomOffsets, plant.Indoor)));
             }
         }
 
         return result;
     }
+
+    /// <summary>Temperatura domu, przy której każdy pokój z wagą ma swój cel: max(cel − przesunięcie).</summary>
+    public static double InstallationGoal(IEnumerable<RoomConfiguration> rooms, IReadOnlyDictionary<string, double> offsets)
+        => rooms.Where(r => r.HeatLossW > 0 && r.TempTarget > 0)
+            .Max(r => r.TempTarget - offsets.GetValueOrDefault(r.Name));
+
+    /// <summary>Ile pokoi z wagą jest poniżej celu o więcej niż <paramref name="margin"/> przy temperaturze domu <paramref name="house"/>.</summary>
+    public static int RoomsBelow(IEnumerable<RoomConfiguration> rooms, IReadOnlyDictionary<string, double>? offsets, double house, double margin)
+        => offsets == null ? 0 : rooms.Count(r => r.HeatLossW > 0 && house + offsets.GetValueOrDefault(r.Name) < r.TempTarget - margin);
+
+    /// <summary>Największy niedobór pokoju z wagą względem celu [K] (ujemny = wszystkie ponad celem).</summary>
+    public static double WorstDeficit(IEnumerable<RoomConfiguration> rooms, IReadOnlyDictionary<string, double>? offsets, double house)
+        => offsets == null ? 0 : rooms.Where(r => r.HeatLossW > 0).Select(r => r.TempTarget - house - offsets.GetValueOrDefault(r.Name))
+            .DefaultIfEmpty(0).Max();
 
     public static double? Interpolate(IReadOnlyList<(DateTime Utc, double Tz)> series, DateTime t)
     {

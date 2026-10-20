@@ -119,6 +119,30 @@ public class HeatingParameters
     /// </summary>
     public bool DoseIndoorMeasureWeighted { get; set; }
 
+    /// <summary>
+    /// Pokój liczy się do celu domu jako wyższa z dwóch: cel pokoju albo jego faktyczna temperatura
+    /// (wygładzona, DoseActualSmoothingHours) - decyzja Pawła 2026-10-20: pokój cieplejszy niż cel
+    /// i tak zabiera ciepło, a dawka liczona z samych celów zaniża potrzebę. Faktyczna przycięta od góry
+    /// (najwyższy cel wśród pokoi z wagą; cały cel domu ≤ cel z samych celów + DoseActualMaxAboveTargetsK),
+    /// żeby nadmiar paliwa nie podbijał celu sam siebie. Wył. = same cele. Pokój z RoomConfiguration.DoseUseActual = wył.
+    /// zawsze po celu.
+    /// </summary>
+    public bool DoseTargetUseActual { get; set; } = true;
+
+    /// <summary>
+    /// Stała czasowa wygładzania faktycznej temperatury pokoju do celu domu [h] (średnia wykładnicza).
+    /// 24 h tłumi dobowe wahania (słońce po południu, gotowanie) ~6× (0,16), 3 h - tylko ~1,3× (0,79),
+    /// więc przy 3 h popołudniowe słońce podbijałoby wieczorną dawkę.
+    /// </summary>
+    public double DoseActualSmoothingHours { get; set; } = 24.0;
+
+    /// <summary>
+    /// O ile najwyżej cel domu liczony z faktycznymi może przekroczyć cel domu z samych celów [K].
+    /// To granica sprzężenia dodatniego (więcej paliwa → cieplej → wyższy cel → więcej paliwa).
+    /// 2,0 K: 20.10 cel z samych celów 21,95 °C, z faktycznymi 23,94 °C - dziś granica jeszcze nie tnie.
+    /// </summary>
+    public double DoseActualMaxAboveTargetsK { get; set; } = 2.0;
+
     /// <summary>Współczynnik korekty modelu, uczony raz na dobę z bilansu (0,6-1,3).</summary>
     public double FeedCorrectionK { get; set; } = 1.0;
 

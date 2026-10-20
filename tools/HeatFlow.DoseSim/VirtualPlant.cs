@@ -52,6 +52,13 @@ public sealed class VirtualPlant
     public double Flue { get; private set; } = 120;
     public double BlowerActual { get; private set; }
     public double? FlueOverride { get; set; }
+    /// <summary>
+    /// Jaka część nadwyżki ognia ponad to, czego chcą zawory, i tak trafia do domu (0-1): rury, pokoje
+    /// bez zaworu, głowice otwarte za szeroko. 0 = zawory trzymają dom na celu, nadmiar paliwa grzeje
+    /// tylko kocioł (do podtrzymania); 1 = temperatura domu wynika z samej dawki (jak przy ręcznych
+    /// nastawach). Ile to jest u Pawła - nie wiadomo; symulacja sprawdza skrajności.
+    /// </summary>
+    public double UncontrolledShare { get; set; }
     /// <summary>Ile s podajnika dom faktycznie stracił (do porównania z k).</summary>
     public double LossTotal { get; private set; }
 
@@ -71,7 +78,7 @@ public sealed class VirtualPlant
         LossTotal += loss / 1440.0;
         var demand = Math.Max(0, loss + HouseCapacity * (IndoorGoal - Indoor) / RoomResponseDays);
         var available = MixerGain * Math.Max(0, Boiler - MixerFloor);
-        var delivered = Math.Min(demand, available);
+        var delivered = Math.Min(demand + UncontrolledShare * Math.Max(0, Fire - BoilerLossPerDay - demand), available);
 
         Boiler += (Fire - delivered - BoilerLossPerDay) / 1440.0 / WaterCapacity;
         Indoor += (delivered - loss) / 1440.0 / HouseCapacity;

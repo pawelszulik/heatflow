@@ -80,6 +80,13 @@ public class RoomConfiguration
     public double HeatLossW { get; set; }
 
     /// <summary>
+    /// Czy faktyczna temperatura pokoju może podnieść jego wkład do celu domu ponad cel
+    /// (HeatingParameters.DoseTargetUseActual). Wył. = pokój zawsze po celu - np. pomieszczenie ciepłe
+    /// od cudzego ciepła (garaż przy celu 6 °C ma średnio ~16 °C, zawór zamknięty).
+    /// </summary>
+    public bool DoseUseActual { get; set; } = true;
+
+    /// <summary>
     /// Tworzy kopię konfiguracji (snapshot) do porównań np. w audit logu.
     /// Zwraca null, gdy wywołane na null.
     /// </summary>
@@ -100,7 +107,8 @@ public class RoomConfiguration
             SensorTemperatureEntityId = source.SensorTemperatureEntityId,
             ValveEntityId = source.ValveEntityId,
             UseForDoseIndoorMean = source.UseForDoseIndoorMean,
-            HeatLossW = source.HeatLossW
+            HeatLossW = source.HeatLossW,
+            DoseUseActual = source.DoseUseActual
         };
     }
 

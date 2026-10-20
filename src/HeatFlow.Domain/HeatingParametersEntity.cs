@@ -95,6 +95,9 @@ public class HeatingParametersEntity
     public double DoseTargetRiseKPerHour { get; set; } = 0.07;
     public int DoseStorageBonusMaxSec { get; set; } = 2600;
     public bool DoseIndoorMeasureWeighted { get; set; } = false;
+    public bool DoseTargetUseActual { get; set; } = true;
+    public double DoseActualSmoothingHours { get; set; } = 24.0;
+    public double DoseActualMaxAboveTargetsK { get; set; } = 2.0;
     public bool DoseRestoreOnDisable { get; set; } = true;
     public int DoseBoilerColdMinutes { get; set; }
     public int DoseBoilerStaleMinutes { get; set; } = 30;
@@ -199,6 +202,9 @@ public class HeatingParametersEntity
             DoseTargetRiseKPerHour = DoseTargetRiseKPerHour,
             DoseStorageBonusMaxSec = DoseStorageBonusMaxSec,
             DoseIndoorMeasureWeighted = DoseIndoorMeasureWeighted,
+            DoseTargetUseActual = DoseTargetUseActual,
+            DoseActualSmoothingHours = DoseActualSmoothingHours,
+            DoseActualMaxAboveTargetsK = DoseActualMaxAboveTargetsK,
             DoseRestoreOnDisable = DoseRestoreOnDisable,
             DoseBoilerColdMinutes = DoseBoilerColdMinutes,
             DoseBoilerStaleMinutes = DoseBoilerStaleMinutes,
@@ -292,6 +298,9 @@ public class HeatingParametersEntity
         DoseTargetRiseKPerHour = parameters.DoseTargetRiseKPerHour;
         DoseStorageBonusMaxSec = parameters.DoseStorageBonusMaxSec;
         DoseIndoorMeasureWeighted = parameters.DoseIndoorMeasureWeighted;
+        DoseTargetUseActual = parameters.DoseTargetUseActual;
+        DoseActualSmoothingHours = parameters.DoseActualSmoothingHours;
+        DoseActualMaxAboveTargetsK = parameters.DoseActualMaxAboveTargetsK;
         DoseRestoreOnDisable = parameters.DoseRestoreOnDisable;
         DoseBoilerColdMinutes = parameters.DoseBoilerColdMinutes;
         DoseBoilerStaleMinutes = parameters.DoseBoilerStaleMinutes;

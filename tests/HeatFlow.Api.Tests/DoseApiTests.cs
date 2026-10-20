@@ -104,4 +104,85 @@ public class DoseApiTests
         var last = (FeedChangeLog?)ok.Value!.GetType().GetProperty("lastChange")!.GetValue(ok.Value);
         Assert.StartsWith("Postój 160 → 140 s", last!.Message);
     }
+
+    // ---------- przycisk „Ustaw sugerowane” ----------
+
+    private DoseController BuildDoseController() => new(_doseRepoMock.Object, _configMock.Object, _errorLoggerMock.Object)
+    {
+        ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+    };
+
+    private void SetupFreshSuggestion(int minutesAgo = 2, bool automat = false, bool recentRequest = false)
+    {
+        _doseRepoMock.Setup(r => r.GetAutomatSwitchAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DoseAutomatSwitch { Enabled = automat });
+        _doseRepoMock.Setup(r => r.GetStateAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new DoseState
+        {
+            PlannedWork = 9, ShadowWork = 7, PlannedPause = 140, PlannedBlower = 31,
+            ControllerWork = 7, ControllerPause = 160, ControllerBlower = 35,
+            UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-minutesAgo)
+        });
+        _doseRepoMock.Setup(r => r.AnyApplyRequestSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(recentRequest);
+        _doseRepoMock.Setup(r => r.AddApplyRequestAsync(It.IsAny<FeedChangeLog>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FeedChangeLog e, CancellationToken _) => e);
+    }
+
+    [Fact]
+    public async Task ApplySuggestion_FreshSuggestionAutomatOff_AddsRequestWithShadowValues()
+    {
+        SetupFreshSuggestion();
+
+        var result = await BuildDoseController().PostApplySuggestion(default);
+
+        Assert.IsType<AcceptedResult>(result);
+        _doseRepoMock.Verify(r => r.AddApplyRequestAsync(It.Is<FeedChangeLog>(e =>
+            e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.ReasonCode == "RECZNE_USTAW_SUGEROWANE"
+            && e.Message.Contains("7/140 s, dmuchawa 31 %")), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ApplySuggestion_AutomatOn_Returns409_AndAddsNothing()
+    {
+        SetupFreshSuggestion(automat: true);
+
+        var result = await BuildDoseController().PostApplySuggestion(default);
+
+        Assert.IsType<ConflictObjectResult>(result);
+        _doseRepoMock.Verify(r => r.AddApplyRequestAsync(It.IsAny<FeedChangeLog>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ApplySuggestion_StaleSuggestion_Returns409()
+    {
+        SetupFreshSuggestion(minutesAgo: 40);
+
+        var result = await BuildDoseController().PostApplySuggestion(default);
+
+        Assert.IsType<ConflictObjectResult>(result);
+        _doseRepoMock.Verify(r => r.AddApplyRequestAsync(It.IsAny<FeedChangeLog>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ApplySuggestion_NoStateYet_Returns409()
+    {
+        _doseRepoMock.Setup(r => r.GetAutomatSwitchAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new DoseAutomatSwitch());
+        _doseRepoMock.Setup(r => r.GetStateAsync(It.IsAny<CancellationToken>())).ReturnsAsync((DoseState?)null);
+
+        var result = await BuildDoseController().PostApplySuggestion(default);
+
+        Assert.IsType<ConflictObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task ApplySuggestion_UsedWithin10Minutes_Returns429()
+    {
+        SetupFreshSuggestion(recentRequest: true);
+
+        var result = await BuildDoseController().PostApplySuggestion(default);
+
+        var obj = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, obj.StatusCode);
+        _doseRepoMock.Verify(r => r.AddApplyRequestAsync(It.IsAny<FeedChangeLog>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

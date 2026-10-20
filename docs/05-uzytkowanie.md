@@ -208,6 +208,28 @@ Przykład: wieczorem dwa pokoje ostygły o >1°C, temperatura w najbliższych 6h
 
 ---
 
+## Faza 5 „Dawka” - przycisk „Ustaw sugerowane”
+
+Gdy automat dawki jest **wyłączony** (`switch.heatflow_dawka_automat` = off), faza 5 liczy i pokazuje
+sugestię (sensory `sensor.heatflow_dawka_praca / _postoj / _dmuchawa`), ale niczego nie zapisuje do kotła.
+`button.heatflow_dawka_ustaw_sugerowane` pozwala na czas testów zapisać tę sugestię **jednorazowo, ręcznie**:
+
+1. Przycisk woła `POST /api/dose/apply-suggestion`. API sprawdza: automat wyłączony (inaczej 409), sugestia
+   policzona w ciągu 15 min (inaczej 409), co najmniej 10 min od poprzedniego użycia (inaczej 429) - i dopisuje
+   *zlecenie* (wpis `FeedChangeLog`, `Parameter = przycisk`, `Status = ZLECENIE`). Bez nowej tabeli i bez migracji.
+2. `HeatFlow.Console` (jedyny z dostępem do eSterownikMappera) obsługuje zlecenie w najbliższym przebiegu
+   (do 5 min; zlecenie starsze niż 15 min wygasa i nic nie ustawia).
+3. Zapisuje to, co pokazują sensory (cień fazy 5), tym samym kodem co automat: twarde granice (praca 7-10 s,
+   postój 100-320 s, dmuchawa 28-35 %), bezpieczniki (spaliny > 200 °C, brak świeżych danych, tryb lato,
+   tryb ręczny sterownika, błąd konfiguracji, parametry poza granicami), reguły dmuchawy od spalin i bezpiecznika #24,
+   potwierdzenie w mapperze. Bez potwierdzenia - próba przywrócenia wartości sprzed kliknięcia.
+4. Wynik: wpisy `FeedChangeLog` z kodem `RECZNE_USTAW_SUGEROWANE` (`ZAPISANE` / `ZABLOKOWANE` / `NIEPOTWIERDZONE`;
+   po nieudanym zapisie `RECZNE_PRZYWROCENIE`), `sensor.heatflow_dawka_ostatnia_zmiana` i wiadomość na Discord.
+
+Uwagi: przycisk NIE włącza automatu i nie zmienia `Przywracaj nastawy`; przy włączeniu automatu faza zapamięta
+to, co zastała (w tym wartości z przycisku). Zapisuje sugestię w całości (cień może być o kilka kroków 20 s dalej od
+sterownika, jeśli długo nie klikano), a nie pojedynczy krok.
+
 ## Wyłączenie całego systemu z Home Assistant
 
 Integracja HA tworzy switch **„Sterowanie ogrzewaniem"** (`switch.heatflow_sterowanie_ogrzewaniem`) na urządzeniu HeatFlow. Steruje on polem `SystemConfiguration.SystemEnabled` przez `PUT /api/system/enabled`.

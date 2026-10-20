@@ -55,12 +55,20 @@ public static class DoseLog
     public const string Automat = "automat";
     public const string HouseTargetParameter = "cel_domu";
 
+    /// <summary>Przycisk „Ustaw sugerowane” (HA): zlecenie zapisuje API, nastawy zapisuje Console w najbliższym przebiegu.</summary>
+    public const string ButtonParameter = "przycisk";
+    public const string ButtonCode = "RECZNE_USTAW_SUGEROWANE";
+
     public const string StatusWritten = "ZAPISANE";
     public const string StatusUnconfirmed = "NIEPOTWIERDZONE";
     public const string StatusInternal = "WEWNETRZNE";
     public const string StatusBlocked = "ZABLOKOWANE";
     public const string StatusSuggestion = "SUGESTIA";
     public const string StatusWarning = "OSTRZEZENIE";
+    /// <summary>Zlecenie z przycisku czeka na przebieg Console / obsłużone / wygasłe (nie obsłużone w ciągu 15 min).</summary>
+    public const string StatusRequest = "ZLECENIE";
+    public const string StatusRequestDone = "ZLECENIE_OBSL";
+    public const string StatusRequestExpired = "ZLECENIE_WYGASLO";
 
     public static readonly CultureInfo Pl = CultureInfo.GetCultureInfo("pl-PL");
 
@@ -72,6 +80,7 @@ public static class DoseLog
         K => "k",
         Trim => "Trym postoju",
         HouseTargetParameter => "Cel domu",
+        ButtonParameter => "Przycisk",
         _ => "Automat"
     };
 
@@ -140,6 +149,8 @@ public static class DoseLog
             "SPALINY_185" => $"spaliny {Number(c.FlueTemp, "0")} °C ≥ {p.DoseFlueNoRaiseTemp}",
             "PO_AUTOMATYZACJI_24" => $"bezpiecznik spalin #24 zadziałał {Number(c.HoursSinceFlueSafety, "0.#")} h temu ({p.DoseFlueSafetyHoldHours} h bez podnoszenia dmuchawy)",
             "PRZYWROCENIE_NASTAW" => "przywrócenie nastaw zastanych przy włączeniu automatu",
+            "RECZNE_PRZYWROCENIE" => "zapis z przycisku nie potwierdził się w mapperze - przywracam wartości sprzed kliknięcia",
+            ButtonCode => $"ręcznie przyciskiem „Ustaw sugerowane” w HA - to, co automat (przy włączeniu) ustawiłby teraz; {tz}, {need}{trim}",
             _ => ""
         };
 

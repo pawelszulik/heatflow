@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_API_KEY, CONF_API_URL, DATA_COORDINATOR, DOMAIN
 from .coordinator import HeatFlowDataUpdateCoordinator
 
-PLATFORMS = ["sensor", "binary_sensor", "number", "select", "switch"]
+PLATFORMS = ["sensor", "binary_sensor", "number", "select", "switch", "button"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

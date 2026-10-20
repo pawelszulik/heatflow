@@ -31,4 +31,22 @@ public interface IDoseRepository
 
     /// <summary>Ostatnie wpisy dziennika decyzji, od najnowszego.</summary>
     Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken cancellationToken = default);
+
+    // --- Przycisk „Ustaw sugerowane”: zlecenie to wpis dziennika ze statusem ZLECENIE (bez nowej tabeli
+    // i bez migracji). API je dopisuje, Console (jedyny z dostępem do mappera) obsługuje w najbliższym przebiegu.
+
+    /// <summary>Dopisuje zlecenie z przycisku (status ZLECENIE) i zwraca wpis.</summary>
+    Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken cancellationToken = default);
+
+    /// <summary>Czy w podanym oknie (UTC) było już zlecenie z przycisku - w jakimkolwiek statusie (ograniczenie częstości).</summary>
+    Task<bool> AnyApplyRequestSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Najnowsze nieobsłużone zlecenie (status ZLECENIE) nie starsze niż podana chwila (UTC).</summary>
+    Task<FeedChangeLog?> GetPendingApplyRequestAsync(DateTime sinceUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Starsze nieobsłużone zlecenia dostają status ZLECENIE_WYGASLO. Zwraca ich liczbę.</summary>
+    Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Zmienia status i opis zlecenia (np. na ZLECENIE_OBSL po obsłużeniu).</summary>
+    Task SetApplyRequestStatusAsync(FeedChangeLog request, string status, string message, CancellationToken cancellationToken = default);
 }

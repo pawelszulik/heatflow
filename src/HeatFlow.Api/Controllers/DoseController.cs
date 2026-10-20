@@ -27,6 +27,15 @@ public class DoseController : ControllerBase
 
     public record AutomatDto(bool Enabled);
 
+    /// <summary>Ile minut musi minąć między zleceniami z przycisku „Ustaw sugerowane”.</summary>
+    public const int ApplyMinIntervalMinutes = 10;
+
+    /// <summary>Sugestia jest świeża, gdy Faza 5 policzyła ją w ciągu tylu minut.</summary>
+    public const int SuggestionFreshMinutes = 15;
+
+    private static int? SuggestedWork(DoseState state)
+        => state.AutomatActive ? state.PlannedWork : state.ShadowWork ?? state.PlannedWork;
+
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
@@ -41,7 +50,8 @@ public class DoseController : ControllerBase
             automatChangedAtUtc = automat.ChangedAtUtc == default ? (DateTime?)null : automat.ChangedAtUtc,
             automatChangedBy = automat.ChangedBy,
             automatActive = state.AutomatActive,
-            plannedWork = state.PlannedWork,
+            // Przy wyłączonym automacie sugestia = cień (to ustawi przycisk „Ustaw sugerowane”), nie surowy plan modelu.
+            plannedWork = SuggestedWork(state),
             plannedPause = state.PlannedPause,
             plannedBlower = state.PlannedBlower,
             modelPause = state.ModelPause,
@@ -81,6 +91,63 @@ public class DoseController : ControllerBase
     public async Task<ActionResult<List<FeedChangeLog>>> GetLog([FromQuery] int limit = 50, CancellationToken ct = default)
     {
         return Ok(await _repository.GetChangeLogAsync(Math.Clamp(limit, 1, 500), ct));
+    }
+
+    /// <summary>
+    /// Przycisk „Ustaw sugerowane” (HA): zleca jednorazowy zapis sugerowanych nastaw do kotła mimo
+    /// wyłączonego automatu. API tylko dopisuje zlecenie (wpis dziennika ze statusem ZLECENIE) -
+    /// nastawy zapisuje HeatFlow.Console w najbliższym przebiegu (do 5 min), z tymi samymi ścianami
+    /// bezpieczeństwa co automat i z potwierdzeniem w mapperze. Wynik: sensor.heatflow_dawka_ostatnia_zmiana
+    /// i Discord.
+    /// </summary>
+    [HttpPost("apply-suggestion")]
+    public async Task<IActionResult> PostApplySuggestion(CancellationToken ct)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var automat = await _repository.GetAutomatSwitchAsync(ct);
+            if (automat.Enabled)
+                return Conflict(new { error = "Automat dawki jest włączony i steruje sam - przycisk działa tylko przy wyłączonym automacie." });
+
+            var state = await _repository.GetStateAsync(ct);
+            var work = state == null ? null : SuggestedWork(state);
+            if (state == null || work == null || state.PlannedPause == null || state.PlannedBlower == null)
+                return Conflict(new { error = "Brak sugestii - Faza 5 jeszcze nie policzyła dawki." });
+
+            var ageMin = (now - state.UpdatedAtUtc).TotalMinutes;
+            if (ageMin > SuggestionFreshMinutes)
+                return Conflict(new { error = $"Sugestia nieświeża - ostatni przebieg Fazy 5 był {ageMin:0} min temu (limit {SuggestionFreshMinutes} min)." });
+
+            if (await _repository.AnyApplyRequestSinceAsync(now.AddMinutes(-ApplyMinIntervalMinutes), ct))
+                return StatusCode(StatusCodes.Status429TooManyRequests,
+                    new { error = $"Przycisk był już użyty w ciągu ostatnich {ApplyMinIntervalMinutes} min - poczekaj." });
+
+            var source = Request.Headers["X-Source"].FirstOrDefault() ?? "HA";
+            var suggested = $"{work}/{state.PlannedPause} s, dmuchawa {state.PlannedBlower} %";
+            var message = $"Zlecono przyciskiem w HA ({source}): ustaw sugerowane ({suggested}). " +
+                          "Zapis w najbliższym przebiegu HeatFlow.Console (do 5 min), ze ścianami bezpieczeństwa jak przy automacie.";
+            await _repository.AddApplyRequestAsync(new FeedChangeLog
+            {
+                TimestampUtc = now,
+                Parameter = "przycisk",
+                Direction = "bez zmiany",
+                ReasonCode = "RECZNE_USTAW_SUGEROWANE",
+                Status = "ZLECENIE",
+                Message = message,
+                AutomatActive = false,
+                ControllerWork = state.ControllerWork,
+                ControllerPause = state.ControllerPause,
+                ControllerBlower = state.ControllerBlower
+            }, ct);
+
+            return Accepted(new { message, suggested });
+        }
+        catch (Exception ex)
+        {
+            await _errorLogger.LogAsync(ex, null, nameof(DoseController), new { Action = "PostApplySuggestion", Route = "api/dose/apply-suggestion" }, "Error", "Api", ct);
+            return Problem(detail: ex.Message, statusCode: 500);
+        }
     }
 
     [HttpPut("automat")]

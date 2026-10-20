@@ -619,6 +619,171 @@ public class Phase5DoseServiceTests
 
     // --- Helpers ---
 
+    // ---------- przycisk „Ustaw sugerowane” ----------
+
+    private FeedChangeLog AddButtonRequest(int minutesAgo = 1)
+    {
+        var request = new FeedChangeLog
+        {
+            TimestampUtc = Now.AddMinutes(-minutesAgo), Parameter = "przycisk", Direction = "bez zmiany",
+            ReasonCode = "RECZNE_USTAW_SUGEROWANE", Status = "ZLECENIE", Message = "Zlecono przyciskiem w HA"
+        };
+        _repo.Log.Add(request);
+        return request;
+    }
+
+    [Fact]
+    public async Task Button_AutomatOff_WritesSuggestionConfirmedInMapper_AndLogsWhy()
+    {
+        var request = AddButtonRequest();
+
+        var result = await Run();
+
+        Assert.True(result.Success, result.ErrorMessage);
+        // te same wartości, które pokazuje cień w HA: 7/140 s, dmuchawa 31 %
+        Assert.Equal(new ControllerFeedSettings(7, 140, 31), _controller.Settings);
+        Assert.False(_repo.State!.AutomatActive);
+        Assert.False(_repo.Switch.Enabled);
+        Assert.Equal((7, 140, 31), (_repo.State.ShadowWork!.Value, _repo.State.ShadowPause!.Value, _repo.State.ShadowBlower!.Value));
+        Assert.Equal("ZLECENIE_OBSL", request.Status);
+        Assert.Contains("ustawiono", request.Message);
+        var written = _repo.Log.Where(e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZAPISANE").ToList();
+        Assert.Contains(written, e => e.Parameter == "postoj" && e.OldValue == 160 && e.NewValue == 140 && e.Direction == "w dół");
+        Assert.Contains(written, e => e.Parameter == "dmuchawa" && e.OldValue == 35 && e.NewValue == 31);
+        Assert.All(written, e => Assert.Equal("OK", e.MapperConfirmation));
+        Assert.All(written, e => Assert.Contains("przyciskiem „Ustaw sugerowane”", e.Message));
+        Assert.Contains(_messages, m => m.Title.StartsWith("Kocioł: ustawiono sugerowane przyciskiem"));
+        var allowed = new[] { E.FeederWork, E.FeederPause, E.Blower };
+        Assert.All(_controller.Writes, w => Assert.Contains(w.Entity, allowed));
+    }
+
+    [Fact]
+    public async Task Button_IsHandledOnlyOnce()
+    {
+        AddButtonRequest();
+        await Run();
+        var writesAfterFirst = _controller.Writes.Count;
+        var logAfterFirst = _repo.Log.Count;
+
+        await Run();
+
+        Assert.Equal(writesAfterFirst, _controller.Writes.Count);
+        Assert.DoesNotContain(_repo.Log.Skip(logAfterFirst), e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE");
+    }
+
+    [Fact]
+    public async Task Button_ExpiredRequest_IsNotExecuted()
+    {
+        var request = AddButtonRequest(minutesAgo: 20);
+
+        await Run();
+
+        Assert.Empty(_controller.Writes);
+        Assert.Equal("ZLECENIE_WYGASLO", request.Status);
+        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
+    }
+
+    [Fact]
+    public async Task Button_AutomatOn_IsBlocked_AndDoesNotWrite()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = new DoseState
+        {
+            AutomatActive = true, SavedWork = 7, SavedPause = 200, SavedBlower = 35,
+            LastChangeUtc = Now.AddMinutes(-60), LastKCorrectionDate = Now.Date.AddDays(-1)
+        };
+        var request = AddButtonRequest();
+
+        await Run();
+
+        Assert.Empty(_controller.Writes); // automat czeka na odstęp, przycisk nie wolno
+        Assert.Equal("ZLECENIE_OBSL", request.Status);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZABLOKOWANE"
+                                        && e.Message.Contains("automat dawki jest włączony"));
+        Assert.Contains(_messages, m => m.Title.Contains("zablokowano"));
+    }
+
+    [Fact]
+    public async Task Button_FlueTooHot_IsBlocked()
+    {
+        SetEnvironment(outdoor: -5.0, flue: 210);
+        var request = AddButtonRequest();
+
+        await Run();
+
+        Assert.Empty(_controller.Writes);
+        Assert.Equal("ZLECENIE_OBSL", request.Status);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZABLOKOWANE" && e.Message.Contains("spaliny"));
+    }
+
+    [Fact]
+    public async Task Button_SummerMode_IsBlocked()
+    {
+        SetEnvironment(outdoor: -5.0, summer: true);
+        AddButtonRequest();
+
+        await Run();
+
+        Assert.Empty(_controller.Writes);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZABLOKOWANE" && e.Message.Contains("lato"));
+    }
+
+    [Fact]
+    public async Task Button_ControllerInManualMode_IsBlocked()
+    {
+        SetEnvironment(outdoor: -5.0, auto: false);
+        AddButtonRequest();
+
+        await Run();
+
+        Assert.Empty(_controller.Writes);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZABLOKOWANE" && e.Message.Contains("ręcznym"));
+    }
+
+    [Fact]
+    public async Task Button_MapperDown_IsBlocked()
+    {
+        _controller.Down = true;
+        AddButtonRequest();
+
+        await Run();
+
+        Assert.Empty(_controller.Writes);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZABLOKOWANE" && e.Message.Contains("mapper"));
+    }
+
+    [Fact]
+    public async Task Button_WriteNotConfirmed_RestoresValuesFromBeforeTheClick()
+    {
+        _controller.DropWritesTo = E.Blower; // postój przejdzie, dmuchawa „ginie” w sterowniku
+        var request = AddButtonRequest();
+
+        await Run();
+
+        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings); // postój przywrócony
+        Assert.Equal("ZLECENIE_OBSL", request.Status);
+        Assert.Contains("przywrócone", request.Message);
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "NIEPOTWIERDZONE" && e.Parameter == "dmuchawa");
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_PRZYWROCENIE" && e.Status == "ZAPISANE" && e.Parameter == "postoj" && e.NewValue == 160);
+        Assert.Contains(_messages, m => m.Title.Contains("NIEPOTWIERDZONE"));
+        Assert.False(_repo.State!.AutomatActive);
+    }
+
+    [Fact]
+    public async Task Button_NeverWritesOutsideHardLimits()
+    {
+        // sugestia z modelu poza granicami nie istnieje (Decide przycina), ale zapis i tak przechodzi przez writer z twardymi granicami
+        AddButtonRequest();
+        await Run();
+
+        Assert.All(_controller.Writes, w =>
+        {
+            if (w.Entity == E.FeederWork) Assert.InRange(w.Value, 7, 10);
+            if (w.Entity == E.FeederPause) Assert.InRange(w.Value, 100, 320);
+            if (w.Entity == E.Blower) Assert.InRange(w.Value, 28, 35);
+        });
+    }
+
     private Task<PhaseResult> Run(HeatingParameters? p = null)
         => _service.ExecuteAsync(new HeatingState { CurrentTime = Now, SystemConfiguration = SimDefaults.SystemConfiguration() },
             p ?? new HeatingParameters());
@@ -742,5 +907,31 @@ public class Phase5DoseServiceTests
 
         public Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken ct = default)
             => Task.FromResult(Log.AsEnumerable().Reverse().Take(limit).ToList());
+
+        public Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken ct = default)
+        {
+            Log.Add(request);
+            return Task.FromResult(request);
+        }
+
+        public Task<bool> AnyApplyRequestSinceAsync(DateTime sinceUtc, CancellationToken ct = default)
+            => Task.FromResult(Log.Any(e => e.Parameter == "przycisk" && e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.TimestampUtc >= sinceUtc));
+
+        public Task<FeedChangeLog?> GetPendingApplyRequestAsync(DateTime sinceUtc, CancellationToken ct = default)
+            => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc >= sinceUtc));
+
+        public Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken ct = default)
+        {
+            var old = Log.Where(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc < olderThanUtc).ToList();
+            foreach (var e in old) e.Status = "ZLECENIE_WYGASLO";
+            return Task.FromResult(old.Count);
+        }
+
+        public Task SetApplyRequestStatusAsync(FeedChangeLog request, string status, string message, CancellationToken ct = default)
+        {
+            request.Status = status;
+            request.Message = message;
+            return Task.CompletedTask;
+        }
     }
 }

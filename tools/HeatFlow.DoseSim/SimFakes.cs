@@ -181,6 +181,32 @@ public sealed class InMemoryDoseRepository : IDoseRepository
 
     public Task<List<FeedChangeLog>> GetChangeLogAsync(int limit, CancellationToken ct = default)
         => Task.FromResult(Log.AsEnumerable().Reverse().Take(limit).ToList());
+
+    public Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken ct = default)
+    {
+        Log.Add(request);
+        return Task.FromResult(request);
+    }
+
+    public Task<bool> AnyApplyRequestSinceAsync(DateTime sinceUtc, CancellationToken ct = default)
+        => Task.FromResult(Log.Any(e => e.Parameter == "przycisk" && e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.TimestampUtc >= sinceUtc));
+
+    public Task<FeedChangeLog?> GetPendingApplyRequestAsync(DateTime sinceUtc, CancellationToken ct = default)
+        => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc >= sinceUtc));
+
+    public Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken ct = default)
+    {
+        var old = Log.Where(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc < olderThanUtc).ToList();
+        foreach (var e in old) e.Status = "ZLECENIE_WYGASLO";
+        return Task.FromResult(old.Count);
+    }
+
+    public Task SetApplyRequestStatusAsync(FeedChangeLog request, string status, string message, CancellationToken ct = default)
+    {
+        request.Status = status;
+        request.Message = message;
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Parametry w pamięci - korekta k zapisuje tu nowe k.</summary>

@@ -289,6 +289,9 @@ public class Phase5DoseService : IPhaseService
                 ShadowStep(ds, controller, inputs.Sample.FlueTemp, flueSafetyRecent, parameters, now, run);
             }
 
+            // 7. Przycisk „Ustaw sugerowane” (zlecenie z HA): jednorazowy zapis sugerowanych nastaw.
+            await HandleApplyRequestAsync(ds, controller, inputs, samples, flueSafetyRecent, parameters, now, run, cancellationToken);
+
             ds.LastReason = Truncate(string.Join(" | ", notes.Prepend(DescribePlan(ds))), 1000);
             await _repository.AddChangeLogAsync(run.Entries, cancellationToken);
             await _repository.SaveStateAsync(ds, cancellationToken);
@@ -303,6 +306,129 @@ public class Phase5DoseService : IPhaseService
             await _errorLogger.LogAsync(ex, PhaseNumber, nameof(Phase5DoseService), null, "Error", "Console", cancellationToken);
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
+    }
+
+    /// <summary>Zlecenie z przycisku, którego Console nie obsłużył w tym czasie, wygasa (nic nie ustawiono).</summary>
+    private static readonly TimeSpan ApplyRequestTtl = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Przycisk „Ustaw sugerowane” w HA: API dopisuje zlecenie (wpis dziennika ze statusem ZLECENIE), a tu,
+    /// w najbliższym przebiegu, jednorazowo zapisujemy do sterownika to, co automat ustawiłby teraz
+    /// (cień: <c>ds.Shadow*</c> = sugestia widoczna w HA). Tylko przy WYŁĄCZONYM automacie. Te same ściany
+    /// co przy automacie: twarde granice (zapis), bezpieczniki z <see cref="SafetyReason"/>, ograniczenia dmuchawy
+    /// od spalin / #24, potwierdzenie w mapperze. Bez potwierdzenia - próba przywrócenia wartości sprzed kliknięcia.
+    /// Każdy wynik (zapisane / zablokowane / niepotwierdzone) dostaje wpis w dzienniku i wiadomość na Discord.
+    /// </summary>
+    private async Task HandleApplyRequestAsync(DoseState ds, ControllerFeedSettings? controller, DoseInputs inputs,
+        IReadOnlyList<DoseSample> samples, bool flueSafetyRecent, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct)
+    {
+        await _repository.ExpireApplyRequestsAsync(now - ApplyRequestTtl, ct);
+        var request = await _repository.GetPendingApplyRequestAsync(now - ApplyRequestTtl, ct);
+        if (request == null) return;
+
+        var ctx = run.Ctx;
+
+        async Task BlockAsync(string reason)
+        {
+            var text = $"Przycisk „Ustaw sugerowane”: nic nie ustawiono - {reason}.";
+            run.Notes.Add($"przycisk: {reason}");
+            run.Entries.Add(DoseLog.Entry(ctx, DoseLog.ButtonParameter, null, null, DoseLog.ButtonCode, DoseLog.StatusBlocked, text));
+            await _repository.SetApplyRequestStatusAsync(request, DoseLog.StatusRequestDone,
+                $"Zlecenie z przycisku obsłużone: nic nie ustawiono - {reason}.", ct);
+            await _notifier.NotifyAsync("HeatFlow: przycisk „Ustaw sugerowane” - zablokowano", text, ct);
+        }
+
+        if (ds.AutomatActive)
+        {
+            await BlockAsync("automat dawki jest włączony i steruje sam (przycisk działa tylko przy wyłączonym automacie)");
+            return;
+        }
+        if (controller == null)
+        {
+            await BlockAsync("mapper nie odpowiada, nie znam obecnych nastaw kotła");
+            return;
+        }
+        var issue = SafetyReason(inputs, ds, samples, now, p) ?? ParametersReason(p);
+        if (issue != null)
+        {
+            await BlockAsync(issue.Text);
+            return;
+        }
+        if (!ds.ModelPause.HasValue || !ds.PlannedWork.HasValue || ds.ShadowWork == null || ds.ShadowPause == null || ds.ShadowBlower == null)
+        {
+            await BlockAsync("brak sugestii - dawka jeszcze nie policzona");
+            return;
+        }
+
+        var work = ds.ShadowWork.Value;
+        var pause = ds.ShadowPause.Value;
+        var (blower, _, blowerCode) = DoseCalculator.LimitBlower(ds.ShadowBlower.Value, controller.Blower,
+            inputs.Sample.FlueTemp, flueSafetyRecent, p);
+        var suggested = $"{work}/{pause} s, dmuchawa {blower} %";
+
+        if (work == controller.FeederWork && pause == controller.FeederPause && blower == controller.Blower)
+        {
+            var same = $"Przycisk „Ustaw sugerowane”: sugerowane ({suggested}) jest już w sterowniku - nic do ustawienia.";
+            run.Notes.Add("przycisk: sugerowane = obecne");
+            run.Entries.Add(DoseLog.Entry(ctx, DoseLog.ButtonParameter, null, null, DoseLog.ButtonCode, DoseLog.StatusInternal, same));
+            await _repository.SetApplyRequestStatusAsync(request, DoseLog.StatusRequestDone,
+                $"Zlecenie z przycisku obsłużone: sugerowane ({suggested}) już w sterowniku.", ct);
+            await _notifier.NotifyAsync("HeatFlow: przycisk „Ustaw sugerowane”", same, ct);
+            return;
+        }
+
+        var result = await _writer.WriteSettingsAsync(run.Entities, controller, work, pause, blower, ct);
+        if (result.Last != null) SetController(ds, result.Last);
+
+        static string ParameterOf(DoseRegister r) => r switch
+        {
+            DoseRegister.Work => DoseLog.Work,
+            DoseRegister.Pause => DoseLog.Pause,
+            _ => DoseLog.Blower
+        };
+
+        var lines = new List<string>();
+        foreach (var w in result.Writes)
+        {
+            var entry = DoseLog.Change(ctx, ParameterOf(w.Register), w.From, w.To, DoseLog.ButtonCode,
+                w.Confirmation == "OK" ? DoseLog.StatusWritten : DoseLog.StatusUnconfirmed,
+                w.Register == DoseRegister.Blower && blowerCode != null ? DoseLog.Why(blowerCode, ctx) : null,
+                w.Confirmation, w.Seen);
+            run.Entries.Add(entry);
+            lines.Add(entry.Message);
+        }
+
+        if (!result.Confirmed)
+        {
+            run.Notes.Add($"przycisk: zapis niepotwierdzony: {result.Report}");
+            var restore = await _writer.WriteSettingsAsync(run.Entities, result.Last ?? controller,
+                controller.FeederWork, controller.FeederPause, controller.Blower, ct);
+            if (restore.Last != null) SetController(ds, restore.Last);
+            foreach (var w in restore.Writes)
+            {
+                var entry = DoseLog.Change(ctx, ParameterOf(w.Register), w.From, w.To, "RECZNE_PRZYWROCENIE",
+                    w.Confirmation == "OK" ? DoseLog.StatusWritten : DoseLog.StatusUnconfirmed, null, w.Confirmation, w.Seen);
+                run.Entries.Add(entry);
+                lines.Add(entry.Message);
+            }
+
+            var failed = $"zapis nie potwierdził się w mapperze ({result.Report}); " +
+                         (restore.Confirmed ? "wartości sprzed kliknięcia przywrócone." : "przywrócenie TEŻ niepotwierdzone - sprawdź nastawy na panelu kotła!");
+            await _repository.SetApplyRequestStatusAsync(request, DoseLog.StatusRequestDone,
+                $"Zlecenie z przycisku obsłużone: {failed}", ct);
+            await _notifier.NotifyAsync("HeatFlow: przycisk „Ustaw sugerowane” - NIEPOTWIERDZONE", string.Join("\n", lines.Append(failed)), ct);
+            return;
+        }
+
+        ds.ShadowWork = work;
+        ds.ShadowPause = pause;
+        ds.ShadowBlower = blower;
+        var what = $"{controller.FeederWork}/{controller.FeederPause} s, dmuchawa {controller.Blower} % → {suggested}";
+        run.Notes.Add($"przycisk: ustawiono sugerowane {what}");
+        await _repository.SetApplyRequestStatusAsync(request, DoseLog.StatusRequestDone,
+            $"Zlecenie z przycisku obsłużone: ustawiono {what}.", ct);
+        await _notifier.NotifyAsync($"Kocioł: ustawiono sugerowane przyciskiem ({suggested})",
+            string.Join("\n", lines), ct);
     }
 
     /// <summary>Krok 1-4, 6 i szybki trym - wynik do DoseState.</summary>

@@ -109,4 +109,44 @@ public class DoseRepository : IDoseRepository
             .Take(limit)
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken cancellationToken = default)
+    {
+        _context.FeedChangeLogs.Add(request);
+        await _context.SaveChangesAsync(cancellationToken);
+        return request;
+    }
+
+    public async Task<bool> AnyApplyRequestSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken = default)
+    {
+        return await _context.FeedChangeLogs.AsNoTracking()
+            .AnyAsync(e => e.Parameter == "przycisk" && e.ReasonCode == "RECZNE_USTAW_SUGEROWANE"
+                           && e.TimestampUtc >= sinceUtc, cancellationToken);
+    }
+
+    public async Task<FeedChangeLog?> GetPendingApplyRequestAsync(DateTime sinceUtc, CancellationToken cancellationToken = default)
+    {
+        // Tracking: status zmienia ta sama instancja w SetApplyRequestStatusAsync.
+        return await _context.FeedChangeLogs
+            .Where(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc >= sinceUtc)
+            .OrderByDescending(e => e.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default)
+    {
+        return await _context.FeedChangeLogs
+            .Where(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc < olderThanUtc)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(e => e.Status, "ZLECENIE_WYGASLO")
+                .SetProperty(e => e.Message, "Zlecenie z przycisku wygasło: Console go nie obsłużył w ciągu 15 min (nic nie ustawiono)."),
+                cancellationToken);
+    }
+
+    public async Task SetApplyRequestStatusAsync(FeedChangeLog request, string status, string message, CancellationToken cancellationToken = default)
+    {
+        request.Status = status;
+        request.Message = message.Length > 1000 ? message[..999] + "…" : message;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
 }

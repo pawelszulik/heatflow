@@ -260,6 +260,7 @@ public class HeatFlowDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.Property(e => e.SinceUtc).HasColumnType("datetime2");
+            entity.Property(e => e.BoilerSetpointBeforeSummer).HasColumnType("decimal(4,1)");
         });
 
         // Faza 5 „Dawka”

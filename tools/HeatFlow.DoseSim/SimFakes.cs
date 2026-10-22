@@ -37,6 +37,8 @@ public sealed class SimController : IEsterownikMapperClient
     /// <summary>Encje, które sterownik „ma” (zapis do innej = wyjątek).</summary>
     public DoseEntities Entities { get; set; } = SimDefaults.Entities;
 
+    public Task<int?> GetBoilerSetpointAsync(CancellationToken cancellationToken = default) => Task.FromResult<int?>(null);
+
     public Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(Down ? null : Settings);
 

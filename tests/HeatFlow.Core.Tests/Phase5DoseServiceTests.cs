@@ -930,6 +930,8 @@ public class Phase5DoseServiceTests
         public string? DropWritesTo { get; set; }
         public List<(string Entity, int Value)> Writes { get; } = new();
 
+        public Task<int?> GetBoilerSetpointAsync(CancellationToken cancellationToken = default) => Task.FromResult<int?>(null);
+
         public Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(Down ? null : Settings);
 

@@ -823,6 +823,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<int>("ScoreUsageSoonBonus")
                         .HasColumnType("int");
 
+                    b.Property<int>("SummerModeBoilerSetpoint")
+                        .HasColumnType("int");
+
                     b.Property<int>("SummerModeForecastHours")
                         .HasColumnType("int");
 
@@ -1004,6 +1007,9 @@ namespace HeatFlow.Infrastructure.Migrations
                 {
                     b.Property<int>("Id")
                         .HasColumnType("int");
+
+                    b.Property<decimal?>("BoilerSetpointBeforeSummer")
+                        .HasColumnType("decimal(4,1)");
 
                     b.Property<bool>("IsSummer")
                         .HasColumnType("bit");

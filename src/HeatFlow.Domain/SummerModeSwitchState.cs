@@ -14,4 +14,10 @@ public class SummerModeSwitchState
 
     /// <summary>Kiedy (UTC) Faza 4 po raz pierwszy zobaczyła ten stan.</summary>
     public DateTime SinceUtc { get; set; }
+
+    /// <summary>
+    /// Nastawa kotła [°C] sprzed włączenia lata przez Fazę 4; null = nic do przywrócenia.
+    /// Przy powrocie na zimę (naszym albo ręcznym) wraca do kotła i jest czyszczona.
+    /// </summary>
+    public decimal? BoilerSetpointBeforeSummer { get; set; }
 }

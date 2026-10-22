@@ -225,6 +225,7 @@ class Program
         services.AddScoped<IPhaseService, Phase3ValvesService>();
         services.AddScoped<IPhaseService, Phase4SummerModeService>();
         services.AddScoped<ISummerModeRepository, SummerModeRepository>();
+        services.AddScoped<ISummerBoilerSetpoint, SummerBoilerSetpoint>();
         services.AddScoped<IPhaseService, Phase5DoseService>();
         services.AddScoped<IDoseRepository, DoseRepository>();
         services.AddScoped<DoseControllerWriter>();

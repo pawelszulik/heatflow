@@ -936,4 +936,161 @@ public class Phase4SummerModeServiceTests
             .Select(i => BuildRoom($"room{i}", DeficitClassification.Stay))
             .ToList();
     }
+
+    // --- Nastawa kotła: 64 °C w lecie, powrót do poprzedniej na zimie (2026-10-22) ---
+
+    // 2026-10-21 09:02 lokalnie (07:02 UTC) - aktywacja lata z 74 °C na kotle, bez prognozy (fallback: temp. zewn.)
+    private static readonly DateTime SummerNow = new(2026, 10, 21, 7, 2, 0, DateTimeKind.Utc);
+
+    private static SummerModeSwitchState Prev(bool summer) => new() { IsSummer = summer, SinceUtc = SummerNow.AddDays(-1) };
+
+    private Mock<ISummerBoilerSetpoint> SetupBoilerSetpoint(double? current, bool writeOk = true, double? remembered = null)
+    {
+        var sp = new Mock<ISummerBoilerSetpoint>();
+        sp.Setup(x => x.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(current);
+        sp.Setup(x => x.WriteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(writeOk);
+        sp.Setup(x => x.NotifyAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _repoMock.Setup(x => x.GetBoilerSetpointBeforeSummerAsync(It.IsAny<CancellationToken>())).ReturnsAsync(remembered);
+        _repoMock.Setup(x => x.SaveBoilerSetpointBeforeSummerAsync(It.IsAny<double?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return sp;
+    }
+
+    private Phase4SummerModeService ServiceWith(ISummerBoilerSetpoint sp)
+        => new(_haClientMock.Object, _repoMock.Object, _errorLoggerMock.Object,
+            new Mock<ILogger<Phase4SummerModeService>>().Object, new FixedTimeProvider(SummerNow), sp);
+
+    [Fact]
+    public async Task Setpoint_OnActivation_RemembersCurrentAndSetsSummerValue()
+    {
+        var sp = SetupBoilerSetpoint(current: 74);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var state = BuildState(externalTemp: 24.0, rooms: BuildAllStayRooms(3));
+        var result = await ServiceWith(sp.Object).ExecuteAsync(state, TestParameters.Default());
+
+        Assert.Contains("aktywowany", result.Details ?? "");
+        Assert.Contains("74 → 64", result.Details ?? "");
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(74.0, It.IsAny<CancellationToken>()), Times.Once);
+        sp.Verify(x => x.WriteAsync(64, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Setpoint_ParameterOutOfRange_FallsBackTo64()
+    {
+        var sp = SetupBoilerSetpoint(current: 74);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        var p = TestParameters.Default();
+        p.SummerModeBoilerSetpoint = 0;
+        await ServiceWith(sp.Object).ExecuteAsync(BuildState(externalTemp: 24.0, rooms: BuildAllStayRooms(3)), p);
+
+        sp.Verify(x => x.WriteAsync(64, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Setpoint_TurnOnFails_DoesNotTouchSetpoint()
+    {
+        var sp = SetupBoilerSetpoint(current: 74);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+        _haClientMock
+            .Setup(x => x.CallServiceAsync("switch", "turn_on", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await ServiceWith(sp.Object).ExecuteAsync(BuildState(externalTemp: 24.0, rooms: BuildAllStayRooms(3)), TestParameters.Default());
+
+        sp.Verify(x => x.WriteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(It.IsAny<double?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Setpoint_UnreadableBeforeActivation_StillSetsSummerValueAndSaysSo()
+    {
+        var sp = SetupBoilerSetpoint(current: null);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+        SetupTurnOnSucceeds();
+
+        await ServiceWith(sp.Object).ExecuteAsync(BuildState(externalTemp: 24.0, rooms: BuildAllStayRooms(3)), TestParameters.Default());
+
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(It.IsAny<double?>(), It.IsAny<CancellationToken>()), Times.Never);
+        sp.Verify(x => x.WriteAsync(64, It.IsAny<CancellationToken>()), Times.Once);
+        sp.Verify(x => x.NotifyAsync(It.IsAny<string>(), It.Is<string>(m => m.Contains("ręcznie")), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Setpoint_OnOwnDeactivation_RestoresRememberedValueAndClearsIt()
+    {
+        var sp = SetupBoilerSetpoint(current: 64, remembered: 74);
+        SetupSwitchState(isSummerActive: true, Prev(true));
+        SetupNoLogToday();
+        SetupTurnOffSucceeds();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildTwoColdRooms());
+        var result = await ServiceWith(sp.Object).ExecuteAsync(state, TestParameters.Default());
+
+        Assert.Contains("dezaktywowany", result.Details ?? "");
+        Assert.Contains("64 → 74", result.Details ?? "");
+        sp.Verify(x => x.WriteAsync(74, It.IsAny<CancellationToken>()), Times.Once);
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Setpoint_ManualReturnToWinter_StillRestoresRememberedValue()
+    {
+        // 2026-10-21 17:49: Paweł sam przełączył na zimę, nastawa została 74 → 64 musi wrócić do zapamiętanej.
+        var sp = SetupBoilerSetpoint(current: 64, remembered: 74);
+        SetupSwitchState(isSummerActive: false, new SummerModeSwitchState { IsSummer = true, SinceUtc = SummerNow.AddHours(-9) });
+        SetupNoLogToday();
+
+        var state = BuildState(externalTemp: 8.0, rooms: BuildAllStayRooms(3));
+        await ServiceWith(sp.Object).ExecuteAsync(state, TestParameters.Default());
+
+        sp.Verify(x => x.WriteAsync(74, It.IsAny<CancellationToken>()), Times.Once);
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Setpoint_Winter_NothingRemembered_DoesNotWrite()
+    {
+        var sp = SetupBoilerSetpoint(current: 70, remembered: null);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+
+        await ServiceWith(sp.Object).ExecuteAsync(BuildState(externalTemp: 8.0, rooms: BuildAllStayRooms(3)), TestParameters.Default());
+
+        sp.Verify(x => x.WriteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Setpoint_RestoreNotConfirmed_ClearsMemoryAndWarnsWithValue()
+    {
+        var sp = SetupBoilerSetpoint(current: 64, writeOk: false, remembered: 74);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+
+        await ServiceWith(sp.Object).ExecuteAsync(BuildState(externalTemp: 8.0, rooms: BuildAllStayRooms(3)), TestParameters.Default());
+
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(null, It.IsAny<CancellationToken>()), Times.Once);
+        sp.Verify(x => x.NotifyAsync(It.IsAny<string>(), It.Is<string>(m => m.Contains("NIEPOTWIERDZONA") && m.Contains("74")), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Setpoint_RestoreWhenAlreadyEqual_SkipsWrite()
+    {
+        var sp = SetupBoilerSetpoint(current: 74, remembered: 74);
+        SetupSwitchState(isSummerActive: false, Prev(false));
+        SetupNoLogToday();
+
+        await ServiceWith(sp.Object).ExecuteAsync(BuildState(externalTemp: 8.0, rooms: BuildAllStayRooms(3)), TestParameters.Default());
+
+        sp.Verify(x => x.WriteAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repoMock.Verify(x => x.SaveBoilerSetpointBeforeSummerAsync(null, It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

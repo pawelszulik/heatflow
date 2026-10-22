@@ -60,6 +60,7 @@ PARAM_FIELDS = [
     ("minDwellMinutes", 0, 120, 1),
     ("summerModeWarmDayTemp", 0, 40, 0.5),
     ("summerModeForecastHours", 1, 48, 1),
+    ("summerModeBoilerSetpoint", 50, 75, 1),
     # Faza 5 „Dawka” - zakresy = twarde granice Pawła (DoseLimits w API, które i tak odrzuci resztę).
     ("feederWorkMin", 7, 10, 1),
     ("feederWorkMax", 7, 10, 1),
@@ -125,6 +126,7 @@ PARAM_DISPLAY_NAMES = {
     "minDwellMinutes": "Min. czas trzymania zaworu (min)",
     "summerModeWarmDayTemp": "Tryb lato - próg ciepłego dnia (°C)",
     "summerModeForecastHours": "Tryb lato - okno prognozy ciepłego dnia (h)",
+    "summerModeBoilerSetpoint": "Tryb lato - nastawa kotła (°C)",
     "feederWorkMin": "Dawka - praca podajnika min (s)",
     "feederWorkMax": "Dawka - praca podajnika max (s)",
     "feederPauseMin": "Dawka - postój podajnika min (s)",

@@ -29,4 +29,10 @@ public interface ISummerModeRepository
     /// stan jest taki sam jak poprzednio zapisany.
     /// </summary>
     Task SaveSwitchStateAsync(SummerModeSwitchState state, CancellationToken cancellationToken = default);
+
+    /// <summary>Nastawa kotła zapamiętana przed latem; null = brak.</summary>
+    Task<double?> GetBoilerSetpointBeforeSummerAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Zapamiętuje (albo czyści, gdy null) nastawę kotła sprzed lata. Nie rusza reszty stanu.</summary>
+    Task SaveBoilerSetpointBeforeSummerAsync(double? value, CancellationToken cancellationToken = default);
 }

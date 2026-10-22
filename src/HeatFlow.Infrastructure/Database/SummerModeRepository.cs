@@ -48,6 +48,27 @@ public class SummerModeRepository : ISummerModeRepository
         return await _context.SummerModeSwitchStates.FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<double?> GetBoilerSetpointBeforeSummerAsync(CancellationToken cancellationToken = default)
+    {
+        var row = await _context.SummerModeSwitchStates.FirstOrDefaultAsync(cancellationToken);
+        return row?.BoilerSetpointBeforeSummer is { } v ? (double)v : null;
+    }
+
+    public async Task SaveBoilerSetpointBeforeSummerAsync(double? value, CancellationToken cancellationToken = default)
+    {
+        var row = await _context.SummerModeSwitchStates.FirstOrDefaultAsync(cancellationToken);
+        if (row == null)
+        {
+            if (value == null) return;
+            // Faza 4 zapisuje stan przełącznika przed aktywacją; wiersz zawsze już jest.
+            row = new SummerModeSwitchState { Id = 1, SinceUtc = DateTime.UtcNow };
+            _context.SummerModeSwitchStates.Add(row);
+        }
+
+        row.BoilerSetpointBeforeSummer = value.HasValue ? (decimal)value.Value : null;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task SaveSwitchStateAsync(SummerModeSwitchState state, CancellationToken cancellationToken = default)
     {
         var existing = await _context.SummerModeSwitchStates.FirstOrDefaultAsync(cancellationToken);

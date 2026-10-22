@@ -69,6 +69,14 @@ public class HeatingParameters
     /// </summary>
     public int SummerModeForecastHours { get; set; } = 6;
 
+    /// <summary>
+    /// Nastawa kotła [°C] ustawiana przez Fazę 4 przy włączeniu trybu lato (decyzja Pawła 2026-10-22).
+    /// W lecie obieg domu stoi, a kocioł na paliwo stałe przy nastawie zimowej (74 °C) dobijał do
+    /// ponad 80 °C. Przy powrocie na zimę wraca nastawa zapamiętana sprzed lata. Spoza 50-75
+    /// (np. 0 z niepełnego PUT) Faza 4 bierze 64.
+    /// </summary>
+    public int SummerModeBoilerSetpoint { get; set; } = 64;
+
     // Parametry Fazy 5 „Dawka” (analiza-kociol-nastawy.md § 9). Inicjalizatory = wartości
     // domyślne z analizy - z tego samego powodu co przy SummerModeWarmDayTemp: zero z niepełnego
     // PUT albo new HeatingParameters() dawałoby nastawy poza granicami Pawła. Twarde granice

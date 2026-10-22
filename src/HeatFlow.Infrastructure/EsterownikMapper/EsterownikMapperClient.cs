@@ -21,6 +21,9 @@ public interface IEsterownikMapperClient
 {
     /// <summary>Null, gdy mapper nie odpowiedział albo nie zdołał odczytać kotła (jego 404).</summary>
     Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Nastawa kotła [°C] ze sterownika (desiredKettledrumTemperature); null, gdy mapper nie odpowiedział.</summary>
+    Task<int?> GetBoilerSetpointAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -40,7 +43,19 @@ public class EsterownikMapperClient : IEsterownikMapperClient
         _logger = logger;
     }
 
+    public async Task<int?> GetBoilerSetpointAsync(CancellationToken cancellationToken = default)
+    {
+        var root = await GetAllValuesAsync(cancellationToken);
+        return root == null ? null : ReadInt(root.Value, "desiredKettledrumTemperature");
+    }
+
     public async Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        var root = await GetAllValuesAsync(cancellationToken);
+        return root == null ? null : Parse(root.Value);
+    }
+
+    private async Task<JsonElement?> GetAllValuesAsync(CancellationToken cancellationToken)
     {
         if (_httpClient.BaseAddress == null)
         {
@@ -60,8 +75,8 @@ public class EsterownikMapperClient : IEsterownikMapperClient
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            return Parse(doc.RootElement);
+            var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            return doc.RootElement;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

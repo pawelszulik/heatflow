@@ -54,6 +54,7 @@ public class HeatingParametersEntity
     public int MinDwellMinutes { get; set; }
     public double SummerModeWarmDayTemp { get; set; }
     public int SummerModeForecastHours { get; set; } = 6;
+    public int SummerModeBoilerSetpoint { get; set; } = 64;
 
     // Parametry Fazy 5 „Dawka” (wartości domyślne jak w HeatingParameters)
     public int FeederWorkMin { get; set; } = 7;
@@ -164,6 +165,7 @@ public class HeatingParametersEntity
             MinDwellMinutes = MinDwellMinutes,
             SummerModeWarmDayTemp = SummerModeWarmDayTemp,
             SummerModeForecastHours = SummerModeForecastHours,
+            SummerModeBoilerSetpoint = SummerModeBoilerSetpoint,
             FeederWorkMin = FeederWorkMin,
             FeederWorkMax = FeederWorkMax,
             FeederPauseMin = FeederPauseMin,
@@ -261,6 +263,7 @@ public class HeatingParametersEntity
         MinDwellMinutes = parameters.MinDwellMinutes;
         SummerModeWarmDayTemp = parameters.SummerModeWarmDayTemp;
         SummerModeForecastHours = parameters.SummerModeForecastHours;
+        SummerModeBoilerSetpoint = parameters.SummerModeBoilerSetpoint;
         FeederWorkMin = parameters.FeederWorkMin;
         FeederWorkMax = parameters.FeederWorkMax;
         FeederPauseMin = parameters.FeederPauseMin;

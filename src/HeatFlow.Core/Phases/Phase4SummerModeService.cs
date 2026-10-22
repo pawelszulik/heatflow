@@ -17,6 +17,9 @@ namespace HeatFlow.Core.Phases;
 /// temperaturę zewnętrzną.
 /// Aktywacja i dezaktywacja możliwa maksymalnie raz dziennie.
 /// Dezaktywacja możliwa nie wcześniej niż 3h po aktywacji tego samego dnia.
+/// Nastawa kotła (2026-10-22, decyzja Pawła): przy włączeniu lata przez Fazę 4 zapamiętuje obecną
+/// nastawę i ustawia SummerModeBoilerSetpoint (64 °C); na zimie, także po ręcznym przełączeniu,
+/// przywraca zapamiętaną. 2026-10-21 lato przy 74 °C dobiło kocioł do 82 °C.
 /// Przez 3h od ostatniej zmiany stanu przełącznika, wykrytej przez samą Fazę 4 (nie z
 /// last_changed HA - ten resetuje się też przy krótkim zaniku integracji kotła, bez
 /// realnej zmiany stanu), nie wykonuje ani aktywacji, ani dezaktywacji.
@@ -38,6 +41,7 @@ public class Phase4SummerModeService : IPhaseService
     private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase4SummerModeService> _logger;
     private readonly TimeProvider _time;
+    private readonly ISummerBoilerSetpoint? _boilerSetpoint;
 
     public int PhaseNumber => 4;
 
@@ -46,8 +50,11 @@ public class Phase4SummerModeService : IPhaseService
         ISummerModeRepository summerModeRepository,
         IApplicationErrorLogger errorLogger,
         ILogger<Phase4SummerModeService> logger,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ISummerBoilerSetpoint? boilerSetpoint = null)
     {
+        // Bez niego (stare testy) Faza 4 przełącza tryb jak dawniej i nie dotyka nastawy kotła.
+        _boilerSetpoint = boilerSetpoint;
         _haClient = haClient;
         _summerModeRepository = summerModeRepository;
         _errorLogger = errorLogger;
@@ -82,6 +89,13 @@ public class Phase4SummerModeService : IPhaseService
             _logger.LogInformation("Faza 4: Aktualny stan trybu lato: {State} (last_changed HA: {LastChanged})",
                 isSummerModeActive.Value ? "aktywny (lato)" : "nieaktywny (zima)",
                 entityState.LastChanged == default ? "brak" : entityState.LastChanged.ToString("s"));
+
+            // 1b. Powrót na zimę (nasz albo ręczny): nastawa kotła wraca do tej sprzed lata. Przed
+            // karencją, bo ta dotyczy tylko przełączania trybu, a nie przywracania nastawy.
+            if (!isSummerModeActive.Value)
+            {
+                await RestoreBoilerSetpointAsync(cancellationToken);
+            }
 
             // 2. Karencja po zmianie przełącznika - liczona z własnej pamięci Fazy 4, nie
             // z last_changed HA (ten resetuje się też przy krótkim zaniku integracji kotła).
@@ -125,8 +139,9 @@ public class Phase4SummerModeService : IPhaseService
                         todayLog.ActivatedAt = NowLocal;
                         await _summerModeRepository.SaveLogAsync(todayLog, cancellationToken);
                         _logger.LogInformation("Faza 4: Tryb lato aktywowany o {Time}", todayLog.ActivatedAt);
+                        var setpointNote = await ApplySummerBoilerSetpointAsync(parameters, cancellationToken);
                         var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-                        return PhaseResult.SuccessResult(PhaseNumber, duration, "Tryb lato aktywowany");
+                        return PhaseResult.SuccessResult(PhaseNumber, duration, "Tryb lato aktywowany" + setpointNote);
                     }
 
                     _logger.LogWarning("Faza 4: Wywołanie turn_on dla trybu lato nie powiodło się");
@@ -157,8 +172,9 @@ public class Phase4SummerModeService : IPhaseService
                         todayLog.DeactivatedAt = NowLocal;
                         await _summerModeRepository.SaveLogAsync(todayLog, cancellationToken);
                         _logger.LogInformation("Faza 4: Tryb lato dezaktywowany o {Time}", todayLog.DeactivatedAt);
+                        var setpointNote = await RestoreBoilerSetpointAsync(cancellationToken);
                         var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-                        return PhaseResult.SuccessResult(PhaseNumber, duration, "Tryb lato dezaktywowany");
+                        return PhaseResult.SuccessResult(PhaseNumber, duration, "Tryb lato dezaktywowany" + setpointNote);
                     }
 
                     _logger.LogWarning("Faza 4: Wywołanie turn_off dla trybu lato nie powiodło się");
@@ -183,6 +199,84 @@ public class Phase4SummerModeService : IPhaseService
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
     }
+
+    /// <summary>
+    /// Po włączeniu lata przez Fazę 4: zapamiętuje obecną nastawę kotła i ustawia letnią
+    /// (SummerModeBoilerSetpoint, 64 °C). W lecie obieg stoi, a przy nastawie zimowej 74 °C kocioł
+    /// dobijał do 82 °C (2026-10-21). Zwraca dopisek do opisu wyniku fazy.
+    /// </summary>
+    private async Task<string> ApplySummerBoilerSetpointAsync(HeatingParameters parameters, CancellationToken ct)
+    {
+        if (_boilerSetpoint == null) return string.Empty;
+
+        try
+        {
+            var target = SummerSetpoint(parameters);
+            var before = await _boilerSetpoint.ReadAsync(ct);
+            if (before.HasValue && Math.Round(before.Value) != target)
+            {
+                await _summerModeRepository.SaveBoilerSetpointBeforeSummerAsync(before.Value, ct);
+            }
+
+            var ok = await _boilerSetpoint.WriteAsync(target, ct);
+            var from = before.HasValue ? $"{before.Value:0.#}" : "?";
+            var text = ok
+                ? $"Lato: nastawa kotła {from} → {target} °C (potwierdzone w sterowniku)."
+                : $"Lato: nastawa kotła {from} → {target} °C NIEPOTWIERDZONA - sprawdź na panelu kotła.";
+            if (!before.HasValue)
+            {
+                text += " Nie udało się odczytać poprzedniej nastawy - po powrocie na zimę ustaw ją ręcznie.";
+            }
+
+            _logger.LogInformation("Faza 4: {Text}", text);
+            await _boilerSetpoint.NotifyAsync("HeatFlow: tryb lato", text, ct);
+            return $"; nastawa kotła {from} → {target}" + (ok ? string.Empty : " (niepotwierdzona)");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Faza 4: nie udało się ustawić letniej nastawy kotła");
+            return "; błąd ustawiania nastawy kotła";
+        }
+    }
+
+    /// <summary>
+    /// Na zimie: jeśli Faza 4 zapamiętała nastawę sprzed lata, wraca ona do kotła (też gdy powrót na
+    /// zimę zrobił Paweł ręcznie - 2026-10-21 został wtedy 74 i nikt tego nie cofnął). Pamięć jest
+    /// czyszczona zawsze, także po nieudanym zapisie: powiadomienie podaje wtedy wartość do ręcznego
+    /// ustawienia, zamiast ponawiać co 5 minut. Zwraca dopisek do opisu wyniku fazy.
+    /// </summary>
+    private async Task<string> RestoreBoilerSetpointAsync(CancellationToken ct)
+    {
+        if (_boilerSetpoint == null) return string.Empty;
+
+        try
+        {
+            var remembered = await _summerModeRepository.GetBoilerSetpointBeforeSummerAsync(ct);
+            if (remembered == null) return string.Empty;
+
+            var target = (int)Math.Round(remembered.Value);
+            var current = await _boilerSetpoint.ReadAsync(ct);
+            var ok = current.HasValue && Math.Round(current.Value) == target || await _boilerSetpoint.WriteAsync(target, ct);
+            await _summerModeRepository.SaveBoilerSetpointBeforeSummerAsync(null, ct);
+
+            var from = current.HasValue ? $"{current.Value:0.#}" : "?";
+            var text = ok
+                ? $"Zima: nastawa kotła wróciła {from} → {target} °C (potwierdzone w sterowniku)."
+                : $"Zima: nastawa kotła {from} → {target} °C NIEPOTWIERDZONA - ustaw {target} °C na panelu kotła.";
+            _logger.LogInformation("Faza 4: {Text}", text);
+            await _boilerSetpoint.NotifyAsync("HeatFlow: powrót na zimę", text, ct);
+            return $"; nastawa kotła {from} → {target}" + (ok ? string.Empty : " (niepotwierdzona)");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Faza 4: nie udało się przywrócić nastawy kotła");
+            return "; błąd przywracania nastawy kotła";
+        }
+    }
+
+    /// <summary>SummerModeBoilerSetpoint; spoza 50-75 (np. 0 z niepełnego PUT) - 64.</summary>
+    private static int SummerSetpoint(HeatingParameters parameters)
+        => parameters.SummerModeBoilerSetpoint is >= 50 and <= 75 ? parameters.SummerModeBoilerSetpoint : 64;
 
     /// <summary>
     /// Karencja po zmianie stanu przełącznika (ręcznej lub automatycznej): przez 3h od chwili,

@@ -386,6 +386,9 @@ public static class DoseCalculator
         return (Math.Clamp(result, DoseLimits.BlowerMin, DoseLimits.BlowerMax), note, code);
     }
 
+    /// <summary>Udział fizycznego maksimum podajnika na dobę, od którego doba uchodzi za „sufit”.</summary>
+    private const double CeilingFeedShare = 0.9;
+
     /// <summary>
     /// Korekta k raz na dobę (§ 9): netto = podajnik − HouseCapacity · ΔT_wewn (dziś − wczoraj),
     /// k ← k + clamp(FeedKGain (0,3) · (netto / model(ΔT faktyczne) − k), ±FeedKMaxStep (0,05)),
@@ -396,8 +399,13 @@ public static class DoseCalculator
     {
         if (!day.Valid)
             return (null, $"doba pominięta: {day.InvalidReason}");
-        if (day.HeatingHours >= p.DoseCeilingDayHeatingHours)
-            return (null, $"doba pominięta: grzanie {day.HeatingHours:F1} h ≥ {p.DoseCeilingDayHeatingHours} h (sufit)");
+        // Sufit = kocioł grzał prawie bez przerwy ORAZ podajnik dał niemal tyle, ile fizycznie może (maks. praca /
+        // min. postój). Same godziny grzania nie dowodzą sufitu: przy trafionej dawce kocioł też grzeje całą dobę
+        // (22.10: 23,2 h przy 2261 s z możliwych 7855 s) i k wtedy nigdy by się nie uczyło.
+        var (_, workMax, pauseMin, _) = Bounds(p);
+        var maxFeedSec = 86400.0 * workMax / (workMax + pauseMin);
+        if (day.HeatingHours >= p.DoseCeilingDayHeatingHours && day.FeedSec!.Value >= CeilingFeedShare * maxFeedSec)
+            return (null, $"doba pominięta: grzanie {day.HeatingHours:F1} h ≥ {p.DoseCeilingDayHeatingHours} h i podajnik {day.FeedSec:F0} s ≥ {CeilingFeedShare:P0} możliwych {maxFeedSec:F0} s (sufit)");
 
         var model = p.FeedPerKelvin * (day.IndoorMean!.Value - day.OutdoorMean!.Value) + p.FeedOffset;
         if (model <= 0)

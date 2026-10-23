@@ -418,14 +418,21 @@ public class Phase5DoseService : IPhaseService
             return;
         }
 
-        var work = ds.ShadowWork.Value;
-        var pause = ds.ShadowPause.Value;
-        var (blower, _, blowerCode) = DoseCalculator.LimitBlower(ds.ShadowBlower.Value, controller.Blower,
+        // Krok liczony od tego, co JEST w sterowniku (limit FeedMaxStepSec jak przy automacie), nie od cienia,
+        // który po kilku sugestiach bez zapisu odjeżdża od sterownika (21.10: 160 → 260 s jednym kliknięciem).
+        var plan = new DosePlan(ds.PlannedWork.Value, ds.ModelPause.Value, ds.Ceiling, ds.ShortfallPct);
+        var step = DoseCalculator.Decide(controller.FeederWork, controller.FeederPause, plan, null, now, p);
+        var work = step.Change ? step.Work : controller.FeederWork;
+        var pause = step.Change ? step.Pause : controller.FeederPause;
+        var (blower, _, blowerCode) = DoseCalculator.LimitBlower(DoseCalculator.BlowerFor(work, pause, p), controller.Blower,
             inputs.Sample.FlueTemp, flueSafetyRecent, p);
         var suggested = $"{work}/{pause} s, dmuchawa {blower} %";
 
         if (work == controller.FeederWork && pause == controller.FeederPause && blower == controller.Blower)
         {
+            ds.ShadowWork = work;
+            ds.ShadowPause = pause;
+            ds.ShadowBlower = blower;
             var same = $"Przycisk „Ustaw sugerowane”: sugerowane ({suggested}) jest już w sterowniku - nic do ustawienia.";
             run.Notes.Add("przycisk: sugerowane = obecne");
             run.Entries.Add(DoseLog.Entry(ctx, DoseLog.ButtonParameter, null, null, DoseLog.ButtonCode, DoseLog.StatusInternal, same));
@@ -978,13 +985,22 @@ public class Phase5DoseService : IPhaseService
         }
 
         ds.LastKCorrectionDate = yesterday;
-        if (ds.TrimSec != 0)
+        // Trym zerujemy tylko wtedy, gdy k tej doby się uczyło i przejmuje stałą część różnicy. Doba pominięta
+        // (lato, dziury, sufit) k nie rusza, więc trym zostaje - inaczej sugestie skaczą o północy (23.10: 210 → 150 s w 4 h).
+        if (newK.HasValue)
         {
-            run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Trim, ds.TrimSec, 0, "KOREKTA_K", DoseLog.StatusInternal,
-                extra: "trym zerowany o północy - stałą część różnicy przejmuje k"));
+            if (ds.TrimSec != 0)
+            {
+                run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Trim, ds.TrimSec, 0, "KOREKTA_K", DoseLog.StatusInternal,
+                    extra: "trym zerowany o północy - stałą część różnicy przejmuje k"));
+            }
+            ds.TrimSec = 0;
+            run.Notes.Add($"korekta k za {dayText}: {reason}; trym wyzerowany");
         }
-        ds.TrimSec = 0;
-        run.Notes.Add($"korekta k za {dayText}: {reason}; trym wyzerowany");
+        else
+        {
+            run.Notes.Add($"korekta k za {dayText}: {reason}; trym zostaje ({ds.TrimSec:+0;-0} s)");
+        }
     }
 
     private async Task<DoseInputs> ReadInputsAsync(DoseEntities e, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,

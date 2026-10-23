@@ -349,6 +349,29 @@ public class Phase5DoseServiceTests
     }
 
     [Fact]
+    public async Task MidnightKCorrection_SkippedDay_KeepsTrim()
+    {
+        // Wczoraj tryb lato → doba pominięta, k się nie uczy, więc trym nie może zniknąć.
+        _repo.State = new DoseState { LastKCorrectionDate = Now.Date.AddDays(-2), TrimSec = 40 };
+        _repo.Samples.Clear();
+        var counter = 0;
+        for (var t = Now.Date.AddDays(-2); t < Now; t = t.AddMinutes(5))
+        {
+            counter += 14;
+            _repo.Samples.Add(new DoseSample
+            {
+                TimestampUtc = t, OutdoorTemp = 0, IndoorTemp = 24, BoilerTemp = 66, BoilerSetpoint = 67,
+                BlowerActual = 35, FeederCounterSec = counter, SummerMode = true
+            });
+        }
+
+        var result = await Run();
+
+        Assert.Equal(40, _repo.State!.TrimSec);
+        Assert.Contains("trym zostaje", result.Details);
+    }
+
+    [Fact]
     public async Task BoilerUnderpoweredFor2h_TrimsPauseDown20s()
     {
         foreach (var s in _repo.Samples) { s.BoilerTemp = 60; s.BlowerActual = 35; }
@@ -719,6 +742,23 @@ public class Phase5DoseServiceTests
         Assert.Contains(_messages, m => m.Title.StartsWith("Kocioł: ustawiono sugerowane przyciskiem"));
         var allowed = new[] { E.FeederWork, E.FeederPause, E.Blower };
         Assert.All(_controller.Writes, w => Assert.Contains(w.Entity, allowed));
+    }
+
+    [Fact]
+    public async Task Button_ShadowFarAheadOfController_StepIsLimitedFromController()
+    {
+        // Cień odjechał od sterownika (7/160 → 7/100 po kilku sugestiach bez zapisu); przycisk ma pójść krokiem ≤ 20 s od sterownika.
+        AddButtonRequest();
+        _repo.State = new DoseState
+        {
+            LastKCorrectionDate = Now.Date.AddDays(-1), ShadowWork = 7, ShadowPause = 100, ShadowBlower = 35,
+            ShadowLastChangeUtc = Now.AddHours(-3)
+        };
+
+        var result = await Run();
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.InRange(_controller.Settings.FeederPause, 140, 180);
     }
 
     [Fact]

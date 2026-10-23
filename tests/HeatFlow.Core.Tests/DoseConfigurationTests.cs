@@ -175,7 +175,7 @@ public class DoseConfigurationTests
     [Fact]
     public void Thresholds_CeilingDayAndUnderpowerKFromParameters()
     {
-        var day = new DailyBalance(-5.0, 24.0, 6000, 21, true, null);
+        var day = new DailyBalance(-5.0, 24.0, 7200, 21, true, null); // podajnik ≥ 90 % możliwych 7855 s
         Assert.Null(DoseCalculator.CorrectK(1.0, day, null, new HeatingParameters { DoseCeilingDayHeatingHours = 20 }).K);
         Assert.NotNull(DoseCalculator.CorrectK(1.0, day, null, new HeatingParameters()).K);
 

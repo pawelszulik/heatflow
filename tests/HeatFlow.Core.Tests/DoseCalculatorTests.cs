@@ -277,6 +277,17 @@ public class DoseCalculatorTests
     }
 
     [Fact]
+    public void CorrectK_FullHeatingDayFarBelowMaxFeed_StillLearns()
+    {
+        // Doba 22.10.2026: grzanie 23,2 h (kocioł pali ciągle przy trafionej dawce), podajnik 2261 s z możliwych 7855 s,
+        // Tz 8,5 °C, w domu 25,9 °C → 0,65 × model 3503 s. To nie sufit - k ma schodzić.
+        var day = new DailyBalance(8.5, 25.9, 2261, 23.2, true, null);
+        var (k, reason) = DoseCalculator.CorrectK(1.0, day, null, P());
+        Assert.Equal(0.95, k!.Value, 3);
+        Assert.DoesNotContain("sufit", reason);
+    }
+
+    [Fact]
     public void CorrectK_StaysWithin06And13()
     {
         var low = DoseCalculator.CorrectK(0.62, new DailyBalance(5, 24, 500, 10, true, null), null, P());

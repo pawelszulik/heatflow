@@ -220,7 +220,7 @@ sugestię (sensory `sensor.heatflow_dawka_praca / _postoj / _dmuchawa`), ale nic
 2. `HeatFlow.Console` (jedyny z dostępem do eSterownikMappera) obsługuje zlecenie w najbliższym przebiegu
    (do 5 min; zlecenie starsze niż 15 min wygasa i nic nie ustawia).
 3. Zapisuje to, co pokazują sensory (cień fazy 5), tym samym kodem co automat: twarde granice (praca 7-10 s,
-   postój 100-320 s, dmuchawa 28-35 %), bezpieczniki (spaliny > 200 °C, brak świeżych danych, tryb lato,
+   postój 100-320 s, dmuchawa 33-40 %), bezpieczniki (spaliny > 200 °C, brak świeżych danych, tryb lato,
    tryb ręczny sterownika, błąd konfiguracji, parametry poza granicami), reguły dmuchawy od spalin i bezpiecznika #24,
    potwierdzenie w mapperze. Bez potwierdzenia - próba przywrócenia wartości sprzed kliknięcia.
 4. Wynik: wpisy `FeedChangeLog` z kodem `RECZNE_USTAW_SUGEROWANE` (`ZAPISANE` / `ZABLOKOWANE` / `NIEPOTWIERDZONE`;

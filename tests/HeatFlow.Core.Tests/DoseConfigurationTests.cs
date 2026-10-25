@@ -158,9 +158,9 @@ public class DoseConfigurationTests
     public void Thresholds_FlueLimitsFromParameters()
     {
         var p = new HeatingParameters { DoseFlueNoRaiseTemp = 170, DoseFlueMaxTemp = 190, DoseFlueBlowerCutPct = 3 };
-        Assert.Equal(32, DoseCalculator.LimitBlower(35, 32, 175, false, p).Blower);        // 175 ≥ 170 - nie podnosi
-        Assert.Equal(32, DoseCalculator.LimitBlower(35, 35, 195, false, p).Blower);        // 195 > 190 - −3 pkt
-        Assert.Equal("SPALINY_200", DoseCalculator.LimitBlower(35, 35, 195, false, p).Code);
+        Assert.Equal(36, DoseCalculator.LimitBlower(40, 36, 175, false, p).Blower);        // 175 ≥ 170 - nie podnosi
+        Assert.Equal(37, DoseCalculator.LimitBlower(40, 40, 195, false, p).Blower);        // 195 > 190 - −3 pkt
+        Assert.Equal("SPALINY_200", DoseCalculator.LimitBlower(40, 40, 195, false, p).Code);
     }
 
     [Fact]

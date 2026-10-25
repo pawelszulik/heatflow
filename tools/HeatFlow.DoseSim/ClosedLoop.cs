@@ -218,7 +218,7 @@ public static class ClosedLoopRunner
                 var e = harness.Entities;
                 var ok = w.Entity == e.FeederWork ? w.Value is >= DoseLimits.WorkMin and <= DoseLimits.WorkMax
                     : w.Entity == e.FeederPause ? w.Value is >= DoseLimits.PauseMin and <= DoseLimits.PauseMax
-                    : w.Entity == e.Blower && w.Value is >= 30 and <= 35;
+                    : w.Entity == e.Blower && w.Value is >= DoseLimits.BlowerMin and <= DoseLimits.BlowerMax;
                 if (!ok) result.LimitViolations.Add($"{w.Utc:u} {w.Entity} = {w.Value}");
             }
             lastHistory = harness.Controller.History.Count;

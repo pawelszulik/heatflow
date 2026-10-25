@@ -63,7 +63,7 @@ public class Phase5DoseServiceTests
 
         // Domyślnie: zima, auto, kocioł grzeje przy nastawie, -5 °C na dworze od 2 h.
         SetEnvironment(outdoor: -5.0);
-        _controller.Settings = new ControllerFeedSettings(7, 160, 35);
+        _controller.Settings = new ControllerFeedSettings(7, 160, 40);
         _repo.State = new DoseState { LastKCorrectionDate = Now.Date.AddDays(-1) };
         AddHistory(hours: 3, outdoor: -5.0);
     }
@@ -96,10 +96,10 @@ public class Phase5DoseServiceTests
         Assert.True(result.Success, result.ErrorMessage);
         var s = _repo.State!;
         Assert.True(s.AutomatActive);
-        Assert.Equal((7, 160, 35), (s.SavedWork!.Value, s.SavedPause!.Value, s.SavedBlower!.Value));
+        Assert.Equal((7, 160, 40), (s.SavedWork!.Value, s.SavedPause!.Value, s.SavedBlower!.Value));
         // -5 °C: model 9 s / 111 s, ale dawka najwyżej o krok 20 s postoju → 7/140; dmuchawa
-        // z udziału pracy 7/147 = 4,8 % → 30 + 0,24 · 5 ≈ 31 %
-        Assert.Equal(new ControllerFeedSettings(7, 140, 31), _controller.Settings);
+        // z udziału pracy 7/147 = 4,8 % → 34 + 0,24 · 6 ≈ 35 %
+        Assert.Equal(new ControllerFeedSettings(7, 140, 35), _controller.Settings);
         Assert.Equal(Now, s.LastChangeUtc);
         Assert.Contains(_messages, m => m.Title.Contains("włączony"));
         Assert.Contains(_messages, m => m.Message.Contains("zapis potwierdzony w mapperze"));
@@ -169,14 +169,14 @@ public class Phase5DoseServiceTests
     public async Task FlueAbove200_SelfDisables_CutsBlower_AndRestoreNeverRaisesBlower()
     {
         _repo.Switch.Enabled = true;
-        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
-        _repo.State = ActiveState(saved: (7, 160, 35));
+        _controller.Settings = new ControllerFeedSettings(9, 110, 38);
+        _repo.State = ActiveState(saved: (7, 160, 40));
         SetEnvironment(outdoor: -5.0, flue: 205);
 
         await Run();
 
-        // −2 pkt (33 → 31), potem przywrócenie pracy/postoju bez podnoszenia dmuchawy do 35.
-        Assert.Equal(new ControllerFeedSettings(7, 160, 31), _controller.Settings);
+        // −2 pkt (38 → 36), potem przywrócenie pracy/postoju bez podnoszenia dmuchawy do 40.
+        Assert.Equal(new ControllerFeedSettings(7, 160, 36), _controller.Settings);
         Assert.False(_repo.Switch.Enabled);
         Assert.Contains("spaliny", _repo.Switch.ChangedBy);
         Assert.Contains(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ") && m.Message.Contains("spaliny 205"));
@@ -244,7 +244,7 @@ public class Phase5DoseServiceTests
         Assert.Equal(2, _controller.Writes.Count(w => w.Entity == E.FeederPause && w.Value == 140));
         Assert.DoesNotContain(_controller.Writes, w => w.Entity == E.Blower);
         Assert.Equal(writesAfterFirst, _controller.Writes.Count);
-        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
+        Assert.Equal(new ControllerFeedSettings(7, 160, 40), _controller.Settings);
         Assert.Single(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE");
     }
 
@@ -278,7 +278,7 @@ public class Phase5DoseServiceTests
         Assert.Contains(_repo.Log, e => e.ReasonCode == "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY");
         Assert.DoesNotContain(_repo.Log, e => e.ReasonCode == "PRZYWROCENIE_NASTAW");
         Assert.DoesNotContain(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE");
-        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings); // nie 7/270/30
+        Assert.Equal(new ControllerFeedSettings(7, 160, 40), _controller.Settings); // nie 7/270/30
     }
 
     [Fact]
@@ -502,7 +502,7 @@ public class Phase5DoseServiceTests
 
         var on = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Automat);
         Assert.Equal("WLACZENIE_RECZNE", on.ReasonCode);
-        Assert.Contains("Zapamiętane nastawy: praca 7 s, postój 160 s, dmuchawa 35 %", on.Message);
+        Assert.Contains("Zapamiętane nastawy: praca 7 s, postój 160 s, dmuchawa 40 %", on.Message);
 
         // Model chce 9/111, krok ogranicza do 7/140 - czas pracy bez zmian, więc bez wpisu.
         Assert.DoesNotContain(_repo.Log, e => e.Parameter == DoseLog.Work);
@@ -516,7 +516,7 @@ public class Phase5DoseServiceTests
         Assert.EndsWith("zapis potwierdzony w mapperze.", pause.Message);
 
         var blower = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Blower);
-        Assert.Equal((35.0, 31.0, "w dół", "POGODA"), (blower.OldValue!.Value, blower.NewValue!.Value, blower.Direction, blower.ReasonCode));
+        Assert.Equal((40.0, 35.0, "w dół", "POGODA"), (blower.OldValue!.Value, blower.NewValue!.Value, blower.Direction, blower.ReasonCode));
         Assert.Contains("dmuchawa idzie za dawką", blower.Message);
 
         // Dane wejściowe w chwili decyzji
@@ -551,16 +551,16 @@ public class Phase5DoseServiceTests
     public async Task Log_Flue205_BlowerDownThenSelfDisableThenRestore()
     {
         _repo.Switch.Enabled = true;
-        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
-        _repo.State = ActiveState(saved: (7, 160, 35));
+        _controller.Settings = new ControllerFeedSettings(9, 110, 38);
+        _repo.State = ActiveState(saved: (7, 160, 40));
         SetEnvironment(outdoor: -5.0, flue: 205);
 
         await Run();
 
         var cut = _repo.Log.First(e => e.ReasonCode == "SPALINY_200");
-        Assert.Equal((DoseLog.Blower, 33.0, 31.0, "w dół", "SPALINY_200", DoseLog.StatusWritten),
+        Assert.Equal((DoseLog.Blower, 38.0, 36.0, "w dół", "SPALINY_200", DoseLog.StatusWritten),
             (cut.Parameter, cut.OldValue!.Value, cut.NewValue!.Value, cut.Direction, cut.ReasonCode, cut.Status));
-        Assert.Equal("Dmuchawa 33 → 31 % (w dół = mniej powietrza): spaliny 205 °C > 200; zapis potwierdzony w mapperze.", cut.Message);
+        Assert.Equal("Dmuchawa 38 → 36 % (w dół = mniej powietrza): spaliny 205 °C > 200; zapis potwierdzony w mapperze.", cut.Message);
 
         var off = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Automat);
         Assert.Equal("SAMOWYLACZENIE_SPALINY_200", off.ReasonCode);
@@ -636,16 +636,16 @@ public class Phase5DoseServiceTests
     public async Task Log_BlowerRaiseBlockedByFlue185()
     {
         _repo.Switch.Enabled = true;
-        _controller.Settings = new ControllerFeedSettings(7, 150, 30);
-        _repo.State = ActiveState(saved: (7, 150, 30));
+        _controller.Settings = new ControllerFeedSettings(7, 150, 34);
+        _repo.State = ActiveState(saved: (7, 150, 34));
         SetEnvironment(outdoor: -5.0, flue: 190);
 
         await Run();
 
-        Assert.Equal(30, _controller.Settings.Blower);
+        Assert.Equal(34, _controller.Settings.Blower);
         var blocked = Assert.Single(_repo.Log, e => e.Status == DoseLog.StatusBlocked);
-        // 7/150 → 7/130 (krok), dmuchawa za dawką chciałaby 30 → 32 %
-        Assert.Equal((DoseLog.Blower, "SPALINY_185", 30.0, 32.0), (blocked.Parameter, blocked.ReasonCode, blocked.OldValue!.Value, blocked.NewValue!.Value));
+        // 7/150 → 7/130 (krok), dmuchawa za dawką chciałaby 34 → 36 %
+        Assert.Equal((DoseLog.Blower, "SPALINY_185", 34.0, 36.0), (blocked.Parameter, blocked.ReasonCode, blocked.OldValue!.Value, blocked.NewValue!.Value));
         Assert.Contains("ale spaliny 190 °C ≥ 185", blocked.Message);
     }
 
@@ -655,8 +655,8 @@ public class Phase5DoseServiceTests
         // +5 °C: model 7 s / 148 s, sterownik 7/150 - bez trymu nic by się nie zmieniło.
         // Kocioł 2 h pod nastawą − 3 K przy ciągłej dmuchawie → trym −20 s → postój 150 → 130 s.
         _repo.Switch.Enabled = true;
-        _controller.Settings = new ControllerFeedSettings(7, 150, 30);
-        _repo.State = ActiveState(saved: (7, 150, 30));
+        _controller.Settings = new ControllerFeedSettings(7, 150, 34);
+        _repo.State = ActiveState(saved: (7, 150, 34));
         foreach (var s in _repo.Samples) { s.BoilerTemp = 60; s.BlowerActual = 35; s.OutdoorTemp = 5.0; }
         SetEnvironment(outdoor: 5.0, boiler: 60);
 
@@ -763,7 +763,7 @@ public class Phase5DoseServiceTests
         var sent = _messages.Where(m => m.Title == "HeatFlow: nowa sugestia dawki").ToList();
         var msg = Assert.Single(sent).Message;
         Assert.Contains("Postój 160 → 140 s (w dół = więcej węgla)", msg);
-        Assert.Contains("W kotle teraz 7/160 s, dmuchawa 35 %", msg);
+        Assert.Contains("W kotle teraz 7/160 s, dmuchawa 40 %", msg);
         Assert.Contains("potrzeba", msg);
         Assert.Contains("Ustaw sugerowane", msg);
         Assert.Single(_repo.Log, e => e.Parameter == "sugestia_discord");
@@ -807,7 +807,7 @@ public class Phase5DoseServiceTests
     public async Task NewSuggestion_AfterButtonClick_NoFurtherNotificationUntilSuggestionChanges()
     {
         AddButtonRequest();
-        await Run(); // przycisk ustawia sugestię (7/140, 31 %), sugestia = kocioł
+        await Run(); // przycisk ustawia sugestię (7/140, 35 %), sugestia = kocioł
 
         Assert.DoesNotContain(_messages, m => m.Title == "HeatFlow: nowa sugestia dawki");
         await Run();
@@ -835,16 +835,16 @@ public class Phase5DoseServiceTests
         var result = await Run();
 
         Assert.True(result.Success, result.ErrorMessage);
-        // te same wartości, które pokazuje cień w HA: 7/140 s, dmuchawa 31 %
-        Assert.Equal(new ControllerFeedSettings(7, 140, 31), _controller.Settings);
+        // te same wartości, które pokazuje cień w HA: 7/140 s, dmuchawa 35 %
+        Assert.Equal(new ControllerFeedSettings(7, 140, 35), _controller.Settings);
         Assert.False(_repo.State!.AutomatActive);
         Assert.False(_repo.Switch.Enabled);
-        Assert.Equal((7, 140, 31), (_repo.State.ShadowWork!.Value, _repo.State.ShadowPause!.Value, _repo.State.ShadowBlower!.Value));
+        Assert.Equal((7, 140, 35), (_repo.State.ShadowWork!.Value, _repo.State.ShadowPause!.Value, _repo.State.ShadowBlower!.Value));
         Assert.Equal("ZLECENIE_OBSL", request.Status);
         Assert.Contains("ustawiono", request.Message);
         var written = _repo.Log.Where(e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "ZAPISANE").ToList();
         Assert.Contains(written, e => e.Parameter == "postoj" && e.OldValue == 160 && e.NewValue == 140 && e.Direction == "w dół");
-        Assert.Contains(written, e => e.Parameter == "dmuchawa" && e.OldValue == 35 && e.NewValue == 31);
+        Assert.Contains(written, e => e.Parameter == "dmuchawa" && e.OldValue == 40 && e.NewValue == 35);
         Assert.All(written, e => Assert.Equal("OK", e.MapperConfirmation));
         Assert.All(written, e => Assert.Contains("przyciskiem „Ustaw sugerowane”", e.Message));
         Assert.Contains(_messages, m => m.Title.StartsWith("Kocioł: ustawiono sugerowane przyciskiem"));
@@ -892,7 +892,7 @@ public class Phase5DoseServiceTests
 
         Assert.Empty(_controller.Writes);
         Assert.Equal("ZLECENIE_WYGASLO", request.Status);
-        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
+        Assert.Equal(new ControllerFeedSettings(7, 160, 40), _controller.Settings);
     }
 
     [Fact]
@@ -972,7 +972,7 @@ public class Phase5DoseServiceTests
 
         await Run();
 
-        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings); // postój przywrócony
+        Assert.Equal(new ControllerFeedSettings(7, 160, 40), _controller.Settings); // postój przywrócony
         Assert.Equal("ZLECENIE_OBSL", request.Status);
         Assert.Contains("przywrócone", request.Message);
         Assert.Contains(_repo.Log, e => e.ReasonCode == "RECZNE_USTAW_SUGEROWANE" && e.Status == "NIEPOTWIERDZONE" && e.Parameter == "dmuchawa");
@@ -992,7 +992,7 @@ public class Phase5DoseServiceTests
         {
             if (w.Entity == E.FeederWork) Assert.InRange(w.Value, 7, 10);
             if (w.Entity == E.FeederPause) Assert.InRange(w.Value, 100, 320);
-            if (w.Entity == E.Blower) Assert.InRange(w.Value, 28, 35);
+            if (w.Entity == E.Blower) Assert.InRange(w.Value, DoseLimits.BlowerMin, DoseLimits.BlowerMax);
         });
     }
 
@@ -1094,7 +1094,7 @@ public class Phase5DoseServiceTests
     /// <summary>Sterownik + mapper: zapis z HA zmienia rejestr, chyba że „ginie” albo mapper leży.</summary>
     private sealed class FakeController : IEsterownikMapperClient
     {
-        public ControllerFeedSettings Settings { get; set; } = new(7, 160, 35);
+        public ControllerFeedSettings Settings { get; set; } = new(7, 160, 40);
         public bool Down { get; set; }
         public string? DropWritesTo { get; set; }
 

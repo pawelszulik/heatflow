@@ -90,9 +90,9 @@ public class HeatingParameters
     public int FeederPauseMin { get; set; } = 100;
     public int FeederPauseMax { get; set; } = 320;
 
-    /// <summary>Moc dmuchawy w grzaniu - zakres dla automatu [%], twardo 28-35 (decyzja Pawła: 30-35).</summary>
-    public int BlowerMin { get; set; } = 30;
-    public int BlowerMax { get; set; } = 35;
+    /// <summary>Moc dmuchawy w grzaniu - zakres dla automatu [%], twardo 33-40 (decyzja Pawła 2026-10-25: 34-40).</summary>
+    public int BlowerMin { get; set; } = 34;
+    public int BlowerMax { get; set; } = 40;
 
     /// <summary>Ile sekund pracy podajnika na dobę dom bierze na 1 K różnicy środek-dwór (§ 4a).</summary>
     public double FeedPerKelvin { get; set; } = 255.0;

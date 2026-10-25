@@ -55,7 +55,7 @@ public class DoseCalculatorTests
             Assert.InRange(plan.ModelPause, DoseLimits.PauseMin, DoseLimits.PauseMax);
             Assert.InRange(decision.Work, DoseLimits.WorkMin, DoseLimits.WorkMax);
             Assert.InRange(decision.Pause, DoseLimits.PauseMin, DoseLimits.PauseMax);
-            Assert.InRange(blower, 30, 35);
+            Assert.InRange(blower, DoseLimits.BlowerMin, DoseLimits.BlowerMax);
         }
     }
 
@@ -366,11 +366,11 @@ public class DoseCalculatorTests
     // --- Dmuchawa ---
 
     [Theory]
-    [InlineData(7, 320, 30)]
-    [InlineData(7, 200, 30)]  // 3,4 % pracy - jeszcze minimum
-    [InlineData(7, 110, 32)]
-    [InlineData(10, 100, 35)]
-    public void BlowerFor_LinearBetween30And35(int work, int pause, int expected)
+    [InlineData(7, 320, 34)]
+    [InlineData(7, 200, 34)]  // 3,4 % pracy - jeszcze minimum
+    [InlineData(7, 110, 37)]
+    [InlineData(10, 100, 40)]
+    public void BlowerFor_LinearBetween34And40(int work, int pause, int expected)
     {
         Assert.Equal(expected, DoseCalculator.BlowerFor(work, pause, P()));
     }
@@ -378,22 +378,22 @@ public class DoseCalculatorTests
     [Fact]
     public void LimitBlower_FlueAtOrAbove185_DoesNotRaise()
     {
-        Assert.Equal(32, DoseCalculator.LimitBlower(35, 32, 185, false, P()).Blower);
-        Assert.Equal(30, DoseCalculator.LimitBlower(30, 32, 190, false, P()).Blower); // obniżyć wolno
-        Assert.Equal(35, DoseCalculator.LimitBlower(35, 32, 150, false, P()).Blower);
+        Assert.Equal(36, DoseCalculator.LimitBlower(40, 36, 185, false, P()).Blower);
+        Assert.Equal(34, DoseCalculator.LimitBlower(34, 36, 190, false, P()).Blower); // obniżyć wolno
+        Assert.Equal(40, DoseCalculator.LimitBlower(40, 36, 150, false, P()).Blower);
     }
 
     [Fact]
-    public void LimitBlower_FlueAbove200_MinusTwoNotBelow30()
+    public void LimitBlower_FlueAbove200_MinusTwoNotBelowMin()
     {
-        Assert.Equal(33, DoseCalculator.LimitBlower(35, 35, 205, false, P()).Blower);
-        Assert.Equal(30, DoseCalculator.LimitBlower(35, 31, 205, false, P()).Blower);
+        Assert.Equal(38, DoseCalculator.LimitBlower(40, 40, 205, false, P()).Blower);
+        Assert.Equal(34, DoseCalculator.LimitBlower(40, 35, 205, false, P()).Blower);
     }
 
     [Fact]
     public void LimitBlower_SafetyAutomationWithin6h_DoesNotRaise()
     {
-        Assert.Equal(28, DoseCalculator.LimitBlower(33, 28, 120, safetyAutomationRecent: true, P()).Blower);
+        Assert.Equal(34, DoseCalculator.LimitBlower(36, 34, 120, safetyAutomationRecent: true, P()).Blower);
     }
 
     // --- Licznik podajnika ---
@@ -423,8 +423,8 @@ public class DoseCalculatorTests
     [InlineData(nameof(HeatingParameters.FeederWorkMax), 11)]
     [InlineData(nameof(HeatingParameters.FeederPauseMin), 90)]
     [InlineData(nameof(HeatingParameters.FeederPauseMax), 330)]
-    [InlineData(nameof(HeatingParameters.BlowerMin), 27)]
-    [InlineData(nameof(HeatingParameters.BlowerMax), 36)]
+    [InlineData(nameof(HeatingParameters.BlowerMin), 32)]
+    [InlineData(nameof(HeatingParameters.BlowerMax), 41)]
     [InlineData(nameof(HeatingParameters.FeedMinIntervalHours), 1)]
     public void Validate_OutsideHardLimits_IsRejected(string property, int value)
     {

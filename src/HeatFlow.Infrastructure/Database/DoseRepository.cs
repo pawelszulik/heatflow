@@ -133,6 +133,15 @@ public class DoseRepository : IDoseRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<FeedChangeLog?> GetOpenWriteHoldAsync(CancellationToken cancellationToken = default)
+    {
+        // Tracking: status zamyka ta sama instancja w SetApplyRequestStatusAsync.
+        return await _context.FeedChangeLogs
+            .Where(e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE")
+            .OrderByDescending(e => e.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default)
     {
         return await _context.FeedChangeLogs

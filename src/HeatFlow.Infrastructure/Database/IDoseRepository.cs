@@ -50,6 +50,13 @@ public interface IDoseRepository
     /// <summary>Starsze nieobsłużone zlecenia dostają status ZLECENIE_WYGASLO. Zwraca ich liczbę.</summary>
     Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Otwarte wstrzymanie po niepotwierdzonym zapisie automatu (Parameter = wstrzymanie_zapisu, status WSTRZYMANIE) - stan
+    /// też jako wpis dziennika, bez migracji. Controller* wpisu = nastawy, które zapis miał ustawić. Null = brak wstrzymania.
+    /// Zamyka je <see cref="SetApplyRequestStatusAsync"/> (ta sama zmiana statusu wpisu).
+    /// </summary>
+    Task<FeedChangeLog?> GetOpenWriteHoldAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Zmienia status i opis zlecenia (np. na ZLECENIE_OBSL po obsłużeniu).</summary>
     Task SetApplyRequestStatusAsync(FeedChangeLog request, string status, string message, CancellationToken cancellationToken = default);
 }

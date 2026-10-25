@@ -199,6 +199,9 @@ public sealed class InMemoryDoseRepository : IDoseRepository
     public Task<FeedChangeLog?> GetPendingApplyRequestAsync(DateTime sinceUtc, CancellationToken ct = default)
         => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc >= sinceUtc));
 
+    public Task<FeedChangeLog?> GetOpenWriteHoldAsync(CancellationToken ct = default)
+        => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE"));
+
     public Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken ct = default)
     {
         var old = Log.Where(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc < olderThanUtc).ToList();

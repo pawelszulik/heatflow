@@ -59,4 +59,13 @@ public class DoseWriteOptions
     public TimeSpan ConfirmPollInterval { get; set; } = TimeSpan.FromSeconds(10);
     public TimeSpan ConfirmTimeout { get; set; } = TimeSpan.FromSeconds(60);
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Dodatkowe sprawdzenie, gdy mapper odpowiada, ale pokazuje starą wartość po obu próbach (ROZJAZD). 25.10.2026
+    /// o 02:59 sterownik w trakcie zmiany czasu nie pokazał zapisu przez ponad 2 min, a zapis jednak doszedł -
+    /// automat wyłączył się niepotrzebnie i przywrócił stare nastawy. Odczekaj i sprawdź jeszcze
+    /// <see cref="GraceRechecks"/> razy co <see cref="GraceRecheckDelay"/>, dopiero potem uznaj zapis za nieudany.
+    /// </summary>
+    public TimeSpan GraceRecheckDelay { get; set; } = TimeSpan.FromSeconds(90);
+    public int GraceRechecks { get; set; } = 2;
 }

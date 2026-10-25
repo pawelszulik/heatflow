@@ -54,7 +54,7 @@ public class Phase5DoseServiceTests
         var writer = new DoseControllerWriter(_ha.Object, _controller, new DoseWriteOptions
         {
             ConfirmFirstCheck = TimeSpan.Zero, ConfirmPollInterval = TimeSpan.Zero,
-            ConfirmTimeout = TimeSpan.Zero, RetryDelay = TimeSpan.Zero
+            ConfirmTimeout = TimeSpan.Zero, RetryDelay = TimeSpan.Zero, GraceRecheckDelay = TimeSpan.Zero
         }, new Mock<ILogger<DoseControllerWriter>>().Object);
 
         _service = new Phase5DoseService(_ha.Object, _repo, _controller, writer, _notifier.Object,
@@ -182,39 +182,145 @@ public class Phase5DoseServiceTests
         Assert.Contains(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ") && m.Message.Contains("spaliny 205"));
     }
 
-    [Theory]
-    [InlineData("summer", "tryb lato")]
-    [InlineData("manual", "trybie ręcznym")]
-    public async Task SummerOrManualMode_SelfDisables_AndRestores(string condition, string expectedReason)
+    [Fact]
+    public async Task ManualMode_SelfDisables_AndRestores()
     {
         _repo.Switch.Enabled = true;
         _controller.Settings = new ControllerFeedSettings(9, 110, 33);
         _repo.State = ActiveState(saved: (7, 160, 35));
-        SetEnvironment(outdoor: -5.0, summer: condition == "summer", auto: condition != "manual");
+        SetEnvironment(outdoor: -5.0, auto: false);
 
         await Run();
 
         Assert.False(_repo.Switch.Enabled);
         Assert.False(_repo.State!.AutomatActive);
         Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
-        Assert.Contains(_messages, m => m.Message.Contains(expectedReason));
+        Assert.Contains(_messages, m => m.Message.Contains("trybie ręcznym"));
     }
 
     [Fact]
-    public async Task WriteNotConfirmedByMapper_SelfDisables()
+    public async Task SummerMode_PausesAutomat_NoWrites_NoRestore_ResumesAfterSummer()
+    {
+        _repo.Switch.Enabled = true;
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        SetEnvironment(outdoor: -5.0, summer: true);
+
+        await Run();
+        await RunAfter(TimeSpan.FromMinutes(5), summer: true);
+
+        // Pauza, nie wyłączenie: przełącznik zostaje, nastawy nietknięte, jeden komunikat na epizod.
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.Equal(new ControllerFeedSettings(9, 110, 33), _controller.Settings);
+        Assert.Empty(_controller.Writes);
+        Assert.Single(_messages, m => m.Title.Contains("wstrzymany (tryb lato)"));
+        Assert.DoesNotContain(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ"));
+
+        // Koniec lata: automat rusza sam (zapis od tego, co jest w sterowniku).
+        await RunAfter(TimeSpan.FromMinutes(10), summer: false);
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State.AutomatActive);
+        Assert.Single(_messages, m => m.Title.Contains("wznowiony"));
+    }
+
+    [Fact]
+    public async Task WriteNotConfirmedByMapper_HoldsAutomat_NoRestore_NoNewWrites()
     {
         _repo.Switch.Enabled = true;
         _controller.DropWritesTo = E.FeederPause;
 
         await Run();
+        var writesAfterFirst = _controller.Writes.Count;
+        await RunAfter(TimeSpan.FromMinutes(30));
 
-        Assert.False(_repo.Switch.Enabled);
-        Assert.False(_repo.State!.AutomatActive);
-        Assert.Contains(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ") && m.Message.Contains("nie potwierdził"));
-        // Dwie próby zapisu postoju (limiter ekoPieca), dmuchawa już nie wysłana, sterownik bez zmian.
+        // Wstrzymanie zamiast wyłączenia: automat dalej włączony, nastawy bez przywracania, żadnych nowych zapisów.
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.DoesNotContain(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ"));
+        Assert.Contains(_messages, m => m.Title.Contains("automat czeka") && m.Message.Contains("nie potwierdził"));
+        // Dwie próby zapisu postoju (limiter ekoPieca), dmuchawa nie wysłana, sterownik bez zmian.
         Assert.Equal(2, _controller.Writes.Count(w => w.Entity == E.FeederPause && w.Value == 140));
         Assert.DoesNotContain(_controller.Writes, w => w.Entity == E.Blower);
+        Assert.Equal(writesAfterFirst, _controller.Writes.Count);
         Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings);
+        Assert.Single(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE");
+    }
+
+    [Fact]
+    public async Task WriteNotConfirmedByMapper_NeverLands_RetriesRecalculated_ThenDisablesWithoutRestore()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 270, 30)); // stare nastawy, które NIE mają wrócić
+        _controller.DropWritesTo = E.FeederPause;
+
+        await Run();
+        var pauseWritesAfterFirst = _controller.Writes.Count(w => w.Entity == E.FeederPause);
+        await RunAfter(TimeSpan.FromMinutes(100));
+        Assert.Equal(pauseWritesAfterFirst, _controller.Writes.Count(w => w.Entity == E.FeederPause)); // w oknie czeka
+
+        // Po 2 h: próba 1 - dawka liczona od nowa i zapisana jeszcze raz, automat dalej włączony.
+        await RunAfter(TimeSpan.FromMinutes(125));
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.True(_controller.Writes.Count(w => w.Entity == E.FeederPause) > pauseWritesAfterFirst);
+        Assert.Contains(_messages, m => m.Title.Contains("próbuję jeszcze raz"));
+
+        await RunAfter(TimeSpan.FromMinutes(250)); // próba 2
+        Assert.True(_repo.Switch.Enabled);
+
+        await RunAfter(TimeSpan.FromMinutes(375)); // próba 3 - koniec
+
+        Assert.False(_repo.Switch.Enabled);
+        Assert.False(_repo.State.AutomatActive);
+        Assert.Contains(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ") && m.Message.Contains("NIE przywracam"));
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY");
+        Assert.DoesNotContain(_repo.Log, e => e.ReasonCode == "PRZYWROCENIE_NASTAW");
+        Assert.DoesNotContain(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE");
+        Assert.Equal(new ControllerFeedSettings(7, 160, 35), _controller.Settings); // nie 7/270/30
+    }
+
+    [Fact]
+    public async Task WriteNotConfirmed_LandsAfterAnHour_ResumesWithoutSelfDisable()
+    {
+        // Noc 2026-10-25: mapper przez godzinę pokazywał stare dane, a zapis dotarł do sterownika.
+        _repo.Switch.Enabled = true;
+        _controller.LagWritesTo = E.FeederPause;
+        _controller.LagReads = 1000;
+
+        await Run();
+        await RunAfter(TimeSpan.FromMinutes(30));
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.Equal(160, _controller.Settings.FeederPause);
+
+        _controller.LagReads = 0; // mapper w końcu pokazuje to, co sterownik już ma
+        await RunAfter(TimeSpan.FromMinutes(65));
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State.AutomatActive);
+        Assert.Equal(140, _controller.Settings.FeederPause);
+        Assert.Contains(_messages, m => m.Title.Contains("potwierdzony - automat wznowiony"));
+        Assert.DoesNotContain(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ"));
+        Assert.Contains(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE_POTWIERDZONE");
+        Assert.Equal(Now, _repo.State.LastChangeUtc); // odstęp 2 h liczy się od zapisu, nie od potwierdzenia
+    }
+
+    [Fact]
+    public async Task SlowController_WriteVisibleOnlyAfterGraceRecheck_DoesNotSelfDisable()
+    {
+        // Sterownik pokazuje zapis dopiero po kilku odczytach (zmiana czasu 25.10.2026) - to nie jest awaria.
+        _repo.Switch.Enabled = true;
+        _controller.LagWritesTo = E.FeederPause;
+        _controller.LagReads = 1;
+
+        await Run();
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.Equal(140, _controller.Settings.FeederPause);
+        Assert.DoesNotContain(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ"));
+        Assert.DoesNotContain(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu");
     }
 
     [Fact]
@@ -480,7 +586,7 @@ public class Phase5DoseServiceTests
     }
 
     [Fact]
-    public async Task Log_UnconfirmedWrite_HasRozjazdAndSelfDisableCode()
+    public async Task Log_UnconfirmedWrite_HasRozjazdAndHoldEntry()
     {
         _repo.Switch.Enabled = true;
         _controller.DropWritesTo = E.FeederPause;
@@ -490,7 +596,9 @@ public class Phase5DoseServiceTests
         var pause = Assert.Single(_repo.Log, e => e.Parameter == DoseLog.Pause && e.ReasonCode == "POGODA");
         Assert.Equal((DoseLog.StatusUnconfirmed, "ROZJAZD"), (pause.Status, pause.MapperConfirmation));
         Assert.Contains("zapisu NIE potwierdzono - sterownik ma 160", pause.Message);
-        Assert.Contains(_repo.Log, e => e.ReasonCode == "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY");
+        var hold = Assert.Single(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu");
+        Assert.Equal(("WSTRZYMANIE", "ZAPIS_NIEPOTWIERDZONY", 140), (hold.Status, hold.ReasonCode, hold.ControllerPause));
+        Assert.DoesNotContain(_repo.Log, e => e.ReasonCode.StartsWith("SAMOWYLACZENIE"));
     }
 
     [Fact]
@@ -892,6 +1000,27 @@ public class Phase5DoseServiceTests
         => _service.ExecuteAsync(new HeatingState { CurrentTime = Now, SystemConfiguration = SimDefaults.SystemConfiguration() },
             p ?? new HeatingParameters());
 
+    /// <summary>Kolejny przebieg po upływie czasu: nowa instancja z zegarem przesuniętym i świeżymi odczytami z HA.</summary>
+    private TimeSpan _shiftedBy;
+
+    private Task<PhaseResult> RunAfter(TimeSpan delta, bool summer = false)
+    {
+        // delta liczone od Now (nie narastająco): odczyty z HA są zawsze tak samo świeże względem zegara przebiegu.
+        foreach (var e in _entities.Values) e.LastUpdated += delta - _shiftedBy;
+        _shiftedBy = delta;
+        _entities[E.SummerSwitch] = new EntityState { State = summer ? "on" : "off", LastUpdated = Now + delta };
+        var writer = new DoseControllerWriter(_ha.Object, _controller, new DoseWriteOptions
+        {
+            ConfirmFirstCheck = TimeSpan.Zero, ConfirmPollInterval = TimeSpan.Zero,
+            ConfirmTimeout = TimeSpan.Zero, RetryDelay = TimeSpan.Zero, GraceRecheckDelay = TimeSpan.Zero
+        }, new Mock<ILogger<DoseControllerWriter>>().Object);
+        var service = new Phase5DoseService(_ha.Object, _repo, _controller, writer, _notifier.Object,
+            _config.Object, _audit.Object, new Mock<IApplicationErrorLogger>().Object,
+            new Mock<ILogger<Phase5DoseService>>().Object, new FixedTime(Now + delta));
+        return service.ExecuteAsync(new HeatingState { CurrentTime = Now + delta, SystemConfiguration = SimDefaults.SystemConfiguration() },
+            new HeatingParameters());
+    }
+
     private DoseState ActiveState((int W, int P, int B) saved) => new()
     {
         AutomatActive = true, SavedWork = saved.W, SavedPause = saved.P, SavedBlower = saved.B,
@@ -950,7 +1079,7 @@ public class Phase5DoseServiceTests
         var writer = new DoseControllerWriter(_ha.Object, _controller, new DoseWriteOptions
         {
             ConfirmFirstCheck = TimeSpan.Zero, ConfirmPollInterval = TimeSpan.Zero,
-            ConfirmTimeout = TimeSpan.Zero, RetryDelay = TimeSpan.Zero
+            ConfirmTimeout = TimeSpan.Zero, RetryDelay = TimeSpan.Zero, GraceRecheckDelay = TimeSpan.Zero
         }, new Mock<ILogger<DoseControllerWriter>>().Object);
         return new Phase5DoseService(_ha.Object, _repo, _controller, writer, _notifier.Object,
             _config.Object, _audit.Object, new Mock<IApplicationErrorLogger>().Object,
@@ -968,22 +1097,48 @@ public class Phase5DoseServiceTests
         public ControllerFeedSettings Settings { get; set; } = new(7, 160, 35);
         public bool Down { get; set; }
         public string? DropWritesTo { get; set; }
+
+        /// <summary>Zapis do tej encji dochodzi do rejestru dopiero po tylu kolejnych odczytach mappera (sterownik „wolny”).</summary>
+        public string? LagWritesTo { get; set; }
+        public int LagReads { get; set; }
+        private readonly List<(string Entity, int Value)> _pending = new();
+        private int _readsSincePending;
         public List<(string Entity, int Value)> Writes { get; } = new();
 
         public Task<int?> GetBoilerSetpointAsync(CancellationToken cancellationToken = default) => Task.FromResult<int?>(null);
 
         public Task<ControllerFeedSettings?> GetFeedSettingsAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(Down ? null : Settings);
+        {
+            if (_pending.Count > 0 && ++_readsSincePending > LagReads)
+            {
+                foreach (var (entity, value) in _pending) Apply(entity, value);
+                _pending.Clear();
+            }
+
+            return Task.FromResult(Down ? null : Settings);
+        }
 
         public bool Write(string entity, int value)
         {
             Writes.Add((entity, value));
             if (entity == DropWritesTo) return true; // HA mówi ok, sterownik nie przyjął
+            if (entity == LagWritesTo)
+            {
+                _pending.Add((entity, value));
+                _readsSincePending = 0;
+                return true;
+            }
+
+            Apply(entity, value);
+            return true;
+        }
+
+        private void Apply(string entity, int value)
+        {
             if (entity == E.FeederWork) Settings = Settings with { FeederWork = value };
             else if (entity == E.FeederPause) Settings = Settings with { FeederPause = value };
             else if (entity == E.Blower) Settings = Settings with { Blower = value };
             else throw new InvalidOperationException($"Zapis do niedozwolonej encji {entity}");
-            return true;
         }
     }
 
@@ -1051,6 +1206,9 @@ public class Phase5DoseServiceTests
 
         public Task<FeedChangeLog?> GetPendingApplyRequestAsync(DateTime sinceUtc, CancellationToken ct = default)
             => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "przycisk" && e.Status == "ZLECENIE" && e.TimestampUtc >= sinceUtc));
+
+        public Task<FeedChangeLog?> GetOpenWriteHoldAsync(CancellationToken ct = default)
+            => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE"));
 
         public Task<int> ExpireApplyRequestsAsync(DateTime olderThanUtc, CancellationToken ct = default)
         {

@@ -46,7 +46,8 @@ public sealed class DoseHarness
             ConfirmFirstCheck = TimeSpan.Zero,
             ConfirmPollInterval = TimeSpan.Zero,
             ConfirmTimeout = TimeSpan.Zero,
-            RetryDelay = TimeSpan.Zero
+            RetryDelay = TimeSpan.Zero,
+            GraceRecheckDelay = TimeSpan.Zero
         }, NullLogger<DoseControllerWriter>.Instance);
         Phase = new Phase5DoseService(Ha, Repo, Controller, writer, Notifier, Config, new NullAuditService(),
             Errors, NullLogger<Phase5DoseService>.Instance, Clock);

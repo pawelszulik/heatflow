@@ -153,6 +153,28 @@ public class DoseControllerWriter
             }
         }
 
+        // Mapper odpowiada, ale pokazuje starą wartość: sterownik bywa wolny (zmiana czasu 25.10.2026) - sprawdź jeszcze raz
+        // po dłuższej chwili, zanim zapis zostanie uznany za nieudany (to wyłącza automat).
+        if (lastSeen != null)
+        {
+            for (var i = 1; i <= _options.GraceRechecks; i++)
+            {
+                await Task.Delay(_options.GraceRecheckDelay, cancellationToken);
+                lastSeen = await _mapper.GetFeedSettingsAsync(cancellationToken) ?? lastSeen;
+                if (Value(lastSeen, register) == value)
+                {
+                    var after = (int)(_options.GraceRecheckDelay.TotalSeconds * i);
+                    _logger.LogWarning("Faza 5: {Entity} = {Value} potwierdzone dopiero po dodatkowym sprawdzeniu (+{Seconds} s)",
+                        entityId, value, after);
+                    return new DoseWriteResult(true, lastSeen,
+                        $"{entityId} = {value} potwierdzone w mapperze z opóźnieniem (+{after} s)")
+                    {
+                        Writes = new[] { new DoseRegisterWrite(register, value, value, "OK", value) }
+                    };
+                }
+            }
+        }
+
         var seen = lastSeen == null ? "mapper nie odpowiada" : $"sterownik ma {Value(lastSeen, register)}";
         return new DoseWriteResult(false, lastSeen, $"{entityId} = {value} NIEPOTWIERDZONE ({seen})")
         {

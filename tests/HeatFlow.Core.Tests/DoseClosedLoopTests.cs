@@ -87,9 +87,8 @@ public class DoseClosedLoopTests
     public static IEnumerable<object[]> FaultCases => new[]
     {
         new object[] { FaultKind.Flue210, "SAMOWYLACZENIE_SPALINY_200", 0 },
-        new object[] { FaultKind.MapperNoConfirm, "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY", 2 },
+        new object[] { FaultKind.MapperNoConfirm, "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY", 1000 },
         new object[] { FaultKind.DataGap, "SAMOWYLACZENIE_BRAK_DANYCH_KOTLA", 40 },
-        new object[] { FaultKind.Summer, "SAMOWYLACZENIE_TRYB_LATO", 0 },
         new object[] { FaultKind.ManualMode, "SAMOWYLACZENIE_TRYB_RECZNY", 0 },
         new object[] { FaultKind.SwitchOffByUser, "WYLACZENIE_RECZNE", 0 }
     };
@@ -115,8 +114,18 @@ public class DoseClosedLoopTests
         var saved = (r.Log.First().ControllerWork, r.Log.First().ControllerPause, r.Log.First().ControllerBlower);
         var off = Assert.Single(r.Log, e => e.Parameter == DoseLog.Automat && e.NewValue == 0);
         Assert.Equal(expectedCode, off.ReasonCode);
-        Assert.True(off.TimestampUtc >= at && off.TimestampUtc <= at.AddHours(2), $"wyłączenie o {off.TimestampUtc:u}");
+        // Niepotwierdzony zapis: 3 próby po 2 h (dawka liczona od nowa), dopiero potem wyłączenie; pierwszy zapis może wypaść do 2 h po usterce.
+        var latest = kind == FaultKind.MapperNoConfirm ? at.AddHours(9) : at.AddHours(2);
+        Assert.True(off.TimestampUtc >= at && off.TimestampUtc <= latest, $"wyłączenie o {off.TimestampUtc:u}");
         Assert.False(r.Harness.Repo.Switch.Enabled);
+
+        if (kind == FaultKind.MapperNoConfirm)
+        {
+            // Zapisy ginęły, a stare zapamiętane nastawy nie mają wracać - wyłączenie zostawia to, co jest w sterowniku.
+            Assert.DoesNotContain(r.Log, e => e.ReasonCode == "PRZYWROCENIE_NASTAW");
+            Assert.Contains(r.Harness.Notifier.Messages, m => m.Utc >= at && m.Message.Contains("NIE przywracam"));
+            return;
+        }
 
         // Nastawy wróciły do zastanych przy włączeniu (dmuchawa przy spalinach - nie wyżej niż po zbiciu).
         var c = r.Harness.Controller.Settings;
@@ -128,6 +137,41 @@ public class DoseClosedLoopTests
         Assert.Contains(r.Harness.Notifier.Messages, m => m.Utc >= at && m.Title.Contains("automat dawki")
             && m.Message.Contains("Przywrócone"));
         Assert.NotNull(on);
+    }
+
+    [Fact]
+    public async Task MapperDropsOneWrite_AutomatHolds_ThenRetriesRecalculated_AndStaysOn()
+    {
+        var at = Start(3, 4).AddHours(10);
+        var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), Start(3, 1), 5, 1.0, WarnOnlyCold(),
+            faults: new[] { new Fault(FaultKind.MapperNoConfirm, at, at.AddDays(2), 2) }, startAtModel: true);
+
+        AssertHealthy(r);
+        Assert.Empty(r.SelfDisables);
+        Assert.True(r.Harness.Repo.Switch.Enabled);
+        var hold = Assert.Single(r.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.ReasonCode == "ZAPIS_NIEPOTWIERDZONY");
+        Assert.Equal("WSTRZYMANIE_PRZEKROCZONE", hold.Status);
+        var retry = Assert.Single(r.Log, e => e.ReasonCode == "ZAPIS_PONOWNIE");
+        Assert.InRange((retry.TimestampUtc - hold.TimestampUtc).TotalMinutes, 120, 130);
+        // Ponowna próba trafia w sterownik i dawka rusza dalej.
+        Assert.Contains(r.Log, e => e.Status == DoseLog.StatusWritten && e.TimestampUtc >= retry.TimestampUtc);
+    }
+
+    [Fact]
+    public async Task SummerMode_PausesAutomat_ThenResumesWithoutSelfDisable()
+    {
+        var at = Start(3, 4).AddHours(10);
+        var r = await ClosedLoopRunner.RunAsync(Tz("tz-marzec.csv"), Start(3, 1), 5, 1.0, WarnOnlyCold(),
+            faults: new[] { new Fault(FaultKind.Summer, at, at.AddHours(12)) }, startAtModel: true);
+
+        AssertHealthy(r);
+        Assert.Empty(r.SelfDisables);
+        Assert.True(r.Harness.Repo.Switch.Enabled);
+        Assert.Contains(r.Log, e => e.ReasonCode == "PAUZA_TRYB_LATO" && e.TimestampUtc >= at && e.TimestampUtc <= at.AddHours(1));
+        var resumed = Assert.Single(r.Log, e => e.ReasonCode == "PAUZA_KONIEC");
+        Assert.True(resumed.TimestampUtc >= at.AddHours(12) && resumed.TimestampUtc <= at.AddHours(13), $"wznowienie o {resumed.TimestampUtc:u}");
+        // W pauzie żadnych zapisów do sterownika.
+        Assert.DoesNotContain(r.Log, e => e.Status == DoseLog.StatusWritten && e.TimestampUtc > at.AddHours(1) && e.TimestampUtc < at.AddHours(12));
     }
 
     [Fact]

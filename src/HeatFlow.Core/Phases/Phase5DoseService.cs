@@ -246,7 +246,21 @@ public class Phase5DoseService : IPhaseService
             if (ds.AutomatActive)
             {
                 var issue = SafetyReason(inputs, ds, samples, now, parameters) ?? ParametersReason(parameters);
-                if (issue != null)
+                var hold = await _repository.GetOpenWriteHoldAsync(cancellationToken);
+                // Wstrzymanie po niepotwierdzonym zapisie: true = można liczyć i zapisywać dawkę od nowa (limit minął).
+                var holdHandled = false;
+                if (issue == null && hold != null)
+                {
+                    holdHandled = !await ResolveWriteHoldAsync(ds, controller, hold, inputs.Sample.FlueTemp, flueSafetyRecent,
+                        parameters, now, run, cancellationToken);
+                    if (!holdHandled) await ResumeFromSummerPauseAsync(ds, now, run, cancellationToken);
+                }
+                if (issue is { Code: SummerPauseCode })
+                {
+                    // Tryb lato to nie awaria: automat czeka z zapisami, nastawy zostają, po lecie wraca sam.
+                    await PauseForSummerAsync(ds, issue, now, run, cancellationToken);
+                }
+                else if (issue != null)
                 {
                     var flueHigh = inputs.Sample.FlueTemp > parameters.DoseFlueMaxTemp;
                     if (flueHigh && controller != null && blower.HasValue && blower.Value < controller.Blower)
@@ -264,14 +278,20 @@ public class Phase5DoseService : IPhaseService
                     await DeactivateAsync(ds, controller, issue, selfDisable: true, noBlowerIncrease: flueHigh,
                         parameters, now, run, cancellationToken);
                 }
+                else if (holdHandled)
+                {
+                    // wstrzymanie obsłużone w tym przebiegu (czeka / wznowione / automat wyłączony)
+                }
                 else if (decision is { Change: true } && controller != null && blower.HasValue)
                 {
+                    await ResumeFromSummerPauseAsync(ds, now, run, cancellationToken);
                     await WarnBoilerColdAsync(ds, samples, now, parameters, run, cancellationToken);
                     await ApplyAsync(ds, controller, decision, blower.Value, blowerWanted!.Value, blowerNote, blowerCode,
                         parameters, now, run, cancellationToken);
                 }
                 else if (decision != null)
                 {
+                    await ResumeFromSummerPauseAsync(ds, now, run, cancellationToken);
                     await WarnBoilerColdAsync(ds, samples, now, parameters, run, cancellationToken);
                     notes.Add(decision.Reason);
                     if (decision.WaitingForInterval && controller != null)
@@ -669,9 +689,7 @@ public class Phase5DoseService : IPhaseService
         if (!result.Confirmed)
         {
             run.Notes.Add($"zapis niepotwierdzony: {result.Report}");
-            await DeactivateAsync(ds, result.Last ?? controller,
-                new SafetyIssue("ZAPIS_NIEPOTWIERDZONY", $"zapis nie potwierdził się w mapperze ({result.Report})"),
-                selfDisable: true, noBlowerIncrease: false, p, now, run, ct);
+            await StartWriteHoldAsync(ds, controller, decision, blower, result, now, run, ct);
             return;
         }
 
@@ -800,20 +818,182 @@ public class Phase5DoseService : IPhaseService
     private static int DoseDirection(int fromWork, int fromPause, int toWork, int toPause)
         => Math.Sign((double)toWork / (toWork + toPause) - (double)fromWork / (fromWork + fromPause));
 
+    /// <summary>Kod z <see cref="SafetyReason"/>, który wstrzymuje automat zamiast go wyłączać.</summary>
+    private const string SummerPauseCode = "TRYB_LATO";
+    private const string SummerPauseKey = "PAUZA|TRYB_LATO";
+
+    /// <summary>Tyle czeka niepotwierdzony zapis, zanim automat policzy dawkę od nowa i zapisze ją jeszcze raz.</summary>
+    private static readonly TimeSpan WriteHoldTimeout = TimeSpan.FromHours(2);
+
+    private const string HoldParameter = "wstrzymanie_zapisu";
+    private const string HoldOpen = "WSTRZYMANIE";
+    private const string HoldConfirmed = "WSTRZYMANIE_POTWIERDZONE";
+    private const string HoldClosed = "WSTRZYMANIE_ZAMKNIETE";
+    private const string HoldTimedOut = "WSTRZYMANIE_PRZEKROCZONE";
+
+    /// <summary>Tyle razy z rzędu zapis może nie dojść (każda próba = <see cref="WriteHoldTimeout"/>), zanim automat się wyłączy.</summary>
+    private const int MaxHoldAttempts = 3;
+
+    private static string Minutes(TimeSpan span) => span.TotalMinutes >= 120 ? $"{span.TotalHours:0.#} h" : $"{span.TotalMinutes:0} min";
+
+    /// <summary>
+    /// Tryb lato: automat zostaje włączony, ale niczego nie zapisuje (kocioł grzeje wtedy wodę, nie dom). Nastawy w
+    /// sterowniku zostają takie, jakie są; po lecie dawka rusza od nich. Raz na epizod wpis i Discord (klucz w LastLoggedBlockKey).
+    /// </summary>
+    private async Task PauseForSummerAsync(DoseState ds, SafetyIssue issue, DateTime now, RunLog run, CancellationToken ct)
+    {
+        run.Notes.Add($"automat wstrzymany: {issue.Text} - bez zapisów");
+        if (ds.LastLoggedBlockKey == SummerPauseKey) return;
+        ds.LastLoggedBlockKey = SummerPauseKey;
+        const string text = "kocioł na trybie lato - automat czeka (niczego nie zapisuje, nastawy zostają); wróci sam po powrocie na zimę.";
+        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "PAUZA_TRYB_LATO", DoseLog.StatusInternal, $"Automat dawki wstrzymany: {text}"));
+        await _notifier.NotifyAsync("HeatFlow: automat dawki wstrzymany (tryb lato)", text, ct);
+    }
+
+    private async Task ResumeFromSummerPauseAsync(DoseState ds, DateTime now, RunLog run, CancellationToken ct)
+    {
+        if (ds.LastLoggedBlockKey != SummerPauseKey) return;
+        ds.LastLoggedBlockKey = null;
+        const string text = "koniec trybu lato - automat znów steruje dawką (od nastaw, które są teraz w sterowniku).";
+        run.Notes.Add(text);
+        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "PAUZA_KONIEC", DoseLog.StatusInternal, $"Automat dawki wznowiony: {text}"));
+        await _notifier.NotifyAsync("HeatFlow: automat dawki wznowiony", text, ct);
+    }
+
+    /// <summary>
+    /// Zapis nie potwierdził się w mapperze (także po ponownych odczytach w <see cref="DoseControllerWriter"/>). To jeszcze
+    /// nie powód do wyłączenia: noc 2026-10-25 (cofnięcie zegara sterownika przy zmianie czasu) pokazała, że mapper potrafi
+    /// przez godzinę pokazywać stare dane, a zapis i tak dochodzi. Stan trzymamy w dzienniku (wpis WSTRZYMANIE z
+    /// nastawami, które zapis miał ustawić); <see cref="ResolveWriteHoldAsync"/> sprawdza go co przebieg.
+    /// </summary>
+    private async Task StartWriteHoldAsync(DoseState ds, ControllerFeedSettings before, DoseDecision decision, int blower,
+        DoseWriteResult result, DateTime now, RunLog run, CancellationToken ct)
+    {
+        var seen = result.Last ?? before;
+        var intended = $"{decision.Work}/{decision.Pause} s, dmuchawa {blower} %";
+        var text = $"zapis {before.FeederWork}/{before.FeederPause} s, dmuchawa {before.Blower} % → {intended} nie potwierdził się w mapperze " +
+                   $"({result.Report}; mapper pokazuje {seen.FeederWork}/{seen.FeederPause} s, dmuchawa {seen.Blower} %). " +
+                   $"Automat czeka z kolejnymi zapisami i sprawdza mapper co przebieg; jeśli przez {Minutes(WriteHoldTimeout)} nie potwierdzi, " +
+                   "przeliczy dawkę od nowa i zapisze ją jeszcze raz (stare nastawy nie wracają).";
+        var entry = DoseLog.Entry(run.Ctx, HoldParameter, before.FeederPause, decision.Pause, "ZAPIS_NIEPOTWIERDZONY", HoldOpen,
+            $"Automat dawki wstrzymany: {text}");
+        entry.ControllerWork = decision.Work;       // dla tego wpisu: nastawy, które zapis miał ustawić (nie stan sterownika)
+        entry.ControllerPause = decision.Pause;
+        entry.ControllerBlower = blower;
+        run.Entries.Add(entry);
+        run.Notes.Add($"automat wstrzymany: {text}");
+        await _notifier.NotifyAsync("HeatFlow: zapis dawki niepotwierdzony - automat czeka", text, ct);
+    }
+
+    /// <summary>
+    /// Wstrzymanie po niepotwierdzonym zapisie: gdy mapper pokazuje już czas pracy i postój, które miał ustawić zapis -
+    /// wznawiamy (odstęp 2 h liczy się od zapisu); dmuchawę, której zapis nie ruszył (idzie po postoju), ustawiamy teraz,
+    /// z bieżącymi ograniczeniami od spalin. Gdy minął limit - zwraca true: dawka jest liczona i zapisywana od nowa (stare
+    /// zapamiętane nastawy są gorsze niż świeże przeliczenie); dopiero <see cref="MaxHoldAttempts"/> nieudanych prób z rzędu
+    /// wyłącza automat, BEZ przywracania. W międzyczasie żadnych zapisów. Zwraca false, gdy sprawa załatwiona w tym przebiegu.
+    /// </summary>
+    private async Task<bool> ResolveWriteHoldAsync(DoseState ds, ControllerFeedSettings? controller, FeedChangeLog hold,
+        double? flue, bool flueSafetyRecent, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct)
+    {
+        var age = now - hold.TimestampUtc;
+        var landed = controller != null && hold.ControllerWork == controller.FeederWork && hold.ControllerPause == controller.FeederPause;
+        if (landed)
+        {
+            var (blower, _, blowerCode) = DoseCalculator.LimitBlower(DoseCalculator.BlowerFor(controller!.FeederWork, controller.FeederPause, p),
+                controller.Blower, flue, flueSafetyRecent, p);
+            if (blower != controller.Blower)
+            {
+                var result = await _writer.WriteAsync(run.Entities, DoseRegister.Blower, blower, ct);
+                if (result.Last != null) SetController(ds, result.Last);
+                var w = result.Writes.FirstOrDefault();
+                run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Blower, controller.Blower, blower, blowerCode ?? "WSTRZYMANIE_DOKONCZENIE",
+                    result.Confirmed ? DoseLog.StatusWritten : DoseLog.StatusUnconfirmed,
+                    extra: "dmuchawa idzie za dawką, której zapis potwierdził się z opóźnieniem", confirmation: w?.Confirmation, seen: w?.Seen));
+                if (!result.Confirmed)
+                {
+                    run.Notes.Add($"wstrzymanie trwa: czas pracy i postój już w sterowniku, ale dmuchawa {controller.Blower} → {blower} % niepotwierdzona ({result.Report})");
+                    if (age < WriteHoldTimeout) return false;
+                    landed = false; // limit minął, a zapis nie jest cały
+                }
+                else
+                {
+                    controller = result.Last ?? controller with { Blower = blower };
+                }
+            }
+        }
+
+        if (landed)
+        {
+            var text = $"zapis {controller!.FeederWork}/{controller.FeederPause} s, dmuchawa {controller.Blower} % potwierdził się w mapperze " +
+                       $"po {Minutes(age)} - automat działa dalej.";
+            await _repository.SetApplyRequestStatusAsync(hold, HoldConfirmed, $"Zapis potwierdzony z opóźnieniem ({Minutes(age)}).", ct);
+            ds.LastChangeUtc = hold.TimestampUtc;
+            ds.LastChangeOutdoorSmoothed = ds.OutdoorSmoothed;
+            ds.LastChangeDirection = hold.OldValue.HasValue && hold.NewValue.HasValue ? Math.Sign(hold.OldValue.Value - hold.NewValue.Value) : 0;
+            ds.LastLoggedBlockKey = null;
+            run.Notes.Add($"wstrzymanie zakończone: {text}");
+            run.Entries.Add(DoseLog.Entry(run.Ctx, HoldParameter, null, null, "ZAPIS_POTWIERDZONY_POZNIEJ", DoseLog.StatusInternal,
+                $"Automat dawki wznowiony: {text}"));
+            await _notifier.NotifyAsync("HeatFlow: zapis dawki potwierdzony - automat wznowiony", text, ct);
+            return false;
+        }
+
+        if (age >= WriteHoldTimeout)
+        {
+            var attempt = 1 + await TimedOutHoldsInARowAsync(ct);
+            await _repository.SetApplyRequestStatusAsync(hold, HoldTimedOut,
+                $"Zapis nie potwierdził się przez {Minutes(age)} (próba {attempt} z {MaxHoldAttempts}).", ct);
+            if (attempt >= MaxHoldAttempts)
+            {
+                await DeactivateAsync(ds, controller,
+                    new SafetyIssue("ZAPIS_NIEPOTWIERDZONY", $"zapis nie potwierdził się w mapperze po {attempt} próbach (łącznie ok. {Minutes(WriteHoldTimeout * attempt)})"),
+                    selfDisable: true, noBlowerIncrease: false, p, now, run, ct, restoreSaved: false);
+                return false;
+            }
+
+            var retry = $"zapis nie potwierdził się przez {Minutes(age)} (próba {attempt} z {MaxHoldAttempts}) - przeliczam dawkę od nowa i zapisuję jeszcze raz. " +
+                        "Stare nastawy nie wracają.";
+            run.Notes.Add($"wstrzymanie: {retry}");
+            run.Entries.Add(DoseLog.Entry(run.Ctx, HoldParameter, null, null, "ZAPIS_PONOWNIE", DoseLog.StatusInternal, $"Automat dawki: {retry}"));
+            await _notifier.NotifyAsync("HeatFlow: zapis dawki dalej niepotwierdzony - próbuję jeszcze raz", retry, ct);
+            return true;
+        }
+
+        run.Notes.Add($"automat wstrzymany od {Minutes(age)}: czekam na potwierdzenie zapisu " +
+                      $"{hold.ControllerWork}/{hold.ControllerPause} s, dmuchawa {hold.ControllerBlower} % (limit {Minutes(WriteHoldTimeout)})");
+        return false;
+    }
+
+    /// <summary>Ile ostatnich wstrzymań z rzędu skończyło się przekroczeniem limitu (do pierwszego potwierdzonego zapisu).</summary>
+    private async Task<int> TimedOutHoldsInARowAsync(CancellationToken ct)
+    {
+        var count = 0;
+        foreach (var e in await _repository.GetChangeLogAsync(200, ct))
+        {
+            if (e.Parameter == HoldParameter && e.Status == HoldTimedOut) count++;
+            else if (e.Status == DoseLog.StatusWritten || e.Status == HoldConfirmed || e.ReasonCode.StartsWith("WLACZENIE", StringComparison.Ordinal)) break;
+        }
+        return count;
+    }
+
     /// <summary>
     /// Wyłączenie automatu - ręczne (przełącznik w HA) albo samowyłączenie. Przywraca nastawy zastane
     /// przy włączeniu (DoseRestoreOnDisable), przy spalinach &gt; 200 °C bez podnoszenia dmuchawy.
     /// </summary>
     private async Task DeactivateAsync(DoseState ds, ControllerFeedSettings? controller, SafetyIssue reason,
-        bool selfDisable, bool noBlowerIncrease, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct)
+        bool selfDisable, bool noBlowerIncrease, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct,
+        bool restoreSaved = true)
     {
         var code = selfDisable ? $"SAMOWYLACZENIE_{reason.Code}" : "WYLACZENIE_RECZNE";
+        var openHold = await _repository.GetOpenWriteHoldAsync(ct);
+        if (openHold != null)
+            await _repository.SetApplyRequestStatusAsync(openHold, HoldClosed, $"Wstrzymanie zamknięte: {reason.Text}.", ct);
         run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 0, code, DoseLog.StatusInternal,
             selfDisable
                 ? $"Automat dawki SAM SIĘ WYŁĄCZYŁ: {reason.Text}."
                 : "Automat dawki wyłączony w HA."));
 
-        var restore = await RestoreAsync(ds, controller, noBlowerIncrease, p, run.Entities, ct);
+        var restore = await (restoreSaved ? RestoreAsync(ds, controller, noBlowerIncrease, p, run.Entities, ct) : Task.FromResult(NoRestore));
         foreach (var w in restore.Writes)
         {
             var parameter = w.Register switch
@@ -851,6 +1031,10 @@ public class Phase5DoseService : IPhaseService
     }
 
     private record RestoreOutcome(string Summary, IReadOnlyList<DoseRegisterWrite> Writes);
+
+    private static readonly RestoreOutcome NoRestore = new(
+        "Nastaw NIE przywracam (zapamiętane są starsze niż to, co policzył automat) - w sterowniku zostają ostatnie; sprawdź przy kotle.",
+        Array.Empty<DoseRegisterWrite>());
 
     private async Task<RestoreOutcome> RestoreAsync(DoseState ds, ControllerFeedSettings? controller, bool noBlowerIncrease,
         HeatingParameters p, DoseEntities entities, CancellationToken ct)

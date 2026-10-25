@@ -352,7 +352,7 @@ public static class DoseCalculator
     /// Ograniczenia dmuchawy od spalin: nie podnosić przy spalinach ≥ DoseFlueNoRaiseTemp (185 °C) ani przez
     /// DoseFlueSafetyHoldHours (6 h) po bezpieczniku spalin w HA (#24); przy &gt; DoseFlueMaxTemp (200 °C)
     /// −DoseFlueBlowerCutPct (2) pkt, nie niżej niż BlowerMin.
-    /// Nigdy poza twarde 28-35 %.
+    /// Nigdy poza twarde 33-40 %.
     /// </summary>
     /// <returns>Dmuchawa po ograniczeniach, opis i kod przyczyny (SPALINY_200 / SPALINY_185 /
     /// PO_AUTOMATYZACJI_24) - null, gdy nic nie ograniczyło.</returns>

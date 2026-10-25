@@ -31,7 +31,7 @@ public class HeatingParametersController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> Put([FromBody] HeatingParameters body, CancellationToken ct)
     {
-        // Twarde granice Fazy 5 (praca 7-10 s, postój 100-320 s, dmuchawa 28-35 %) - nie zapisujemy
+        // Twarde granice Fazy 5 (praca 7-10 s, postój 100-320 s, dmuchawa 33-40 %) - nie zapisujemy
         // niczego, co by je przekroczyło.
         var doseErrors = DoseLimits.Validate(body);
         if (doseErrors.Count > 0) return BadRequest(new { error = "Parametry dawki poza granicami.", details = doseErrors });

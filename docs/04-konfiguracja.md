@@ -204,7 +204,7 @@ Gdy konfiguracja jest gotowa, przejdź do [05-uzytkowanie.md](05-uzytkowanie.md)
 ## Faza 5 „Dawka” - konfiguracja w bazie
 
 Nic z tego nie jest w kodzie - w kodzie zostają tylko twarde granice Pawła (`DoseLimits`: praca 7-10 s,
-postój 100-320 s, dmuchawa 28-35 %; podniesienie dmuchawy ponad 35 % = zmiana kodu).
+postój 100-320 s, dmuchawa 33-40 %; podniesienie dmuchawy ponad 40 % = zmiana kodu).
 
 **`SystemConfiguration`** (wartości u nas wpisuje migracja `AddDosePhase`, wzór: `ConfigurationSeed.DoseEntityDefaults`):
 

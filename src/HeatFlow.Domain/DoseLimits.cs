@@ -17,12 +17,12 @@ public static class DoseLimits
     public const int PauseMax = 320;
 
     /// <summary>
-    /// Moc dmuchawy w grzaniu [%] - na start automat trzyma 30-35 %, twardo 28-35 %.
-    /// 45 % to sufit Pawła „na później”, podniesienie ponad 35 % tylko jego decyzją (zmiana tej stałej).
-    /// 28 % = minimalna moc dmuchawy w sterowniku (regulator spalin schodzi do niej).
+    /// Moc dmuchawy w grzaniu [%] - automat trzyma 34-40 %, twardo 33-40 %.
+    /// Podniesienie ponad 40 % tylko decyzją Pawła (zmiana tej stałej).
+    /// 33 % = dolna granica od 2026-10-25 (28-30 % dawało niedopałki).
     /// </summary>
-    public const int BlowerMin = 28;
-    public const int BlowerMax = 35;
+    public const int BlowerMin = 33;
+    public const int BlowerMax = 40;
 
     /// <summary>
     /// Sprawdza parametry Fazy 5. Zwraca listę błędów (pusta = poprawne).

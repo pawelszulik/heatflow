@@ -61,8 +61,8 @@ public class HeatingParametersEntity
     public int FeederWorkMax { get; set; } = 10;
     public int FeederPauseMin { get; set; } = 100;
     public int FeederPauseMax { get; set; } = 320;
-    public int BlowerMin { get; set; } = 30;
-    public int BlowerMax { get; set; } = 35;
+    public int BlowerMin { get; set; } = 34;
+    public int BlowerMax { get; set; } = 40;
     public double FeedPerKelvin { get; set; } = 255.0;
     public double FeedOffset { get; set; } = -934.0;
     public double HouseCapacity { get; set; } = 1549.0;

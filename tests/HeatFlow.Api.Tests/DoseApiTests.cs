@@ -12,7 +12,7 @@ namespace HeatFlow.Api.Tests;
 
 /// <summary>
 /// Faza 5 „Dawka” od strony API: twarde granice parametrów (praca 7-10 s, postój 100-320 s,
-/// dmuchawa 28-35 %) i wyłącznik automatu.
+/// dmuchawa 33-40 %) i wyłącznik automatu.
 /// </summary>
 public class DoseApiTests
 {

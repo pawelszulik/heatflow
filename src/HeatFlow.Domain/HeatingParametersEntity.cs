@@ -102,8 +102,8 @@ public class HeatingParametersEntity
     public double DoseActualMaxAboveTargetsK { get; set; } = 2.0;
     public bool DoseRestoreOnDisable { get; set; } = true;
     public int DoseBoilerColdMinutes { get; set; }
-    public int DoseBoilerStaleMinutes { get; set; } = 30;
-    public int DoseOutdoorStaleMinutes { get; set; } = 120;
+    public int DoseBoilerStaleMinutes { get; set; } = 180;
+    public int DoseOutdoorStaleMinutes { get; set; } = 360;
 
     // Parametry zaworów
     public double ValveTolerance { get; set; }

@@ -1091,6 +1091,10 @@ namespace HeatFlow.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("DoseOutdoorTemp2EntityId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("DoseOutdoorTempEntityId")
                         .IsRequired()
                         .HasMaxLength(200)

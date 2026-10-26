@@ -212,6 +212,7 @@ postój 100-320 s, dmuchawa 33-40 %; podniesienie dmuchawy ponad 40 % = zmiana k
 |---|---|
 | `BoilerTempEntityId` | `sensor.kociol_temperatura_kotla` |
 | `DoseOutdoorTempEntityId` | `sensor.temperatura_ogrod_temperature` |
+| `DoseOutdoorTemp2EntityId` (opcjonalne) | `sensor.temperatura_przodek_temperature` - Tz do dawki to średnia z czujników z odczytem nie starszym niż `DoseOutdoorStaleMinutes` (360 min; wiek = last_updated albo last_reported); gdy żaden nie ma świeżego, temperatura z prognozy; `BRAK_TZ` tylko bez obu |
 | `DoseBoilerSetpointEntityId` | `number.kociol_temperatura_zadana_kotla` (tylko odczyt) |
 | `DoseFlueTempEntityId` | `sensor.kociol_temperatura_spalin` |
 | `DoseBlowerActualEntityId` | `sensor.kociol_aktualna_moc_dmuchawy` |

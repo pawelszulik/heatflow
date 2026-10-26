@@ -134,7 +134,8 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.BoilerTempEntityId).HasMaxLength(200);
             foreach (var name in new[]
                      {
-                         nameof(SystemConfiguration.DoseOutdoorTempEntityId), nameof(SystemConfiguration.DoseBoilerSetpointEntityId),
+                         nameof(SystemConfiguration.DoseOutdoorTempEntityId), nameof(SystemConfiguration.DoseOutdoorTemp2EntityId),
+                         nameof(SystemConfiguration.DoseBoilerSetpointEntityId),
                          nameof(SystemConfiguration.DoseFlueTempEntityId), nameof(SystemConfiguration.DoseBlowerActualEntityId),
                          nameof(SystemConfiguration.DoseFeederCounterEntityId), nameof(SystemConfiguration.DoseSummerSwitchEntityId),
                          nameof(SystemConfiguration.DoseControllerModeEntityId), nameof(SystemConfiguration.DoseControllerClockEntityId),

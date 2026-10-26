@@ -83,7 +83,7 @@ public static class DoseLimits
         Range(nameof(p.FeedDeadbandSec), p.FeedDeadbandSec, 5, 60);
         Range(nameof(p.FeedMaxStepSec), p.FeedMaxStepSec, 5, 60);
         Range(nameof(p.FeedWorkUpHysteresisSec), p.FeedWorkUpHysteresisSec, PauseMin, PauseMax);
-        Range(nameof(p.DoseBoilerStaleMinutes), p.DoseBoilerStaleMinutes, 10, 120);
+        Range(nameof(p.DoseBoilerStaleMinutes), p.DoseBoilerStaleMinutes, 10, 360);
         if (p.DoseBoilerColdMinutes != 0) Range(nameof(p.DoseBoilerColdMinutes), p.DoseBoilerColdMinutes, 30, 360);
         Range(nameof(p.DoseOutdoorStaleMinutes), p.DoseOutdoorStaleMinutes, 30, 360);
 

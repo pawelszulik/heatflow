@@ -328,7 +328,7 @@ public class Phase5DoseServiceTests
     {
         _repo.Switch.Enabled = true;
         _repo.State = ActiveState(saved: (7, 160, 35));
-        _repo.State.LastBoilerDataUtc = Now.AddMinutes(-45);
+        _repo.State.LastBoilerDataUtc = Now.AddMinutes(-200);
         _entities[E.ControllerClock] = new EntityState { State = "unavailable" };
 
         await Run();
@@ -349,6 +349,133 @@ public class Phase5DoseServiceTests
 
         Assert.True(_repo.Switch.Enabled);
         Assert.True(_repo.State!.AutomatActive);
+    }
+
+    [Fact]
+    public async Task BoilerDataAndMapperQuietFor150Minutes_DoesNotSelfDisable()
+    {
+        // Decyzja Pawła 2026-10-26: mapper i dane kotła potrafią zamilknąć na godziny bez wyraźnej przyczyny - próg 3 h.
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _repo.State.LastBoilerDataUtc = Now.AddMinutes(-150);
+        _repo.State.LastMapperOkUtc = Now.AddMinutes(-150);
+        _entities[E.ControllerClock] = new EntityState { State = "unavailable" };
+        _controller.Down = true;
+
+        await Run();
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+    }
+
+    [Fact]
+    public async Task MapperQuietFor200Minutes_SelfDisables()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _repo.State.LastMapperOkUtc = Now.AddMinutes(-200);
+        _controller.Down = true;
+
+        await Run();
+
+        Assert.False(_repo.Switch.Enabled);
+        Assert.Contains(_messages, m => m.Message.Contains("mapper nie odpowiada"));
+    }
+
+    [Fact]
+    public async Task OutdoorSensorsQuietFor4Hours_DoesNotSelfDisable()
+    {
+        // Noc 2026-10-25: czujnik ogrodowy przy stałych 7,0 °C milczał 230 min, a automat sam się wyłączył (próg 120 min).
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _entities[E.OutdoorTemp].LastUpdated = Now.AddMinutes(-230);
+        _entities[E.OutdoorTemp2!].LastUpdated = Now.AddMinutes(-230);
+
+        await Run();
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+    }
+
+    [Fact]
+    public async Task OutdoorSensorWithStaleUpdateButFreshReport_IsStillFresh()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        foreach (var id in new[] { E.OutdoorTemp, E.OutdoorTemp2! })
+        {
+            _entities[id].LastUpdated = Now.AddHours(-9);
+            _entities[id].LastReported = Now.AddMinutes(-5);
+        }
+
+        await Run();
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.Equal(-5.0, _repo.Samples.Last().OutdoorTemp);
+    }
+
+    [Fact]
+    public async Task OneOutdoorSensorStale_TheOtherOneDecides()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _entities[E.OutdoorTemp].LastUpdated = Now.AddHours(-8);
+        _entities[E.OutdoorTemp2!] = new EntityState { State = "-3.0", LastUpdated = Now.AddMinutes(-20) };
+
+        await Run();
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.Equal(-3.0, _repo.Samples.Last().OutdoorTemp);
+    }
+
+    [Fact]
+    public async Task BothOutdoorSensorsFresh_UseTheirAverage()
+    {
+        _entities[E.OutdoorTemp2!] = new EntityState { State = "-3.0", LastUpdated = Now.AddMinutes(-20) };
+
+        await Run();
+
+        Assert.Equal(-4.0, _repo.Samples.Last().OutdoorTemp);
+    }
+
+    [Fact]
+    public async Task BothOutdoorSensorsStale_ForecastTakesOver_AutomatStaysOn()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _entities[E.OutdoorTemp].LastUpdated = Now.AddHours(-7);
+        _entities[E.OutdoorTemp2!].LastUpdated = Now.AddHours(-7);
+        var forecast = new ForecastData
+        {
+            ForecastHours =
+            {
+                new ForecastHour { DateTime = Now.AddMinutes(-30), Temperature = 1.0 },
+                new ForecastHour { DateTime = Now.AddMinutes(30), Temperature = 2.0 },
+                new ForecastHour { DateTime = Now.AddMinutes(90), Temperature = 3.0 }
+            }
+        };
+
+        var result = await Run(forecast: forecast);
+
+        Assert.True(_repo.Switch.Enabled);
+        Assert.True(_repo.State!.AutomatActive);
+        Assert.Equal(1.0, _repo.Samples.Last().OutdoorTemp);
+        Assert.Contains("Tz z prognozy", _repo.State.LastReason);
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task BothOutdoorSensorsStaleAndNoForecast_SelfDisables()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _entities[E.OutdoorTemp].LastUpdated = Now.AddHours(-7);
+        _entities[E.OutdoorTemp2!].LastUpdated = Now.AddHours(-7);
+
+        await Run();
+
+        Assert.False(_repo.Switch.Enabled);
+        Assert.Contains(_messages, m => m.Message.Contains("brak świeżej temperatury zewnętrznej"));
     }
 
     [Fact]
@@ -996,8 +1123,8 @@ public class Phase5DoseServiceTests
         });
     }
 
-    private Task<PhaseResult> Run(HeatingParameters? p = null)
-        => _service.ExecuteAsync(new HeatingState { CurrentTime = Now, SystemConfiguration = SimDefaults.SystemConfiguration() },
+    private Task<PhaseResult> Run(HeatingParameters? p = null, ForecastData? forecast = null)
+        => _service.ExecuteAsync(new HeatingState { CurrentTime = Now, SystemConfiguration = SimDefaults.SystemConfiguration(), Forecast = forecast },
             p ?? new HeatingParameters());
 
     /// <summary>Kolejny przebieg po upływie czasu: nowa instancja z zegarem przesuniętym i świeżymi odczytami z HA.</summary>
@@ -1032,6 +1159,7 @@ public class Phase5DoseServiceTests
     {
         EntityState S(string v, DateTime? updated = null) => new() { State = v, LastUpdated = updated ?? Now.AddSeconds(-20) };
         _entities[E.OutdoorTemp] = S(outdoor.ToString(System.Globalization.CultureInfo.InvariantCulture), Now.AddMinutes(-10));
+        _entities[E.OutdoorTemp2!] = S(outdoor.ToString(System.Globalization.CultureInfo.InvariantCulture), Now.AddMinutes(-10));
         foreach (var id in IndoorSensors) _entities[id] = S("24.0");
         _entities[E.BoilerTemp] = S(boiler.ToString(System.Globalization.CultureInfo.InvariantCulture));
         _entities[E.BoilerSetpoint] = S("67.0");

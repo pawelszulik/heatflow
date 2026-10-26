@@ -81,4 +81,11 @@ public class EntityState
 
     [JsonPropertyName("last_updated")]
     public DateTime LastUpdated { get; set; }
+
+    /// <summary>
+    /// Kiedy encja ostatnio coś zgłosiła, także bez zmiany stanu (last_reported). Czujnik, który przy stałej temperaturze
+    /// milczy godzinami, ma stary last_updated, ale świeży last_reported. Default = brak danych (starsze HA).
+    /// </summary>
+    [JsonPropertyName("last_reported")]
+    public DateTime LastReported { get; set; }
 }

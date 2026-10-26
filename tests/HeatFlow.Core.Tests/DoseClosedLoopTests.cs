@@ -88,7 +88,7 @@ public class DoseClosedLoopTests
     {
         new object[] { FaultKind.Flue210, "SAMOWYLACZENIE_SPALINY_200", 0 },
         new object[] { FaultKind.MapperNoConfirm, "SAMOWYLACZENIE_ZAPIS_NIEPOTWIERDZONY", 1000 },
-        new object[] { FaultKind.DataGap, "SAMOWYLACZENIE_BRAK_DANYCH_KOTLA", 40 },
+        new object[] { FaultKind.DataGap, "SAMOWYLACZENIE_BRAK_DANYCH_KOTLA", 240 },
         new object[] { FaultKind.ManualMode, "SAMOWYLACZENIE_TRYB_RECZNY", 0 },
         new object[] { FaultKind.SwitchOffByUser, "WYLACZENIE_RECZNE", 0 }
     };
@@ -115,7 +115,13 @@ public class DoseClosedLoopTests
         var off = Assert.Single(r.Log, e => e.Parameter == DoseLog.Automat && e.NewValue == 0);
         Assert.Equal(expectedCode, off.ReasonCode);
         // Niepotwierdzony zapis: 3 próby po 2 h (dawka liczona od nowa), dopiero potem wyłączenie; pierwszy zapis może wypaść do 2 h po usterce.
-        var latest = kind == FaultKind.MapperNoConfirm ? at.AddHours(9) : at.AddHours(2);
+        // Brak danych kotła: próg 3 h (DoseBoilerStaleMinutes), więc wyłączenie ok. 3 h po początku przerwy.
+        var latest = kind switch
+        {
+            FaultKind.MapperNoConfirm => at.AddHours(9),
+            FaultKind.DataGap => at.AddMinutes(value),
+            _ => at.AddHours(2)
+        };
         Assert.True(off.TimestampUtc >= at && off.TimestampUtc <= latest, $"wyłączenie o {off.TimestampUtc:u}");
         Assert.False(r.Harness.Repo.Switch.Enabled);
 

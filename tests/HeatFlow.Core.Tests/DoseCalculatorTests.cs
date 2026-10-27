@@ -14,6 +14,28 @@ public class DoseCalculatorTests
 
     private static HeatingParameters P(double k = 1.0) => new() { FeedCorrectionK = k };
 
+    // --- Narzut na wietrzenie, drzwi i CWU (2026-10-27) ---
+
+    [Theory]
+    [InlineData(0.0, 5186.0)]
+    [InlineData(10.0, 5704.6)]
+    [InlineData(30.0, 6741.8)]
+    public void Need_SurchargeScalesNeed(double pct, double expected)
+    {
+        var p = P();
+        p.DoseVentilationSurchargePct = pct;
+        Assert.Equal(expected, DoseCalculator.Need(p, 0.0), 0);
+    }
+
+    [Fact]
+    public void Limits_SurchargeRange_And_OneHourInterval()
+    {
+        Assert.Empty(DoseLimits.Validate(new HeatingParameters { DoseVentilationSurchargePct = 50, FeedMinIntervalHours = 1 }));
+        Assert.NotEmpty(DoseLimits.Validate(new HeatingParameters { DoseVentilationSurchargePct = 51 }));
+        Assert.NotEmpty(DoseLimits.Validate(new HeatingParameters { DoseVentilationSurchargePct = -1 }));
+        Assert.NotEmpty(DoseLimits.Validate(new HeatingParameters { FeedMinIntervalHours = 0 }));
+    }
+
     // --- Model i tablica § 5 ---
 
     [Theory]
@@ -425,7 +447,7 @@ public class DoseCalculatorTests
     [InlineData(nameof(HeatingParameters.FeederPauseMax), 330)]
     [InlineData(nameof(HeatingParameters.BlowerMin), 32)]
     [InlineData(nameof(HeatingParameters.BlowerMax), 41)]
-    [InlineData(nameof(HeatingParameters.FeedMinIntervalHours), 1)]
+    [InlineData(nameof(HeatingParameters.FeedMinIntervalHours), 0)]
     public void Validate_OutsideHardLimits_IsRejected(string property, int value)
     {
         var p = new HeatingParameters();

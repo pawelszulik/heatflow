@@ -287,6 +287,7 @@ public class HeatFlowDbContext : DbContext
             entity.Property(e => e.RoomTargetsLastCalc).HasMaxLength(1000);
             entity.Property(e => e.HouseTargetActualRooms).HasMaxLength(500);
             entity.Property(e => e.LastKCorrectionDate).HasColumnType("date");
+            entity.Property(e => e.SurchargeActiveDate).HasColumnType("date");
         });
 
         modelBuilder.Entity<DoseSample>(entity =>

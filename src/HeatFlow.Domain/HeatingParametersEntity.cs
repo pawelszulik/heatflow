@@ -85,6 +85,7 @@ public class HeatingParametersEntity
     public int DoseTrimStandbyHours { get; set; } = 6;
     public int DoseTrimStepSec { get; set; } = 20;
     public int DoseTrimLimitSec { get; set; } = 60;
+    public double DoseVentilationSurchargePct { get; set; }
     public double DoseBoilerColdK { get; set; } = 10.0;
     public int DoseBoilerColdWarnMinutes { get; set; } = 60;
     public double FeedKGain { get; set; } = 0.3;
@@ -194,6 +195,7 @@ public class HeatingParametersEntity
             DoseTrimStandbyHours = DoseTrimStandbyHours,
             DoseTrimStepSec = DoseTrimStepSec,
             DoseTrimLimitSec = DoseTrimLimitSec,
+            DoseVentilationSurchargePct = DoseVentilationSurchargePct,
             DoseBoilerColdK = DoseBoilerColdK,
             DoseBoilerColdWarnMinutes = DoseBoilerColdWarnMinutes,
             FeedKGain = FeedKGain,
@@ -292,6 +294,7 @@ public class HeatingParametersEntity
         DoseTrimStandbyHours = parameters.DoseTrimStandbyHours;
         DoseTrimStepSec = parameters.DoseTrimStepSec;
         DoseTrimLimitSec = parameters.DoseTrimLimitSec;
+        DoseVentilationSurchargePct = parameters.DoseVentilationSurchargePct;
         DoseBoilerColdK = parameters.DoseBoilerColdK;
         DoseBoilerColdWarnMinutes = parameters.DoseBoilerColdWarnMinutes;
         FeedKGain = parameters.FeedKGain;

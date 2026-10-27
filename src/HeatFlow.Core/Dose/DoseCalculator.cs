@@ -87,7 +87,8 @@ public static class DoseCalculator
     /// Cel domu: z pokoi (<see cref="HouseTarget"/>, po ograniczeniu wzrostu) albo stała IndoorTargetForFeed.
     /// </summary>
     public static double Need(HeatingParameters p, double outdoor, double? houseTarget = null)
-        => p.FeedCorrectionK * (p.FeedPerKelvin * ((houseTarget ?? p.IndoorTargetForFeed) - outdoor) + p.FeedOffset);
+        => p.FeedCorrectionK * (p.FeedPerKelvin * ((houseTarget ?? p.IndoorTargetForFeed) - outdoor) + p.FeedOffset)
+           * (1 + p.DoseVentilationSurchargePct / 100.0);
 
     /// <summary>
     /// Cel domu = Σ(HeatLossW · cel pokoju) / Σ HeatLossW po pokojach z wagą &gt; 0. Cel pokoju tak jak

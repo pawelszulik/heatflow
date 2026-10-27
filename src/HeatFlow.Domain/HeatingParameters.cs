@@ -217,6 +217,12 @@ public class HeatingParameters
     /// <summary>Granica trymu w jedną stronę [s] (zerowany o północy).</summary>
     public int DoseTrimLimitSec { get; set; } = 60;
 
+    /// <summary>
+    /// Narzut na potrzebę z modelu [%]: wietrzenie, otwarte drzwi, dodatkowe CWU - straty, których średnia
+    /// z regresji nie widzi. Doraźne pokrętło z HA: doby z narzutem &gt; 0 nie uczą k (inaczej k by go wchłonęło).
+    /// </summary>
+    public double DoseVentilationSurchargePct { get; set; }
+
     /// <summary>„Kocioł zimny”: o ile K poniżej nastawy.</summary>
     public double DoseBoilerColdK { get; set; } = 10.0;
 

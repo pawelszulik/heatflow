@@ -128,6 +128,12 @@ public class DoseState
     /// <summary>Doba (lokalna), za którą ostatnio policzono korektę k.</summary>
     public DateTime? LastKCorrectionDate { get; set; }
 
+    /// <summary>Narzut na wietrzenie/drzwi/CWU [%] z poprzedniego przebiegu - do wpisu w dzienniku przy zmianie.</summary>
+    public double? LastSurchargePct { get; set; }
+
+    /// <summary>Ostatnia doba (lokalna), w której narzut był &gt; 0 - taka doba nie uczy k.</summary>
+    public DateTime? SurchargeActiveDate { get; set; }
+
     /// <summary>Ostatni opis decyzji (co i dlaczego) - widoczny w HA.</summary>
     public string? LastReason { get; set; }
 

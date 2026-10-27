@@ -73,13 +73,14 @@ public static class DoseLimits
         Range(nameof(p.DoseTrimStandbyHours), p.DoseTrimStandbyHours, 1, 24);
         Range(nameof(p.DoseTrimStepSec), p.DoseTrimStepSec, 5, 60);
         Range(nameof(p.DoseTrimLimitSec), p.DoseTrimLimitSec, 0, 200);
+        Range(nameof(p.DoseVentilationSurchargePct), p.DoseVentilationSurchargePct, 0, 50);
         Range(nameof(p.DoseBoilerColdK), p.DoseBoilerColdK, 3, 30);
         Range(nameof(p.DoseBoilerColdWarnMinutes), p.DoseBoilerColdWarnMinutes, 15, 360);
         Range(nameof(p.DoseCeilingDayHeatingHours), p.DoseCeilingDayHeatingHours, 12, 24);
         Range(nameof(p.DoseBlowerLowDuty), p.DoseBlowerLowDuty, 0.01, 0.09);
         Range(nameof(p.FeedSmoothingPastHours), p.FeedSmoothingPastHours, 1, 24);
         Range(nameof(p.FeedSmoothingForecastHours), p.FeedSmoothingForecastHours, 0, 24);
-        Range(nameof(p.FeedMinIntervalHours), p.FeedMinIntervalHours, 2, 24);
+        Range(nameof(p.FeedMinIntervalHours), p.FeedMinIntervalHours, 1, 24);
         Range(nameof(p.FeedDeadbandSec), p.FeedDeadbandSec, 5, 60);
         Range(nameof(p.FeedMaxStepSec), p.FeedMaxStepSec, 5, 60);
         Range(nameof(p.FeedWorkUpHysteresisSec), p.FeedWorkUpHysteresisSec, PauseMin, PauseMax);

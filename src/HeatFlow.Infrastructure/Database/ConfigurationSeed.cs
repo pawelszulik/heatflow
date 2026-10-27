@@ -141,6 +141,7 @@ public static class ConfigurationSeed
     {
         c.BoilerTempEntityId ??= "sensor.kociol_temperatura_kotla";
         c.DoseOutdoorTempEntityId = "sensor.temperatura_ogrod_temperature";
+        c.DoseOutdoorTemp2EntityId = "sensor.temperatura_przodek_temperature";
         c.DoseBoilerSetpointEntityId = "number.kociol_temperatura_zadana_kotla";
         c.DoseFlueTempEntityId = "sensor.kociol_temperatura_spalin";
         c.DoseBlowerActualEntityId = "sensor.kociol_aktualna_moc_dmuchawy";

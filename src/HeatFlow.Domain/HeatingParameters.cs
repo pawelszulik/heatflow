@@ -217,6 +217,12 @@ public class HeatingParameters
     /// <summary>Granica trymu w jedną stronę [s] (zerowany o północy).</summary>
     public int DoseTrimLimitSec { get; set; } = 60;
 
+    /// <summary>
+    /// Narzut na potrzebę z modelu [%]: wietrzenie, otwarte drzwi, dodatkowe CWU - straty, których średnia
+    /// z regresji nie widzi. Doraźne pokrętło z HA: doby z narzutem &gt; 0 nie uczą k (inaczej k by go wchłonęło).
+    /// </summary>
+    public double DoseVentilationSurchargePct { get; set; }
+
     /// <summary>„Kocioł zimny”: o ile K poniżej nastawy.</summary>
     public double DoseBoilerColdK { get; set; } = 10.0;
 
@@ -254,15 +260,20 @@ public class HeatingParameters
     /// </summary>
     public int DoseBoilerColdMinutes { get; set; }
 
-    /// <summary>Po ilu minutach bez danych z kotła automat sam się wyłącza.</summary>
-    public int DoseBoilerStaleMinutes { get; set; } = 30;
+    /// <summary>
+    /// Po ilu minutach bez danych z kotła (zegar sterownika w HA) albo bez odpowiedzi mappera automat sam się wyłącza.
+    /// 180 min (decyzja Pawła 2026-10-26): mapper potrafi na jakiś czas zamilknąć bez wyraźnej przyczyny; zapisów bez
+    /// potwierdzenia w mapperze i tak nie ma (wstrzymanie zapisu).
+    /// </summary>
+    public int DoseBoilerStaleMinutes { get; set; } = 180;
 
     /// <summary>
-    /// Po ilu minutach bez nowej wartości z czujnika ogrodowego automat sam się wyłącza. Nie 30 min
-    /// jak dla kotła: przy stałej temperaturze stan czujnika zmienia się w HA zwykle co ok. 58 min
-    /// (HMS, X 2026: kilkadziesiąt przerw 53-59 min), więc 30 min wyłączałoby automat co godzinę.
+    /// Po ilu minutach bez odczytu z czujników zewnętrznych (ogród, przodek; wiek = last_updated albo last_reported)
+    /// Faza 5 przechodzi na temperaturę z prognozy; samowyłączenie dopiero, gdy nie ma też prognozy. Nie 30 min jak
+    /// dla kotła: przy stałej temperaturze stan czujnika stoi godzinami (noc 2026-10-25: 230 min bez zmiany,
+    /// a próg 120 min wyłączył automat), a temperatura do dawki jest i tak wygładzana z kilku godzin.
     /// </summary>
-    public int DoseOutdoorStaleMinutes { get; set; } = 120;
+    public int DoseOutdoorStaleMinutes { get; set; } = 360;
 
     // Parametry zaworów
     public double ValveTolerance { get; set; }

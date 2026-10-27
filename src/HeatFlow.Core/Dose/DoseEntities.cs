@@ -7,6 +7,7 @@ namespace HeatFlow.Core.Dose;
 /// </summary>
 public sealed record DoseEntities(
     string OutdoorTemp,
+    string? OutdoorTemp2,
     string BoilerTemp,
     string BoilerSetpoint,
     string FlueTemp,
@@ -22,6 +23,7 @@ public sealed record DoseEntities(
 {
     public static DoseEntities From(SystemConfiguration c) => new(
         c.DoseOutdoorTempEntityId,
+        c.DoseOutdoorTemp2EntityId,
         c.BoilerTempEntityId ?? string.Empty,
         c.DoseBoilerSetpointEntityId,
         c.DoseFlueTempEntityId,

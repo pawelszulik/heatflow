@@ -316,6 +316,9 @@ namespace HeatFlow.Infrastructure.Migrations
                     b.Property<DateTime?>("LastSelfDisableUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<double?>("LastSurchargePct")
+                        .HasColumnType("float");
+
                     b.Property<string>("LastTrimCode")
                         .HasColumnType("nvarchar(max)");
 
@@ -378,6 +381,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<double>("StorageBonusSec")
                         .HasColumnType("float");
+
+                    b.Property<DateTime?>("SurchargeActiveDate")
+                        .HasColumnType("date");
 
                     b.Property<int>("TrimSec")
                         .HasColumnType("int");
@@ -693,6 +699,9 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<decimal>("DoseTrimUnderpowerK")
                         .HasColumnType("decimal(5,2)");
+
+                    b.Property<double>("DoseVentilationSurchargePct")
+                        .HasColumnType("float");
 
                     b.Property<decimal>("FeedCorrectionK")
                         .HasColumnType("decimal(5,3)");
@@ -1088,6 +1097,10 @@ namespace HeatFlow.Infrastructure.Migrations
 
                     b.Property<string>("DoseNotifyTarget")
                         .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DoseOutdoorTemp2EntityId")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 

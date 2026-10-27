@@ -47,6 +47,12 @@ public class SystemConfiguration
     /// <summary>Temperatura zewnętrzna do dawki (czujnik ogrodowy, nie weather.*).</summary>
     public string DoseOutdoorTempEntityId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Drugi czujnik temperatury zewnętrznej (opcjonalny): Tz do dawki to średnia z czujników ze świeżym odczytem;
+    /// gdy żaden nie ma świeżego, Faza 5 bierze temperaturę z prognozy.
+    /// </summary>
+    public string? DoseOutdoorTemp2EntityId { get; set; }
+
     /// <summary>Temperatura zadana kotła (tylko odczyt - Faza 5 jej nie zmienia).</summary>
     public string DoseBoilerSetpointEntityId { get; set; } = string.Empty;
 

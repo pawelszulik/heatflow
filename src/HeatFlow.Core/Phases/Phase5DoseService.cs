@@ -77,6 +77,7 @@ public class Phase5DoseService : IPhaseService
         DoseSample Sample,
         DateTime? BoilerDataUtc,
         DateTime? OutdoorDataUtc,
+        bool OutdoorFromForecast,
         bool? SummerMode,
         bool? ControllerAuto,
         DateTime? FlueSafetyLastTriggeredUtc);
@@ -116,7 +117,11 @@ public class Phase5DoseService : IPhaseService
 
             // 1. Migawka (co przebieg) - pamięć do Tz, trymu, bezpieczników i bilansu doby.
             var rooms = await _configurationService.GetAllRoomsAsync(cancellationToken);
-            var inputs = await ReadInputsAsync(entities!, rooms, parameters, now, cancellationToken);
+            var inputs = await ReadInputsAsync(entities!, rooms, parameters, now, state.Forecast, cancellationToken);
+            if (inputs.OutdoorFromForecast)
+            {
+                notes.Add($"Tz z prognozy: czujniki zewnętrzne bez odczytu od ponad {parameters.DoseOutdoorStaleMinutes} min");
+            }
             await _repository.AddSampleAsync(inputs.Sample, cancellationToken);
             await _repository.DeleteSamplesOlderThanAsync(now - SampleRetention, cancellationToken);
 
@@ -564,6 +569,7 @@ public class Phase5DoseService : IPhaseService
         EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run);
         var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec, usedTarget, bonus);
 
+        TrackSurcharge(ds, p, now, run);
         ds.OutdoorSmoothed = Math.Round(tz.Value, 2);
         ds.NeedSecPerDay = Math.Round(DoseCalculator.Need(p, tz.Value, usedTarget) + bonus);
         ds.PlannedWork = plan.Work;
@@ -577,6 +583,9 @@ public class Phase5DoseService : IPhaseService
         }
     }
 
+    /// <summary>Najkrótszy odstęp między krokami trymu [h], niezależnie od FeedMinIntervalHours.</summary>
+    private const int TrimMinIntervalHours = 2;
+
     /// <summary>
     /// Szybki trym od kotła (§ 9): kocioł nie dochodzi do nastawy przy ciągłej dmuchawie przez 2 h
     /// → postój −20 s; ≥ 2 wejścia w podtrzymanie w 6 h → +20 s. Nie częściej niż co
@@ -585,7 +594,10 @@ public class Phase5DoseService : IPhaseService
     private static void EvaluateTrim(DoseState ds, DosePlan planWithoutTrim, IReadOnlyList<DoseSample> samples,
         DateTime now, HeatingParameters p, RunLog run)
     {
-        if (ds.LastTrimUtc.HasValue && now - ds.LastTrimUtc.Value < TimeSpan.FromHours(p.FeedMinIntervalHours))
+        // Trym idzie za kotłem (ogień reaguje 1-2 h), więc ma własny odstęp: dawka z modelu może iść co 1 h,
+        // a trym i tak nie częściej niż co 2 h - inaczej zbierałby krok za krokiem, zanim ogień odpowie.
+        if (ds.LastTrimUtc.HasValue
+            && now - ds.LastTrimUtc.Value < TimeSpan.FromHours(Math.Max(TrimMinIntervalHours, p.FeedMinIntervalHours)))
         {
             return;
         }
@@ -1124,6 +1136,26 @@ public class Phase5DoseService : IPhaseService
         return errors.Count == 0 ? null : new("PARAMETRY", $"parametry poza granicami: {string.Join(", ", errors)}");
     }
 
+    /// <summary>
+    /// Narzut z HA: zapamiętuje dobę, w której był &gt; 0 (taka doba nie uczy k), i wpisuje zmianę do dziennika.
+    /// </summary>
+    private void TrackSurcharge(DoseState ds, HeatingParameters p, DateTime now, RunLog run)
+    {
+        var pct = p.DoseVentilationSurchargePct;
+        run.Ctx.SurchargePct = pct;
+        if (pct > 0)
+            ds.SurchargeActiveDate = TimeZoneInfo.ConvertTimeFromUtc(now, _time.LocalTimeZone).Date;
+
+        var previous = ds.LastSurchargePct ?? 0.0;
+        if (Math.Abs(pct - previous) >= 0.05)
+        {
+            run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.SurchargeParameter, previous, pct, "NARZUT", DoseLog.StatusInternal,
+                $"{DoseLog.Head(DoseLog.SurchargeParameter, previous, pct)}: ustawione w HA. Dawka z modelu liczona z mnożnikiem " +
+                $"{DoseLog.Number(1 + pct / 100.0, "0.00")}; doby z narzutem nie uczą k."));
+        }
+        ds.LastSurchargePct = pct;
+    }
+
     /// <summary>Korekta k raz na dobę, za wczorajszą dobę lokalną (§ 9 „Korekta raz na dobę”).</summary>
     private async Task CorrectKIfDueAsync(DoseState ds, HeatingParameters p, DateTime nowUtc,
         RunLog run, CancellationToken ct)
@@ -1144,7 +1176,10 @@ public class Phase5DoseService : IPhaseService
         var day = DoseCalculator.BalanceForDay(samples, dayStart, dayEnd);
         var before = DoseCalculator.BalanceForDay(samples, beforeStart, dayStart);
         var oldK = p.FeedCorrectionK;
-        var (newK, reason) = DoseCalculator.CorrectK(oldK, day, before.IndoorMean.HasValue ? before : null, p);
+        var surchargeDay = ds.SurchargeActiveDate.HasValue && ds.SurchargeActiveDate.Value.Date == yesterday;
+        var (newK, reason) = surchargeDay
+            ? ((double?)null, "doba pominięta: był narzut na wietrzenie/drzwi/CWU - k nie uczy się z doby z narzutem")
+            : DoseCalculator.CorrectK(oldK, day, before.IndoorMean.HasValue ? before : null, p);
         var dayText = yesterday.ToString("yyyy-MM-dd");
 
         if (newK.HasValue && Math.Abs(newK.Value - oldK) > 0.0005)
@@ -1187,11 +1222,46 @@ public class Phase5DoseService : IPhaseService
         }
     }
 
-    private async Task<DoseInputs> ReadInputsAsync(DoseEntities e, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
-        DateTime now, CancellationToken ct)
+    /// <summary>
+    /// Tz do dawki: średnia z czujników zewnętrznych (ogród, przodek) z odczytem nie starszym niż DoseOutdoorStaleMinutes;
+    /// wiek to last_updated albo last_reported - czujnik przy stałej temperaturze milczy godzinami (noc 2026-10-25: 230 min).
+    /// Gdy żaden nie ma świeżego odczytu, temperatura z prognozy (godzina najbliższa „teraz”). OutdoorDataUtc to najnowszy
+    /// odczyt czujnika albo „teraz” przy prognozie; null/stary = brak Tz, więc BRAK_TZ.
+    /// </summary>
+    private async Task<(double? Value, DateTime? DataUtc, bool FromForecast)> ReadOutdoorAsync(
+        DoseEntities e, HeatingParameters p, ForecastData? forecast, DateTime now, CancellationToken ct)
     {
-        var outdoorState = await _haClient.GetStateAsync(e.OutdoorTemp, ct);
-        var outdoor = ParseDouble(outdoorState);
+        var staleAfter = TimeSpan.FromMinutes(p.DoseOutdoorStaleMinutes);
+        var fresh = new List<double>();
+        DateTime? newest = null;
+        foreach (var id in new[] { e.OutdoorTemp, e.OutdoorTemp2 }.Where(id => !string.IsNullOrWhiteSpace(id)))
+        {
+            var sensor = await _haClient.GetStateAsync(id!, ct);
+            var value = ParseDouble(sensor);
+            if (!value.HasValue) continue;
+            var at = UpdatedUtc(sensor!, now);
+            if (newest == null || at > newest) newest = at;
+            if (now - at <= staleAfter) fresh.Add(value.Value);
+        }
+
+        if (fresh.Count > 0) return (Math.Round(fresh.Average(), 2), newest, false);
+
+        var fromForecast = ForecastTemperatureNow(forecast, now);
+        return fromForecast.HasValue ? (fromForecast, now, true) : (null, newest, false);
+    }
+
+    /// <summary>Temperatura z prognozy dla godziny najbliższej „teraz” (do 90 min od niej; starsza prognoza to brak).</summary>
+    private static double? ForecastTemperatureNow(ForecastData? forecast, DateTime now)
+        => forecast?.ForecastHours
+            .Where(f => f.Temperature.HasValue && f.DateTime.HasValue && (f.DateTime.Value - now).Duration() <= TimeSpan.FromMinutes(90))
+            .OrderBy(f => (f.DateTime!.Value - now).Duration())
+            .Select(f => f.Temperature)
+            .FirstOrDefault();
+
+    private async Task<DoseInputs> ReadInputsAsync(DoseEntities e, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
+        DateTime now, ForecastData? forecast, CancellationToken ct)
+    {
+        var (outdoor, outdoorDataUtc, outdoorFromForecast) = await ReadOutdoorAsync(e, p, forecast, now, ct);
 
         // Temperatura w domu do korekty k: domyślnie średnia czujników z flagą UseForDoseIndoorMean
         // (7× BMx280 z kalibracji modelu); przy DoseIndoorMeasureWeighted - wszystkie pokoje ważone
@@ -1241,7 +1311,8 @@ public class Phase5DoseService : IPhaseService
         return new DoseInputs(
             sample,
             IsValid(clock) ? UpdatedUtc(clock!, now) : null,
-            outdoor.HasValue ? UpdatedUtc(outdoorState!, now) : null,
+            outdoorDataUtc,
+            outdoorFromForecast,
             sample.SummerMode,
             controllerAuto,
             ParseLastTriggered(flueSafety));
@@ -1404,12 +1475,15 @@ public class Phase5DoseService : IPhaseService
         return double.TryParse(state!.State, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
     }
 
-    /// <summary>last_updated z HA w UTC; brak (default) = „teraz”, bo encja właśnie odpowiedziała.</summary>
+    /// <summary>
+    /// Ostatni znak życia encji z HA w UTC: najnowsze z last_updated, last_changed i last_reported (to ostatnie rośnie także
+    /// przy niezmienionym stanie). Brak wszystkich (default) = „teraz”, bo encja właśnie odpowiedziała.
+    /// </summary>
     private static DateTime UpdatedUtc(EntityState state, DateTime now)
     {
-        var t = state.LastUpdated == default ? state.LastChanged : state.LastUpdated;
-        if (t == default) return now;
-        return t.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(t, DateTimeKind.Utc) : t.ToUniversalTime();
+        static DateTime Utc(DateTime t) => t.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(t, DateTimeKind.Utc) : t.ToUniversalTime();
+        var t = new[] { state.LastUpdated, state.LastChanged, state.LastReported }.Where(x => x != default).Select(Utc).DefaultIfEmpty(default).Max();
+        return t == default ? now : t;
     }
 
     private static DateTime? ParseLastTriggered(EntityState? automation)

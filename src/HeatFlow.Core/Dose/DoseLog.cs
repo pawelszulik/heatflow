@@ -30,6 +30,7 @@ public class DoseLogContext
     public double? HouseTargetRaw { get; set; }
     public string? HouseTargetSource { get; set; }
     public double StorageBonusSec { get; set; }
+    public double SurchargePct { get; set; }
     /// <summary>Parametry przebiegu - progi w zdaniach (3 K, 185 °C …) zgodne z tym, co faktycznie działa.</summary>
     public HeatingParameters Parameters { get; set; } = new();
     public ControllerFeedSettingsSnapshot? Controller { get; set; }
@@ -53,6 +54,7 @@ public static class DoseLog
     public const string K = "k";
     public const string Trim = "trym_postoju";
     public const string Automat = "automat";
+    public const string SurchargeParameter = "narzut";
     public const string HouseTargetParameter = "cel_domu";
 
     /// <summary>Przycisk „Ustaw sugerowane” (HA): zlecenie zapisuje API, nastawy zapisuje Console w najbliższym przebiegu.</summary>
@@ -87,6 +89,7 @@ public static class DoseLog
         K => "k",
         Trim => "Trym postoju",
         HouseTargetParameter => "Cel domu",
+        SurchargeParameter => "Narzut na wietrzenie, drzwi i CWU",
         ButtonParameter => "Przycisk",
         _ => "Automat"
     };
@@ -96,6 +99,7 @@ public static class DoseLog
         Work or Pause or Trim => " s",
         Blower => " %",
         HouseTargetParameter => " °C",
+        SurchargeParameter => " %",
         _ => ""
     };
 
@@ -111,7 +115,7 @@ public static class DoseLog
         var up = direction == "w górę";
         return parameter switch
         {
-            Work or K or HouseTargetParameter => $"{direction} = {(up ? "więcej" : "mniej")} węgla",
+            Work or K or HouseTargetParameter or SurchargeParameter => $"{direction} = {(up ? "więcej" : "mniej")} węgla",
             Pause or Trim => $"{direction} = {(up ? "mniej" : "więcej")} węgla",
             Blower => $"{direction} = {(up ? "więcej" : "mniej")} powietrza",
             _ => direction
@@ -141,7 +145,8 @@ public static class DoseLog
                   ? $" rośnie do {Number(c.HouseTargetRaw, "0.0")} °C - w tym +{Number(c.StorageBonusSec, "#,##0")} s/dobę na dogrzanie domu"
                   : "")
             : "";
-        var need = $"potrzeba {Number(c.NeedSecPerDay, "#,##0")} s/dobę przy k {Number(c.K, "0.00")}{target}";
+        var surcharge = c.SurchargePct > 0 ? $", narzut +{Number(c.SurchargePct, "0.#")} %" : "";
+        var need = $"potrzeba {Number(c.NeedSecPerDay, "#,##0")} s/dobę przy k {Number(c.K, "0.00")}{surcharge}{target}";
         var trim = c.TrimSec != 0 ? $", trym {c.TrimSec.ToString("+0;-0", Pl)} s" : "";
         var boiler = $"kocioł {Number(c.BoilerTemp, "0.0")} °C przy nastawie {Number(c.BoilerSetpoint, "0")} °C";
         var p = c.Parameters;

@@ -156,7 +156,7 @@ public class DoseClosedLoopTests
         Assert.Empty(r.SelfDisables);
         Assert.True(r.Harness.Repo.Switch.Enabled);
         var hold = Assert.Single(r.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.ReasonCode == "ZAPIS_NIEPOTWIERDZONY");
-        Assert.Equal("WSTRZYMANIE_PRZEKROCZONE", hold.Status);
+        Assert.Equal("WSTRZYMANIE_PRZEKR", hold.Status);
         var retry = Assert.Single(r.Log, e => e.ReasonCode == "ZAPIS_PONOWNIE");
         Assert.InRange((retry.TimestampUtc - hold.TimestampUtc).TotalMinutes, 120, 130);
         // Ponowna próba trafia w sterownik i dawka rusza dalej.

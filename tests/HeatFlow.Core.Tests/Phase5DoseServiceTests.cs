@@ -302,7 +302,7 @@ public class Phase5DoseServiceTests
         Assert.Equal(140, _controller.Settings.FeederPause);
         Assert.Contains(_messages, m => m.Title.Contains("potwierdzony - automat wznowiony"));
         Assert.DoesNotContain(_messages, m => m.Title.Contains("SAM SIĘ WYŁĄCZYŁ"));
-        Assert.Contains(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE_POTWIERDZONE");
+        Assert.Contains(_repo.Log, e => e.Parameter == "wstrzymanie_zapisu" && e.Status == "WSTRZYMANIE_POTW");
         Assert.Equal(Now, _repo.State.LastChangeUtc); // odstęp 2 h liczy się od zapisu, nie od potwierdzenia
     }
 

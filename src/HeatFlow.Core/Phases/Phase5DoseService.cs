@@ -839,9 +839,9 @@ public class Phase5DoseService : IPhaseService
 
     private const string HoldParameter = "wstrzymanie_zapisu";
     private const string HoldOpen = "WSTRZYMANIE";
-    private const string HoldConfirmed = "WSTRZYMANIE_POTWIERDZONE";
-    private const string HoldClosed = "WSTRZYMANIE_ZAMKNIETE";
-    private const string HoldTimedOut = "WSTRZYMANIE_PRZEKROCZONE";
+    private const string HoldConfirmed = "WSTRZYMANIE_POTW";
+    private const string HoldClosed = "WSTRZYMANIE_ZAMK";
+    private const string HoldTimedOut = "WSTRZYMANIE_PRZEKR";
 
     /// <summary>Tyle razy z rzędu zapis może nie dojść (każda próba = <see cref="WriteHoldTimeout"/>), zanim automat się wyłączy.</summary>
     private const int MaxHoldAttempts = 3;

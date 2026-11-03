@@ -1303,6 +1303,11 @@ public class Phase5DoseServiceTests
         public Task<List<DoseSample>> GetSamplesSinceAsync(DateTime sinceUtc, CancellationToken ct = default)
             => Task.FromResult(Samples.Where(s => s.TimestampUtc >= sinceUtc).OrderBy(s => s.TimestampUtc).ToList());
 
+        public List<RoomState> RoomStates { get; } = new();
+
+        public Task<List<RoomState>> GetRoomStatesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+            => Task.FromResult(RoomStates.Where(s => s.RecordedAt >= fromUtc && s.RecordedAt < toUtc).ToList());
+
         public Task DeleteSamplesOlderThanAsync(DateTime olderThanUtc, CancellationToken ct = default)
         {
             Samples.RemoveAll(s => s.TimestampUtc < olderThanUtc);

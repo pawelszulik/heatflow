@@ -243,7 +243,11 @@ public class DoseActualTargetTests
             return r.Hours.Where(x => x.Utc >= from.AddDays(10)).Average(x => x.RoomsBelowTarget);
         }
 
-        Assert.True(await RoomsBelow(new HeatingParameters()) <= 0.5);
-        Assert.True(await RoomsBelow(new HeatingParameters { DoseTargetUseActual = false }) >= 2.0);
+        var withActual = await RoomsBelow(new HeatingParameters());
+        var targetsOnly = await RoomsBelow(new HeatingParameters { DoseTargetUseActual = false });
+        // Od 2026-11-03 dociąganie do celu dokłada węgla także przy samych celach, więc pod celem zostaje mniej pokoi
+        // (było ≥ 2, jest ~1,6), ale cel z faktycznymi dalej wyraźnie wygrywa.
+        Assert.True(withActual <= 0.5 && targetsOnly >= 1.0 && targetsOnly >= withActual + 1.0,
+            $"z faktycznymi {withActual:F2}, same cele {targetsOnly:F2}");
     }
 }

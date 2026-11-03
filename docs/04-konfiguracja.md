@@ -253,6 +253,20 @@ weszły po faktycznej, a które po celu. **`RoomConfiguration.DoseUseActual`** (
 „Dawka: cel z faktycznej” w pokoju) = wył. → pokój zawsze po celu - np. garaż, ciepły od cudzego ciepła
 (średnio ~16 °C przy celu 6 °C, zawór zamknięty), podnosi cel domu o 0,9–1,2 K.
 
+**Dociąganie do celu** (2026-11-03, Paweł: „powinno trzymać zadaną, a nie stopień niżej”; bez nowych parametrów
+i bez migracji - stałe w `DoseCalculator`). Brak domu = Σ(HeatLossW · średni max(0, cel − faktyczna)) / Σ wag z
+migawek Fazy 1 (tabela `RoomState`) z ostatnich 3 h; pokoje cieplejsze niż cel nie odejmują braku innym.
+- **Dodatek:** brak > 0,2 K i kocioł **nie** dobija do nastawy (< `DoseTrimStandbyEntries` wejść w podtrzymanie
+  w `DoseTrimStandbyHours`) → `HouseCapacity · brak` s/dobę (0,5 K ≈ +775 s), maleje z brakiem, ≤
+  `DoseStorageBonusMaxSec`; z dodatkiem na wzrost celu liczy się większy. Gdy kocioł dobija do nastawy, dodatku nie
+  ma - więcej węgla nie pomoże, ciepło nie ma którędy odejść (opis w `LastReason`).
+- **Trym podtrzymania:** gdy pokoje pod celem mają **zamknięte zawory** (ta sama suma, ale tylko z migawek z
+  zamkniętym zaworem, > 0,2 K), podtrzymanie to brak odbioru, nie nadmiar węgla → trym „mniej węgla” zablokowany,
+  a dodatni trym zdjęty od razu (wpis `DOM_POD_CELEM`). Pokój pod celem z otwartym zaworem trymu nie blokuje.
+- **Korekta k o północy:** doba, w której dom był średnio > 0,2 K pod celem, a kocioł dobił do nastawy mniej niż
+  `DoseTrimStandbyEntries · 24 / DoseTrimStandbyHours` razy (8), może k tylko podnieść - podajnik tej doby ustalił
+  automat (za mało ognia), nie dom. Wpis `KOREKTA_K` z „k NIE spada: …”.
+
 **`HeatingParameters`** - wszystkie progi Fazy 5 (`Feed*`, `Dose*`, `Blower*`, `Feeder*Min/Max`), z walidacją
 w `DoseLimits.Validate` i gałkami w HA (`number.heatflow_parametry_dawka_*`).
 

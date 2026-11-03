@@ -86,6 +86,14 @@ public class DoseRepository : IDoseRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<List<RoomState>> GetRoomStatesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default)
+    {
+        return await _context.RoomStates
+            .AsNoTracking()
+            .Where(s => s.RecordedAt >= fromUtc && s.RecordedAt < toUtc)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task DeleteSamplesOlderThanAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default)
     {
         await _context.DoseSamples

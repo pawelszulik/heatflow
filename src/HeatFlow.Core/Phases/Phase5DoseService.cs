@@ -23,7 +23,8 @@ namespace HeatFlow.Core.Phases;
 /// Zapisuje wyłącznie number.kociol_czas_pracy_podajnika, number.kociol_czas_postoju_podajnika
 /// i number.kociol_moc_dmuchawy - nastawy kotła, podtrzymania, maks. spalin, regulatora spalin
 /// ani min. mocy dmuchawy nie rusza nigdy. Potwierdzenie zapisu z mappera, nie ze stanu HA.
-/// Sygnałem zwrotnym jest kocioł, nigdy temperatura w pokojach (§ 7).
+/// Sygnałem zwrotnym jest kocioł (§ 7), a od 2026-11-03 także brak domu do celu ze średnich z 3 h
+/// (dociąganie, blokada trymu podtrzymania przy zamkniętych zaworach, k bez spadku przy niedogrzanym domu).
 ///
 /// Każda zmiana (i decyzja zablokowana regułą) trafia do dziennika FeedChangeLog: co, z ilu na
 /// ile, w którą stronę i dlaczego, po polsku, z danymi wejściowymi (<see cref="DoseLog"/>).
@@ -156,8 +157,12 @@ public class Phase5DoseService : IPhaseService
                 : null;
             ctx.K = parameters.FeedCorrectionK;
 
+            // Brak domu do celu (średnia z 3 h z migawek Fazy 1) - do dociągania i blokady trymu podtrzymania.
+            var deficit = await HouseDeficitAsync(rooms, parameters, now, cancellationToken);
+            ctx.HouseDeficitK = deficit == null ? null : Math.Round(deficit.DeficitK, 2);
+
             // 2. Korekta k raz na dobę (za wczoraj), zanim policzymy dawkę.
-            await CorrectKIfDueAsync(ds, parameters, now, run, cancellationToken);
+            await CorrectKIfDueAsync(ds, parameters, rooms, now, run, cancellationToken);
             ctx.K = parameters.FeedCorrectionK;
 
             var windowStart = now - TimeSpan.FromHours(new[]
@@ -175,9 +180,13 @@ public class Phase5DoseService : IPhaseService
             // 3. Dawka z pogody - co godzinę.
             if (ds.LastCalcUtc == null || ds.ModelPause == null || now - ds.LastCalcUtc.Value >= CalcInterval)
             {
-                Calculate(ds, state, rooms, parameters, samples, now, run);
+                Calculate(ds, state, rooms, parameters, samples, now, run, deficit);
             }
             FillPlan(ctx, ds);
+            // Dodatek przy celu, który już nie rośnie, to dociąganie do celu (nie dogrzanie po podniesieniu celu).
+            ctx.CatchUpActive = ds.StorageBonusSec > 0
+                                && DoseCalculator.CatchUpSec(deficit?.DeficitK, ctx.StandbyEntries6h ?? 0, parameters) > 0
+                                && !(ds.HouseTargetUsed < ds.HouseTarget - 0.005);
 
             // 4. Co sterownik dostałby teraz (sugestia przy wyłączonym automacie).
             DoseDecision? decision = null;
@@ -523,7 +532,7 @@ public class Phase5DoseService : IPhaseService
 
     /// <summary>Krok 1-4, 6 i szybki trym - wynik do DoseState.</summary>
     private void Calculate(DoseState ds, HeatingState state, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
-        IReadOnlyList<DoseSample> samples, DateTime now, RunLog run)
+        IReadOnlyList<DoseSample> samples, DateTime now, RunLog run, HouseDeficit? deficit)
     {
         var measured = samples
             .Where(s => s.OutdoorTemp.HasValue)
@@ -556,7 +565,25 @@ public class Phase5DoseService : IPhaseService
                 inputs.Select(r => r with { Target = lastTargets.GetValueOrDefault(r.Name, r.Target) }).ToList(), actuals, p).Target;
             if (atLastTargets.HasValue) previousUsed += atLastTargets.Value - ds.HouseTarget.Value;
         }
-        var (usedTarget, bonus) = DoseCalculator.LimitTargetRise(rawTarget, previousUsed, hours, p);
+        var (usedTarget, riseBonus) = DoseCalculator.LimitTargetRise(rawTarget, previousUsed, hours, p);
+        // Dociąganie do celu (2026-11-03): dom pod celem → dodatek na nadrobienie braku w ciągu doby. Z dodatkiem
+        // na wzrost celu liczy się większy (ta sama energia na dogrzanie murów), nie suma.
+        var standby6h = run.Ctx.StandbyEntries6h ?? 0;
+        var catchUp = source == "pokoje" ? DoseCalculator.CatchUpSec(deficit?.DeficitK, standby6h, p) : 0;
+        var bonus = Math.Min(p.DoseStorageBonusMaxSec, Math.Max(riseBonus, catchUp));
+        if (catchUp > 0)
+        {
+            var below = string.Join(", ", deficit!.Below.Take(5).Select(r =>
+                $"{r.Name} {DoseLog.Number(r.Actual, "0.0")}/{DoseLog.Number(r.Target, "0.#")}"));
+            run.Notes.Add($"dociąganie: dom pod celem o {DoseLog.Number(deficit.DeficitK, "0.00")} K → +{catchUp:F0} s/dobę" +
+                          (catchUp >= riseBonus ? "" : $" (wzrost celu daje więcej: +{riseBonus:F0} s)") +
+                          (below.Length > 0 ? $" ({below})" : ""));
+        }
+        else if (deficit?.DeficitK > DoseCalculator.CatchUpDeadbandK && source == "pokoje")
+        {
+            run.Notes.Add($"dociąganie: dom pod celem o {DoseLog.Number(deficit.DeficitK, "0.00")} K, ale kocioł dobija do nastawy " +
+                          $"({standby6h}× podtrzymanie w {p.DoseTrimStandbyHours} h) - więcej węgla nie pomoże, ciepło nie ma którędy odejść");
+        }
         LogHouseTargetChange(ds, rawTarget, source, house, run);
         ds.HouseTarget = Math.Round(rawTarget, 2);
         ds.HouseTargetBase = house.BaseTarget.HasValue ? Math.Round(house.BaseTarget.Value, 2) : null;
@@ -566,7 +593,7 @@ public class Phase5DoseService : IPhaseService
         ds.RoomTargetsLastCalc = source == "pokoje" ? FormatTargets(house.Rooms) : null;
         ds.HouseTargetActualRooms = Truncate(string.Join(";", house.Rooms.Where(r => r.ByActual).Select(r => r.Name)), 500);
 
-        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run);
+        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run, deficit);
         var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec, usedTarget, bonus);
 
         TrackSurcharge(ds, p, now, run);
@@ -592,8 +619,23 @@ public class Phase5DoseService : IPhaseService
     /// FeedMinIntervalHours. Na suficie nie zbiera (anti-windup). Zerowany o północy.
     /// </summary>
     private static void EvaluateTrim(DoseState ds, DosePlan planWithoutTrim, IReadOnlyList<DoseSample> samples,
-        DateTime now, HeatingParameters p, RunLog run)
+        DateTime now, HeatingParameters p, RunLog run, HouseDeficit? deficit)
     {
+        // Pokoje pod celem z zamkniętym zaworem (2026-11-03): podtrzymanie znaczy wtedy, że ciepło nie ma którędy
+        // odejść (Fazy 2-3, limit MaxValvesOpen), a nie że węgla za dużo. Trym „mniej węgla” zdejmujemy od razu, bez
+        // czekania na odstęp - to nie krok za kotłem, tylko cofnięcie błędnego wniosku (25.10-3.11: +60 s przy domu
+        // 0,7 K pod celem i 11 zamkniętych zaworach). Pokój pod celem z OTWARTYM zaworem nie blokuje trymu - jego
+        // grzejnik i tak bierze, ile może, a nadmiar ognia ląduje w podtrzymaniu.
+        var houseBelow = deficit?.StarvedK > DoseCalculator.CatchUpDeadbandK;
+        if (houseBelow && ds.TrimSec > 0)
+        {
+            var old = ds.TrimSec;
+            ds.TrimSec = 0;
+            run.Notes.Add($"trym {old:+0;-0} → 0 s (DOM_POD_CELEM)");
+            run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Trim, old, 0, "DOM_POD_CELEM", DoseLog.StatusInternal,
+                extra: "trym podtrzymania zdjęty - postój z modelu przesunięty, sterownik dostanie to przy najbliższej zmianie"));
+        }
+
         // Trym idzie za kotłem (ogień reaguje 1-2 h), więc ma własny odstęp: dawka z modelu może iść co 1 h,
         // a trym i tak nie częściej niż co 2 h - inaczej zbierałby krok za krokiem, zanim ogień odpowie.
         if (ds.LastTrimUtc.HasValue
@@ -630,7 +672,10 @@ public class Phase5DoseService : IPhaseService
         else if (DoseCalculator.StandbyEntries(last6h) >= p.DoseTrimStandbyEntries)
         {
             code = "TRYM_PODTRZYMANIA";
-            if (effective + trimStep <= pauseMax
+            if (houseBelow)
+                blockedText = $"pokoje pod celem przy zamkniętych zaworach (brak {DoseLog.Number(deficit!.StarvedK, "0.0#")} K z " +
+                              $"{DoseLog.Number(deficit.DeficitK, "0.0#")} K) - podtrzymanie to brak odbioru ciepła, nie nadmiar węgla";
+            else if (effective + trimStep <= pauseMax
                 && ds.TrimSec + trimStep <= trimLimit)
                 step = trimStep;
             else
@@ -1157,8 +1202,8 @@ public class Phase5DoseService : IPhaseService
     }
 
     /// <summary>Korekta k raz na dobę, za wczorajszą dobę lokalną (§ 9 „Korekta raz na dobę”).</summary>
-    private async Task CorrectKIfDueAsync(DoseState ds, HeatingParameters p, DateTime nowUtc,
-        RunLog run, CancellationToken ct)
+    private async Task CorrectKIfDueAsync(DoseState ds, HeatingParameters p, IReadOnlyList<RoomConfiguration> rooms,
+        DateTime nowUtc, RunLog run, CancellationToken ct)
     {
         var tz = _time.LocalTimeZone;
         var today = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, tz).Date;
@@ -1177,9 +1222,10 @@ public class Phase5DoseService : IPhaseService
         var before = DoseCalculator.BalanceForDay(samples, beforeStart, dayStart);
         var oldK = p.FeedCorrectionK;
         var surchargeDay = ds.SurchargeActiveDate.HasValue && ds.SurchargeActiveDate.Value.Date == yesterday;
+        var noDecrease = surchargeDay ? null : await KNoDecreaseReasonAsync(p, rooms, samples, dayStart, dayEnd, ct);
         var (newK, reason) = surchargeDay
             ? ((double?)null, "doba pominięta: był narzut na wietrzenie/drzwi/CWU - k nie uczy się z doby z narzutem")
-            : DoseCalculator.CorrectK(oldK, day, before.IndoorMean.HasValue ? before : null, p);
+            : DoseCalculator.CorrectK(oldK, day, before.IndoorMean.HasValue ? before : null, p, noDecrease);
         var dayText = yesterday.ToString("yyyy-MM-dd");
 
         if (newK.HasValue && Math.Abs(newK.Value - oldK) > 0.0005)
@@ -1220,6 +1266,36 @@ public class Phase5DoseService : IPhaseService
         {
             run.Notes.Add($"korekta k za {dayText}: {reason}; trym zostaje ({ds.TrimSec:+0;-0} s)");
         }
+    }
+
+    /// <summary>
+    /// Czy wczorajsza doba może k tylko podnieść (2026-11-03): <see cref="DoseCalculator.KNoDecreaseReason"/> na
+    /// średnim braku domu z migawek Fazy 1 i wejściach w podtrzymanie z migawek kotła tej doby.
+    /// </summary>
+    private async Task<string?> KNoDecreaseReasonAsync(HeatingParameters p, IReadOnlyList<RoomConfiguration> rooms,
+        IReadOnlyList<DoseSample> samples, DateTime dayStartUtc, DateTime dayEndUtc, CancellationToken ct)
+    {
+        if (!p.DoseTargetFromRooms) return null;
+        var states = await _repository.GetRoomStatesAsync(dayStartUtc, dayEndUtc, ct);
+        var day = DoseCalculator.HouseDeficitFrom(states, Weights(rooms), p.DoseIndoorMinSensors);
+        var standby = DoseCalculator.StandbyEntries(samples.Where(x => x.TimestampUtc >= dayStartUtc && x.TimestampUtc < dayEndUtc).ToList());
+        return DoseCalculator.KNoDecreaseReason(day?.DeficitK, standby, p);
+    }
+
+    private static Dictionary<string, double> Weights(IReadOnlyList<RoomConfiguration> rooms)
+        => rooms.Where(r => r.HeatLossW > 0).GroupBy(r => r.Name).ToDictionary(g => g.Key, g => g.First().HeatLossW);
+
+    /// <summary>
+    /// Brak domu do celu teraz: średnie z ostatnich <see cref="DoseCalculator.CatchUpWindowHours"/> h z migawek Fazy 1
+    /// (cel i faktyczna jak w Fazie 1, wagi HeatLossW). Null przy celu stałym albo za mało pokoi z odczytem.
+    /// </summary>
+    private async Task<HouseDeficit?> HouseDeficitAsync(IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
+        DateTime now, CancellationToken ct)
+    {
+        if (!p.DoseTargetFromRooms) return null;
+        var states = await _repository.GetRoomStatesAsync(now - TimeSpan.FromHours(DoseCalculator.CatchUpWindowHours),
+            now.AddMinutes(1), ct);
+        return DoseCalculator.HouseDeficitFrom(states, Weights(rooms), p.DoseIndoorMinSensors);
     }
 
     /// <summary>

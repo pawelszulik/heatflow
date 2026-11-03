@@ -30,6 +30,9 @@ public class DoseLogContext
     public double? HouseTargetRaw { get; set; }
     public string? HouseTargetSource { get; set; }
     public double StorageBonusSec { get; set; }
+    /// <summary>Brak domu do celu (średnia z 3 h, pokoje ważone stratami) i czy dodatek to dociąganie (nie wzrost celu).</summary>
+    public double? HouseDeficitK { get; set; }
+    public bool CatchUpActive { get; set; }
     public double SurchargePct { get; set; }
     /// <summary>Parametry przebiegu - progi w zdaniach (3 K, 185 °C …) zgodne z tym, co faktycznie działa.</summary>
     public HeatingParameters Parameters { get; set; } = new();
@@ -142,9 +145,12 @@ public static class DoseLog
         var target = c.HouseTarget.HasValue
             ? $", cel domu {Number(c.HouseTarget, "0.0")} °C ({c.HouseTargetSource})" +
               (c.StorageBonusSec > 0
-                  ? $" rośnie do {Number(c.HouseTargetRaw, "0.0")} °C - w tym +{Number(c.StorageBonusSec, "#,##0")} s/dobę na dogrzanie domu"
+                  ? c.CatchUpActive
+                      ? $", dom pod celem o {Number(c.HouseDeficitK, "0.0#")} K - w tym +{Number(c.StorageBonusSec, "#,##0")} s/dobę na dociągnięcie do celu"
+                      : $" rośnie do {Number(c.HouseTargetRaw, "0.0")} °C - w tym +{Number(c.StorageBonusSec, "#,##0")} s/dobę na dogrzanie domu"
                   : "")
             : "";
+        var deficit = $"dom pod celem o {Number(c.HouseDeficitK, "0.0#")} K (średnia z 3 h, pokoje ważone stratami)";
         var surcharge = c.SurchargePct > 0 ? $", narzut +{Number(c.SurchargePct, "0.#")} %" : "";
         var need = $"potrzeba {Number(c.NeedSecPerDay, "#,##0")} s/dobę przy k {Number(c.K, "0.00")}{surcharge}{target}";
         var trim = c.TrimSec != 0 ? $", trym {c.TrimSec.ToString("+0;-0", Pl)} s" : "";
@@ -157,6 +163,7 @@ public static class DoseLog
             "SUFIT" => $"kocioł nie nadąża - przy maks. pracy i min. postoju brakuje {Number(c.ShortfallPct, "0")} % ({tz}, {need})",
             "TRYM_KOCIOL_PONIZEJ_NASTAWY" => $"od {p.DoseTrimUnderpowerHours} h dmuchawa chodzi {Number(c.HeatingShare2hPct, "0")} % czasu, a {boiler} (poniżej nastawy − {Number(p.DoseTrimUnderpowerK, "0.#")} K)",
             "TRYM_PODTRZYMANIA" => $"{c.StandbyEntries6h} wejścia w podtrzymanie w ostatnich {p.DoseTrimStandbyHours} h, {boiler}",
+            "DOM_POD_CELEM" => $"{deficit} - podtrzymanie przy niedogrzanym domu to brak odbioru ciepła (zamknięte zawory), nie nadmiar węgla",
             "SPALINY_200" => $"spaliny {Number(c.FlueTemp, "0")} °C > {p.DoseFlueMaxTemp}",
             "SPALINY_185" => $"spaliny {Number(c.FlueTemp, "0")} °C ≥ {p.DoseFlueNoRaiseTemp}",
             "PO_AUTOMATYZACJI_24" => $"bezpiecznik spalin #24 zadziałał {Number(c.HoursSinceFlueSafety, "0.#")} h temu ({p.DoseFlueSafetyHoldHours} h bez podnoszenia dmuchawy)",

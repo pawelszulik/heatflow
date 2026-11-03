@@ -167,8 +167,15 @@ public sealed class InMemoryDoseRepository : IDoseRepository
         return Task.FromResult(Samples.GetRange(lo, Samples.Count - lo));
     }
 
+    /// <summary>Migawki pokoi „z Fazy 1” - dopisuje <see cref="DoseHarness.PublishRoomTemperatures"/>.</summary>
+    public List<RoomState> RoomStates { get; } = new();
+
+    public Task<List<RoomState>> GetRoomStatesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+        => Task.FromResult(RoomStates.Where(s => s.RecordedAt >= fromUtc && s.RecordedAt < toUtc).ToList());
+
     public Task DeleteSamplesOlderThanAsync(DateTime olderThanUtc, CancellationToken ct = default)
     {
+        RoomStates.RemoveAll(s => s.RecordedAt < olderThanUtc);
         var n = 0;
         while (n < Samples.Count && Samples[n].TimestampUtc < olderThanUtc) n++;
         if (n > 0) Samples.RemoveRange(0, n);

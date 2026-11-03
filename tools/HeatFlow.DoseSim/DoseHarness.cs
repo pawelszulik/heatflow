@@ -79,7 +79,18 @@ public sealed class DoseHarness
     public void PublishRoomTemperatures(double houseTemp, IReadOnlyDictionary<string, double>? offsets, DateTime updatedUtc)
     {
         foreach (var room in Config.Rooms)
-            Ha.Set(room.SensorTemperatureEntityId, Math.Round(houseTemp + (offsets?.GetValueOrDefault(room.Name) ?? 0), 2), updatedUtc);
+        {
+            var t = Math.Round(houseTemp + (offsets?.GetValueOrDefault(room.Name) ?? 0), 2);
+            Ha.Set(room.SensorTemperatureEntityId, t, updatedUtc);
+            // To samo, co Faza 1 zapisuje co przebieg do RoomState (brak domu do celu, ocena doby przy korekcie k).
+            Repo.RoomStates.Add(new RoomState
+            {
+                RoomName = room.Name, TempActual = (decimal)t, TempTarget = (decimal)room.TempTarget,
+                TempDeficit = (decimal)(room.TempTarget - t), RecordedAt = updatedUtc,
+                // Symulacja nie ma limitu zaworów: pokój pod celem ma zawór otwarty (Fazy 2-3 bez MaxValvesOpen).
+                HeatingEnabled = t < room.TempTarget
+            });
+        }
     }
 
     public Task<Core.Phases.PhaseResult> StepAsync(DateTime utc, ForecastData? forecast)

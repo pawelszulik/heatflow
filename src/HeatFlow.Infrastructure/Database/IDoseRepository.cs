@@ -23,6 +23,12 @@ public interface IDoseRepository
     /// <summary>Migawki od podanej chwili (UTC), rosnąco po czasie.</summary>
     Task<List<DoseSample>> GetSamplesSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Migawki pokoi z Fazy 1 (tabela RoomState) z okna [od, do) UTC - do braku domu do celu i do oceny doby
+    /// przy korekcie k. Tylko odczyt, bez nowej tabeli.
+    /// </summary>
+    Task<List<RoomState>> GetRoomStatesAsync(DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
     /// <summary>Kasuje migawki starsze niż podana chwila (UTC).</summary>
     Task DeleteSamplesOlderThanAsync(DateTime olderThanUtc, CancellationToken cancellationToken = default);
 

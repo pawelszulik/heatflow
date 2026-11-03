@@ -30,6 +30,16 @@ public record RoomTargetPart(string Name, double Target, double? Actual, double 
 public record HouseTargetResult(double? Target, double? BaseTarget, IReadOnlyList<RoomTargetPart> Rooms, double? RoomCap,
     bool HouseCapped);
 
+/// <summary>
+/// Brak domu do celu z migawek pokoi (2026-11-03, prośba Pawła „powinno trzymać zadaną, a nie stopień niżej”).
+/// <paramref name="DeficitK"/> = Σ HeatLossW · średni max(0, cel − faktyczna) / Σ HeatLossW - pokoje cieplejsze
+/// niż cel nie odejmują braku innym. <paramref name="StarvedK"/> - ta sama suma, ale tylko z czasu, gdy zawór
+/// pokoju był zamknięty (Fazy 2-3, limit MaxValvesOpen): ciepło chce do pokoju, a nie ma którędy.
+/// <paramref name="Below"/> - pokoje pod celem (do opisu w dzienniku), od największego wkładu.
+/// </summary>
+public record HouseDeficit(double DeficitK, double StarvedK, int Rooms,
+    IReadOnlyList<(string Name, double Target, double Actual, double ClosedShare)> Below);
+
 /// <summary>Bilans jednej doby do korekty k.</summary>
 /// <param name="FeedSec">Sekundy pracy podajnika z licznika (null = dziura w danych).</param>
 /// <param name="HeatingHours">Godziny z dmuchawą &gt; 0 (grzanie, nie podtrzymanie).</param>
@@ -223,6 +233,70 @@ public static class DoseCalculator
         return (used, Math.Min(p.DoseStorageBonusMaxSec, p.HouseCapacity * ratePerDay));
     }
 
+    /// <summary>Poniżej tego braku dom uchodzi za „na celu” - bez dociągania i bez blokad trymu/k.</summary>
+    public const double CatchUpDeadbandK = 0.2;
+
+    /// <summary>Okno średniej faktycznych temperatur do braku: 3 h, jak Tz (§ 7a) - wietrzenie nie szarpie dawką.</summary>
+    public const double CatchUpWindowHours = 3;
+
+    /// <summary>
+    /// Brak domu do celu z migawek Fazy 1 (RoomState) z okna: dla każdego pokoju z wagą średnia faktyczna, średni
+    /// cel (z harmonogramem z chwili migawki), średni max(0, cel − faktyczna) i udział migawek z zamkniętym
+    /// zaworem. Odczyty spoza 0-45 °C pomijane. Null, gdy pokoi z danymi jest mniej niż <paramref name="minRooms"/>.
+    /// </summary>
+    public static HouseDeficit? HouseDeficitFrom(IEnumerable<RoomState> states, IReadOnlyDictionary<string, double> weights,
+        int minRooms)
+    {
+        var rooms = states
+            .Where(s => s.TempActual is > 0m and < 45m && s.TempTarget > 0m
+                        && weights.TryGetValue(s.RoomName, out var w) && w > 0)
+            .GroupBy(s => s.RoomName)
+            .Select(g => (Name: g.Key, Weight: weights[g.Key],
+                Actual: (double)g.Average(s => s.TempActual),
+                Target: (double)g.Average(s => s.TempTarget),
+                Deficit: g.Average(s => Math.Max(0.0, (double)(s.TempTarget - s.TempActual))),
+                Starved: g.Average(s => s.HeatingEnabled ? 0.0 : Math.Max(0.0, (double)(s.TempTarget - s.TempActual))),
+                Closed: g.Count(s => !s.HeatingEnabled) / (double)g.Count()))
+            .ToList();
+        if (rooms.Count == 0 || rooms.Count < minRooms) return null;
+        var weightSum = rooms.Sum(r => r.Weight);
+        var below = rooms
+            .Where(r => r.Deficit > 0.05)
+            .OrderByDescending(r => r.Weight * r.Deficit)
+            .Select(r => (r.Name, r.Target, r.Actual, r.Closed))
+            .ToList();
+        return new HouseDeficit(rooms.Sum(r => r.Weight * r.Deficit) / weightSum,
+            rooms.Sum(r => r.Weight * r.Starved) / weightSum, rooms.Count, below);
+    }
+
+    /// <summary>
+    /// Dociąganie do celu: dom pod celem o więcej niż <see cref="CatchUpDeadbandK"/> i kocioł NIE dobija do nastawy
+    /// (mniej niż DoseTrimStandbyEntries wejść w podtrzymanie w oknie trymu - brakuje ognia, nie odbioru) → dodatek
+    /// na nadrobienie braku w ciągu doby, HouseCapacity [s/K] · brak [K] s/dobę. Maleje razem z brakiem, na celu 0.
+    /// Gdy kocioł dobija do nastawy, więcej węgla nie pomoże (ciepło nie ma którędy odejść) - dodatku nie ma.
+    /// Z dodatkiem na wzrost celu liczy się większy z dwóch, najwyżej DoseStorageBonusMaxSec. Człon proporcjonalny;
+    /// stałą część różnicy przejmuje k (uczy się z doby z dodatkiem).
+    /// </summary>
+    public static double CatchUpSec(double? deficitK, int standbyEntries, HeatingParameters p)
+        => deficitK is > CatchUpDeadbandK && standbyEntries < p.DoseTrimStandbyEntries
+            ? Math.Min(p.DoseStorageBonusMaxSec, p.HouseCapacity * deficitK.Value)
+            : 0;
+
+    /// <summary>
+    /// Czy doba może k tylko podnieść: dom średnio pod celem o więcej niż <see cref="CatchUpDeadbandK"/>, a kocioł
+    /// dobijał do nastawy rzadziej, niż trym podtrzymania uznaje za nadmiar (DoseTrimStandbyEntries na każde
+    /// DoseTrimStandbyHours). Wtedy podajnik tej doby ustalił automat (było za mało ognia), a nie dom - „dom wziął
+    /// mniej” byłoby nieprawdą. Null = doba uczy normalnie.
+    /// </summary>
+    public static string? KNoDecreaseReason(double? dayDeficitK, int dayStandbyEntries, HeatingParameters p)
+    {
+        if (dayDeficitK is not > CatchUpDeadbandK) return null;
+        var standbyLimit = p.DoseTrimStandbyEntries * 24.0 / Math.Max(1, p.DoseTrimStandbyHours);
+        if (dayStandbyEntries >= standbyLimit) return null;
+        return string.Create(System.Globalization.CultureInfo.GetCultureInfo("pl-PL"),
+            $"dom był średnio {dayDeficitK:0.00} K pod celem, a kocioł dobił do nastawy tylko {dayStandbyEntries}× (za mało ognia - podajnik ustalił automat, nie dom)");
+    }
+
     /// <summary>Krok 4: postój dający potrzebę przy danym czasie pracy: praca · 86400 / potrzeba − praca.</summary>
     public static double PauseFor(int work, double need) => work * 86400.0 / Math.Max(need, 1.0) - work;
 
@@ -395,8 +469,19 @@ public static class DoseCalculator
     /// k ← k + clamp(FeedKGain (0,3) · (netto / model(ΔT faktyczne) − k), ±FeedKMaxStep (0,05)),
     /// w granicach FeedKMin-FeedKMax (0,6-1,3).
     /// Model bez k, z faktyczną temperaturą w domu - jak w symulacji. Null = doba nie uczy.
+    /// <paramref name="noDecreaseReason"/> ≠ null: doba może k tylko podnieść (2026-11-03) - podajnik tej doby
+    /// przyciął sam automat (trym podtrzymania) albo dom był pod celem, więc „dom wziął mniej” to nieprawda.
     /// </summary>
-    public static (double? K, string Reason) CorrectK(double k, DailyBalance day, DailyBalance? dayBefore, HeatingParameters p)
+    public static (double? K, string Reason) CorrectK(double k, DailyBalance day, DailyBalance? dayBefore, HeatingParameters p,
+        string? noDecreaseReason = null)
+    {
+        var (newK, reason) = CorrectKRaw(k, day, dayBefore, p);
+        if (newK.HasValue && noDecreaseReason != null && newK.Value < k)
+            return (k, $"{reason}; k NIE spada: {noDecreaseReason}");
+        return (newK, reason);
+    }
+
+    private static (double? K, string Reason) CorrectKRaw(double k, DailyBalance day, DailyBalance? dayBefore, HeatingParameters p)
     {
         if (!day.Valid)
             return (null, $"doba pominięta: {day.InvalidReason}");

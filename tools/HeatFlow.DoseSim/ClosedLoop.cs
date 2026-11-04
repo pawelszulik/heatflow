@@ -122,7 +122,8 @@ public static class ClosedLoopRunner
         List<RoomConfiguration>? rooms = null,
         IReadOnlyDictionary<string, double>? roomOffsets = null,
         double uncontrolledShare = 0,
-        double? startIndoor = null)
+        double? startIndoor = null,
+        double? plantGoal = null)
     {
         faults ??= Array.Empty<Fault>();
         var p0 = parameters ?? new HeatingParameters();
@@ -152,7 +153,7 @@ public static class ClosedLoopRunner
         harness.Repo.Switch.Enabled = automatOn;
         var plant = new VirtualPlant(trueFactor,
             (double)initial.FeederWork / (initial.FeederWork + initial.FeederPause) * 86400.0,
-            Goal()) { Indoor = startIndoor ?? Goal(), UncontrolledShare = uncontrolledShare };
+            plantGoal ?? Goal()) { Indoor = startIndoor ?? Goal(), UncontrolledShare = uncontrolledShare };
 
         var series = hourlyTz.OrderBy(x => x.Utc).ToList();
         double? BaseTz(DateTime t) => Interpolate(series, t);
@@ -179,7 +180,7 @@ public static class ClosedLoopRunner
             var outdoor = Tz(t) ?? 0;
             var step = faults.Where(f => f.Kind == FaultKind.TargetStep && t >= f.FromUtc && t < f.ToUtc).Sum(f => f.Value);
             foreach (var room in harness.Config.Rooms) room.TempTarget = baseTargets[room.Name] + step;
-            plant.IndoorGoal = Goal();
+            plant.IndoorGoal = plantGoal ?? Goal();
             var s = harness.Controller.Settings;
             plant.FlueOverride = Active(FaultKind.Flue210) ? 210 : null;
             plant.Step(outdoor, s.FeederWork, s.FeederPause, s.Blower);

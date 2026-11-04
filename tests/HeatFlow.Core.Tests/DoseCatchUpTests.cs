@@ -36,6 +36,46 @@ public class DoseCatchUpTests
     // --- Obliczenia ---
 
     [Fact]
+    public void HouseBelowTarget_WarmerOutside_DoseDoesNotDrop()
+    {
+        var p = new HeatingParameters { FeederWorkMin = 7, FeederWorkMax = 10, FeederPauseMin = 100, FeederPauseMax = 320,
+            FeedMaxStepSec = 30, FeedDeadbandSec = 15, FeedMinIntervalHours = 1 };
+        var warmer = new DosePlan(7, 175, false, 0);
+        var now = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
+        var held = DoseCalculator.Decide(7, 130, warmer, null, now, p, holdDose: true);
+        Assert.False(held.Change);
+        Assert.Equal((7, 130), (held.Work, held.Pause));
+        Assert.Equal((7, 160), held.HeldBack);
+
+        var free = DoseCalculator.Decide(7, 130, warmer, null, now, p);   // dom na celu - tnie jak dotąd
+        Assert.True(free.Change);
+        Assert.Equal(160, free.Pause);
+    }
+
+    [Fact]
+    public void HouseBelowTarget_DoseCanStillGoUp_AndOutOfBoundsIsFixed()
+    {
+        var p = new HeatingParameters { FeederWorkMin = 7, FeederWorkMax = 10, FeederPauseMin = 100, FeederPauseMax = 320,
+            FeedMaxStepSec = 30, FeedDeadbandSec = 15, FeedMinIntervalHours = 1 };
+        var now = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
+        var up = DoseCalculator.Decide(7, 175, new DosePlan(7, 130, false, 0), null, now, p, holdDose: true);
+        Assert.True(up.Change);
+        Assert.Equal(145, up.Pause);
+
+        var bounds = DoseCalculator.Decide(7, 90, new DosePlan(7, 200, false, 0), null, now, p, holdDose: true);
+        Assert.True(bounds.Change);   // poza twardą granicą 100 s - poprawiamy mimo braku
+    }
+
+    [Theory]
+    [InlineData(0.31, true)]
+    [InlineData(0.30, false)]    // próg
+    [InlineData(0.24, false)]    // sam hol - nie może trzymać dawki na stałe
+    public void HoldDose_Threshold(double deficit, bool hold)
+        => Assert.Equal(hold, DoseCalculator.HoldDose(new HouseDeficit(deficit, 0, 14, Array.Empty<(string, double, double, double)>())));
+
+    [Fact]
     public void HouseDeficit_WeightedBelowOnly_StarvedOnlyFromClosedValves()
     {
         var weights = new Dictionary<string, double> { ["salon"] = 600, ["hol"] = 300, ["kuchnia"] = 300, ["garaz"] = 0 };
@@ -64,11 +104,10 @@ public class DoseCatchUpTests
     public void CatchUp_OnlyAboveDeadband_AndOnlyWhenBoilerDoesNotReachSetpoint_Capped()
     {
         var p = new HeatingParameters();
-        Assert.Equal(0, DoseCalculator.CatchUpSec(0.2, 0, p));               // martwa strefa 0,2 K
-        Assert.Equal(1549 * 0.5, DoseCalculator.CatchUpSec(0.5, 1, p), 6);    // 1 podtrzymanie w 6 h - jeszcze dokłada
-        Assert.Equal(0, DoseCalculator.CatchUpSec(0.5, 2, p));               // dobija do nastawy - więcej węgla nie pomoże
-        Assert.Equal(p.DoseStorageBonusMaxSec, DoseCalculator.CatchUpSec(3.0, 0, p));
-        Assert.Equal(0, DoseCalculator.CatchUpSec(null, 0, p));
+        Assert.Equal(0, DoseCalculator.CatchUpSec(0.2, p));               // martwa strefa 0,2 K
+        Assert.Equal(1549 * 0.5, DoseCalculator.CatchUpSec(0.5, p), 6);
+        Assert.Equal(p.DoseStorageBonusMaxSec, DoseCalculator.CatchUpSec(3.0, p));
+        Assert.Equal(0, DoseCalculator.CatchUpSec(null, p));
     }
 
     [Fact]
@@ -138,7 +177,7 @@ public class DoseCatchUpTests
     private static double Sawtooth(int minutesAgo) => minutesAgo % 90 < 15 ? 67.5 : 64.0;
 
     [Fact]
-    public async Task StarvedRooms_PositiveTrimCleared_StandbyTrimBlocked_NoCatchUpWhileAtSetpoint()
+    public async Task StarvedRooms_PositiveTrimCleared_StandbyTrimBlocked_CatchUpDespiteSetpoint()
     {
         var h = Harness(new DoseState { TrimSec = 60, LastKCorrectionDate = Now.Date });
         Samples(h, Sawtooth, Now.AddHours(-6), Now);
@@ -153,15 +192,16 @@ public class DoseCatchUpTests
         Assert.Equal((60.0, 0.0), (cleared.OldValue!.Value, cleared.NewValue!.Value));
         Assert.Contains("dom pod celem o 0,8 K", cleared.Message);
         var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_PODTRZYMANIA" && e.Status == DoseLog.StatusBlocked);
-        Assert.Contains("zamkniętych zaworach", blocked.Message);
-        // Kocioł dobija do nastawy - dodatku na dociąganie nie ma (ciepło nie ma którędy odejść).
-        Assert.Equal(0, st.StorageBonusSec);
-        Assert.Contains("więcej węgla nie pomoże", st.LastReason);
+        Assert.Contains("węgiel nie spada", blocked.Message);
+        // 2026-11-04: kocioł dobija do nastawy, a dociąganie zostaje - dojścia nie dowodzą, że dom nie weźmie ciepła.
+        Assert.Equal(Math.Round(1549 * 0.8), st.StorageBonusSec);
+        Assert.Contains("dociąganie: dom pod celem o 0,80 K", st.LastReason);
     }
 
     [Fact]
-    public async Task RoomsBelowWithOpenValves_StandbyTrimStillWorks()
+    public async Task RoomsBelowWithOpenValves_StandbyTrimBlocked_ButAtTargetItWorks()
     {
+        // 4.11: hol, łazienka, Edyta i sypialnia pod celem przy zaworach otwartych 100 % - trym nie może wtedy ciąć węgla.
         var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
         Samples(h, Sawtooth, Now.AddHours(-6), Now);
         Rooms(h, Now.AddHours(-3), Now, below: 0.8, open: true);
@@ -169,8 +209,19 @@ public class DoseCatchUpTests
 
         await h.StepAsync(Now, null);
 
-        Assert.Equal(20, h.Repo.State!.TrimSec);
-        Assert.Contains(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "TRYM_PODTRZYMANIA" && e.NewValue == 20);
+        Assert.Equal(0, h.Repo.State!.TrimSec);
+        Assert.Contains(h.Repo.Log, e => e.ReasonCode == "TRYM_PODTRZYMANIA" && e.Status == DoseLog.StatusBlocked);
+
+        // Dom na celu: dojścia do nastawy dalej tną węgiel.
+        var at = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(at, Sawtooth, Now.AddHours(-6), Now);
+        Rooms(at, Now.AddHours(-3), Now, below: 0.1, open: true);
+        PublishNow(at, 64);
+
+        await at.StepAsync(Now, null);
+
+        Assert.Equal(20, at.Repo.State!.TrimSec);
+        Assert.Contains(at.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "TRYM_PODTRZYMANIA" && e.NewValue == 20);
     }
 
     [Fact]
@@ -252,5 +303,93 @@ public class DoseCatchUpTests
         Assert.True(daily.Skip(2).All(d => d >= goal - 0.3), $"Tin dobowa od 3. doby min {daily.Skip(2).Min():F2} przy celu {goal:F2}");
         Assert.True(r.Hours.Max(x => x.Indoor) <= goal + 0.5, $"Tin maks. {r.Hours.Max(x => x.Indoor):F2} przy celu {goal:F2}");
         Assert.True(r.Hours.Last().K > 0.85, $"k {r.Hours.Last().K:F3}");
+    }
+
+    // Cele i temperatury pokoi z RoomState 4.11 od 12:00 UTC: brak domu 1,2 °C przy średniej ważonej ok. 24,7 °C.
+    private const double HouseNov4 = 24.7;
+    private static readonly Dictionary<string, double> TargetsNov4 = new()
+    {
+        ["balkonowy"] = 26, ["garaz"] = 6, ["salon"] = 27, ["jadalnia"] = 26, ["hol"] = 26, ["edyta"] = 26, ["sypialnia"] = 26,
+        ["grzes"] = 26, ["przejsciowy"] = 25, ["suszarnia"] = 23, ["kuchnia"] = 24, ["sien"] = 22, ["lazienka"] = 25,
+        ["spizarnia"] = 24, ["toaleta"] = 25
+    };
+    private static readonly Dictionary<string, double> ActualNov4 = new()
+    {
+        ["balkonowy"] = 24.68, ["garaz"] = 14, ["salon"] = 25.62, ["jadalnia"] = 24.93, ["hol"] = 23.23, ["edyta"] = 24.45,
+        ["sypialnia"] = 24.96, ["grzes"] = 25.07, ["przejsciowy"] = 24.26, ["suszarnia"] = 25.99, ["kuchnia"] = 25.27,
+        ["sien"] = 21.37, ["lazienka"] = 23.95, ["spizarnia"] = 25.54, ["toaleta"] = 24.15
+    };
+
+    private async Task<(ClosedLoopResult R, Func<DateTime, double> Deficit, List<DateTime> Cuts)> Nov4Run(double plantRise, double uncontrolled)
+    {
+        var tz = Tz("tz-listopad.csv");
+        var from = tz[0].Utc;
+        tz = tz.Concat(tz.Select(x => (x.Utc.AddDays(4), x.Tz))).Concat(tz.Select(x => (x.Utc.AddDays(8), x.Tz))).ToList();
+        var rooms = SimDefaults.AllRooms(TargetsNov4);
+        var offsets = ActualNov4.ToDictionary(x => x.Key, x => x.Value - HouseNov4);
+        var r = await ClosedLoopRunner.RunAsync(tz, from, 10, 1.0,
+            new HeatingParameters { FeedCorrectionK = 0.947, FeedMaxStepSec = 30, FeedMinIntervalHours = 1, DoseTrimLimitSec = 100 },
+            startAtModel: true, rooms: rooms, roomOffsets: offsets, startIndoor: HouseNov4, uncontrolledShare: uncontrolled,
+            plantGoal: HouseNov4 + plantRise);
+
+        // Brak domu z 3 h jak w Fazie 5, z godzinowych zapisów (RoomState symulator czyści po dobie).
+        var weighted = rooms.Where(x => x.HeatLossW > 0).ToList();
+        double DeficitOf(double house) => weighted.Sum(x => x.HeatLossW * Math.Max(0, x.TempTarget - house - offsets[x.Name]))
+                                          / weighted.Sum(x => x.HeatLossW);
+        double Deficit(DateTime t) => r.Hours.Where(h => h.Utc > t.AddHours(-3) && h.Utc <= t)
+            .Select(h => DeficitOf(h.Indoor)).DefaultIfEmpty(DeficitOf(HouseNov4)).Average();
+        // DoseChanges daje 0 dla parametru, który się nie zmienił - wtedy liczy się wartość drugiej strony.
+        static double Duty(double w, double p, double otherW, double otherP)
+        {
+            var work = w > 0 ? w : otherW > 0 ? otherW : 7;
+            var pause = p > 0 ? p : otherP;
+            return work / (work + pause);
+        }
+        var cuts = r.DoseChanges()
+            .Where(c => Duty(c.WorkTo, c.PauseTo, c.WorkFrom, c.PauseFrom) < Duty(c.WorkFrom, c.PauseFrom, c.WorkTo, c.PauseTo) - 1e-9)
+            .Select(c => c.Utc).ToList();
+
+        foreach (var h in r.Hours.Where(h => h.Utc.Hour % 12 == 0))
+            _out.WriteLine($"{h.Utc:dd.MM HH:mm} Tz {h.Outdoor,5:F1} dom {h.Indoor:F2} brak {Deficit(h.Utc):F2} {h.Work}/{h.Pause} = " +
+                           $"{h.Work / (double)(h.Work + h.Pause) * 86400 * 0.00425:F1} kg/dobę kocioł {h.Boiler:F0}");
+        _out.WriteLine($"węgiel {r.Plant.FeederCounterSec * 0.00425 / 10:F1} kg/dobę, podtrzymanie {r.Hours.Count(h => !h.Heating) / (double)r.Hours.Count:P0} godzin, " +
+                       $"kocioł maks. {r.Hours.Max(h => h.Boiler):F1}, zmiany dawki {r.ChangesPerDay:F1}/dobę");
+        foreach (var c in cuts) _out.WriteLine($"cięcie {c:dd.MM HH:mm} przy braku {Deficit(c):F2}");
+        return (r, Deficit, cuts);
+    }
+
+    /// <summary>
+    /// Wymaganie Pawła z 4.11: „skoro temp nie jest osiągnięta, to nie powinno być mimo zwiększania się temp na
+    /// zewnątrz zmniejszania dawki węgla”. Pogoda 1-4.11 z DoseSample, cele i pokoje z RoomState, parametry z produkcji.
+    /// Dom bierze mało (jak 4.11: kocioł dobija do nastawy), więc brak zostaje ok. 0,7 °C. Dawka nie spada ani razu,
+    /// ale kocioł się nie zalewa: przy nastawie wyższej niż odbiór podajnik i tak staje w podtrzymaniu.
+    /// </summary>
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.5)]
+    public async Task ClosedLoop_HouseBelow_WarmerOutside_DoseNeverDrops(double uncontrolled)
+    {
+        var (r, deficit, cuts) = await Nov4Run(0.3, uncontrolled);
+
+        Assert.Empty(r.LimitViolations);
+        Assert.Empty(r.Harness.Errors.Errors);
+        Assert.True(r.Hours.Skip(24).All(h => deficit(h.Utc) > DoseCalculator.HoldDoseDeadbandK));
+        Assert.All(cuts, c => Assert.True(deficit(c) <= DoseCalculator.HoldDoseDeadbandK + 0.02, $"{c:u}: brak {deficit(c):F2} °C"));
+        Assert.True(r.ChangesPerDay <= 1, $"{r.ChangesPerDay:F1} zmian/dobę");
+        Assert.Contains(r.Log, e => e.ReasonCode == "DOM_POD_CELEM" && e.Status == DoseLog.StatusBlocked && e.Message.Contains("kg/dobę"));
+        Assert.True(r.Hours.Max(h => h.Boiler) <= 70, $"kocioł maks. {r.Hours.Max(h => h.Boiler):F1}");
+    }
+
+    /// <summary>Dom bierze ciepło i dochodzi do celu: blokada puszcza, dawka zjeżdża, nie zostaje w górze.</summary>
+    [Fact]
+    public async Task ClosedLoop_HouseReachesTarget_HoldReleases_DoseFalls()
+    {
+        var (r, deficit, cuts) = await Nov4Run(1.2, 0.0);
+
+        Assert.Empty(r.LimitViolations);
+        Assert.True(r.Hours.Last().Indoor >= HouseNov4 + 1.0, $"dom {r.Hours.Last().Indoor:F2}");
+        Assert.True(r.Hours.Max(h => h.Indoor) <= HouseNov4 + 1.7, $"dom maks. {r.Hours.Max(h => h.Indoor):F2}");
+        Assert.All(cuts, c => Assert.True(deficit(c) <= DoseCalculator.HoldDoseDeadbandK + 0.02, $"{c:u}: brak {deficit(c):F2} °C"));
+        Assert.True(cuts.Count > 0, "dawka nie spadła po dojściu do celu");
     }
 }

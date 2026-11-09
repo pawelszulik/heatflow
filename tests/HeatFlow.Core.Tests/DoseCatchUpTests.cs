@@ -176,62 +176,148 @@ public class DoseCatchUpTests
     // Kocioł co ~1,5 h dobija do 67 i spada - 4 wejścia w podtrzymanie w 6 h.
     private static double Sawtooth(int minutesAgo) => minutesAgo % 90 < 15 ? 67.5 : 64.0;
 
-    // --- 2026-11-09: dosypka idzie za potrzebą domu, nie za nastawą kotła ---
+    // --- 2026-11-09: o węglu decyduje dom, kocioł jest tylko granicą ---
 
-    [Fact]
-    public async Task UnderpoweredBoiler_HouseOnTarget_NegativeTrimCleared_NoMoreCoal()
+    /// <summary>Migawki z +8 °C na dworze: postój z modelu ma zapas od minimum i maksimum, trym ma gdzie chodzić.</summary>
+    private static void Mild(DoseHarness h, double boilerNow)
     {
-        // 9.11: kocioł 7-13 K pod nastawą przy 4D na 100 %, dom na celu, trym −40 s z poprzednich godzin.
-        var h = Harness(new DoseState { TrimSec = -40, LastKCorrectionDate = Now.Date });
-        Samples(h, _ => 55, Now.AddHours(-6), Now);
-        Rooms(h, Now.AddHours(-3), Now, below: 0.0, open: true);
-        PublishNow(h, 55);
-
-        await h.StepAsync(Now, null, mixer4D: 40);
-
-        var st = h.Repo.State!;
-        Assert.Equal(0, st.TrimSec);
-        var cleared = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "DOM_NA_CELU");
-        Assert.Equal((-40.0, 0.0), (cleared.OldValue!.Value, cleared.NewValue!.Value));
-        Assert.Contains("nie za nastawą kotła", cleared.Message);
-        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY" && e.Status == DoseLog.StatusBlocked);
-        Assert.Contains("dom na celu", blocked.Message);
+        foreach (var s in h.Repo.Samples) s.OutdoorTemp = 8;
+        h.Publish(new DoseInputsSnapshot(8, 24, boilerNow, 67, 140, 35, 5000, false, true), Now);
     }
 
     [Fact]
-    public async Task UnderpoweredBoiler_HouseBelow_Mixer4DOpen_TrimClearedAndNoMore()
+    public async Task BoilerBelowSetpoint_HouseOnTarget_NoMoreCoal()
     {
-        var h = Harness(new DoseState { TrimSec = -40, LastKCorrectionDate = Now.Date });
-        Samples(h, _ => 55, Now.AddHours(-6), Now);
-        Rooms(h, Now.AddHours(-3), Now, below: 0.8, open: true);
-        PublishNow(h, 55);
-
-        await h.StepAsync(Now, null, mixer4D: HeatFlow.Core.Phases.Phase5DoseService.TrimUnderpowerMax4DPct);
-
-        Assert.Equal(0, h.Repo.State!.TrimSec);
-        var cleared = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "ZAWOR_4D_OTWARTY");
-        Assert.Equal((-40.0, 0.0), (cleared.OldValue!.Value, cleared.NewValue!.Value));
-        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY" && e.Status == DoseLog.StatusBlocked);
-        Assert.Contains("zawór 4D otwarty na 70 %", blocked.Message);
-        // Dom pod celem dalej dostaje węgiel - z dociągania (potrzeba domu), nie z trymu od kotła.
-        Assert.Equal(Math.Round(1549 * 0.8), h.Repo.State.StorageBonusSec);
-    }
-
-    [Fact]
-    public async Task UnderpoweredBoiler_HouseBelow_Mixer4DThrottled_TrimsDown()
-    {
-        // +8 °C: postój z modelu ma zapas nad minimum 100 s, więc trym ma gdzie zejść (przy 0 °C postój już na minimum).
+        // 9.11: kocioł 7-13 K pod nastawą na pełnej dmuchawie, dom na celu - dawniej trym −20 s co 2 h.
         var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
         Samples(h, _ => 55, Now.AddHours(-6), Now);
-        foreach (var s in h.Repo.Samples) s.OutdoorTemp = 8;
-        Rooms(h, Now.AddHours(-3), Now, below: 0.3, open: true);
-        h.Publish(new DoseInputsSnapshot(8, 24, 55, 67, 140, 35, 5000, false, true), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: 0.0, open: true);
+        Mild(h, 55);
 
-        await h.StepAsync(Now, null, mixer4D: 30);
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(0, h.Repo.State!.TrimSec);
+        Assert.DoesNotContain(h.Repo.Log, e => e.Parameter == DoseLog.Trim);
+    }
+
+    [Fact]
+    public async Task Nov9Morning_OnlyHolBelow_BoilerBelowSetpoint_NoMoreCoal()
+    {
+        // 9.11 06-13 UTC z RoomState: hol 23,74/25 przy zaworze otwartym 100 % czasu, reszta na celu lub wyżej;
+        // kocioł 51-57 °C przy nastawie 64 na pełnej dmuchawie. Dawny trym dosypał wtedy dwa razy (−20, −40 s).
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        foreach (var room in h.Config.Rooms.Where(r => r.HeatLossW > 0))
+            for (var t = Now.AddHours(-6); t < Now; t = t.AddMinutes(5))
+            {
+                // Brak holu lekko rośnie (1,2 → 1,3 K) - jak szum z 9.11 (0,112 → 0,118 K domu w 2 h).
+                var hol = 1.2 + 0.1 * (t - Now.AddHours(-6)).TotalHours / 6;
+                h.Repo.RoomStates.Add(Rs(room.Name, room.TempTarget,
+                    room.Name == "hol" ? room.TempTarget - hol : room.TempTarget + 0.3, room.Name == "hol", t));
+            }
+        Mild(h, 55);
+
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(0, h.Repo.State!.TrimSec);
+        Assert.DoesNotContain(h.Repo.Log, e => e.Parameter == DoseLog.Trim);
+    }
+
+    [Fact]
+    public async Task TwoRoomsBelow_BoilerBelowSetpoint_DeficitRising_MoreCoalEarly()
+    {
+        // Dwa pokoje zaczynają tracić (brak domu rośnie, ale < 0,1 K), kocioł od 2 h pod nastawą - dosypka od razu,
+        // zanim dom zjedzie (symulacja października: bez tego ~1 pokój pod celem co noc).
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        foreach (var room in h.Config.Rooms.Where(r => r.HeatLossW > 0))
+            for (var t = Now.AddHours(-6); t < Now; t = t.AddMinutes(5))
+            {
+                var drop = room.Name is "hol" or "salon" ? 0.4 * (t - Now.AddHours(-6)).TotalHours / 6 : -0.2;
+                h.Repo.RoomStates.Add(Rs(room.Name, room.TempTarget, room.TempTarget - drop, true, t));
+            }
+        Mild(h, 55);
+
+        await h.StepAsync(Now, null);
 
         Assert.Equal(-20, h.Repo.State!.TrimSec);
-        Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY" && e.Parameter == DoseLog.Trim
-                                       && e.Status == DoseLog.StatusInternal);
+        Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY");
+    }
+
+    [Fact]
+    public async Task HouseBelowTarget_MoreCoal_EvenWhenBoilerNearSetpoint()
+    {
+        // Kocioł 1 K pod nastawą - dawniej żaden trym; teraz liczy się dom.
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 66, Now.AddHours(-6), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: 0.3, open: true);
+        Mild(h, 66);
+
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(-20, h.Repo.State!.TrimSec);
+        var trim = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim);
+        Assert.Equal(("TRYM_DOM_POD_CELEM", 0.0, -20.0), (trim.ReasonCode, trim.OldValue!.Value, trim.NewValue!.Value));
+        Assert.Contains("dom pod celem o 0,3 K", trim.Message);
+    }
+
+    [Fact]
+    public async Task HouseAboveTarget_LessCoal_EvenWhenBoilerBelowSetpoint()
+    {
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: -0.8, open: false);
+        Mild(h, 55);
+
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(20, h.Repo.State!.TrimSec);
+        var trim = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim);
+        Assert.Equal(("TRYM_DOM_NAD_CELEM", 0.0, 20.0), (trim.ReasonCode, trim.OldValue!.Value, trim.NewValue!.Value));
+        Assert.Contains("każdy pokój nad celem, najmniej", trim.Message);
+        Assert.Contains("o 0,8 K", trim.Message);
+    }
+
+    [Fact]
+    public async Task HouseSlightlyAbove_NoTrim()
+    {
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 60, Now.AddHours(-6), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: -0.2, open: false);
+        Mild(h, 60);
+
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(0, h.Repo.State!.TrimSec);
+    }
+
+    [Fact]
+    public async Task HouseBelow_ButBoilerKeepsGoingToStandby_NoMoreCoal()
+    {
+        // Hol: pokój pod celem, którego węgiel nie dogrzeje - kocioł 4× w 6 h dobija do nastawy, ciepła jest za dużo.
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, Sawtooth, Now.AddHours(-6), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: 0.3, open: true);
+        Mild(h, 64);
+
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(0, h.Repo.State!.TrimSec);
+        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_DOM_POD_CELEM" && e.Status == DoseLog.StatusBlocked);
+        Assert.Contains("stanął w podtrzymaniu", blocked.Message);
+    }
+
+    [Fact]
+    public async Task NoRoomData_FallsBackToBoilerTrim()
+    {
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        Mild(h, 55);
+
+        await h.StepAsync(Now, null);
+
+        Assert.Equal(-20, h.Repo.State!.TrimSec);
+        Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY");
     }
 
     [Fact]
@@ -249,8 +335,9 @@ public class DoseCatchUpTests
         var cleared = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "DOM_POD_CELEM");
         Assert.Equal((60.0, 0.0), (cleared.OldValue!.Value, cleared.NewValue!.Value));
         Assert.Contains("dom pod celem o 0,8 K", cleared.Message);
-        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_PODTRZYMANIA" && e.Status == DoseLog.StatusBlocked);
-        Assert.Contains("węgiel nie spada", blocked.Message);
+        // Od 9.11: dom pod celem → trym chce więcej węgla, ale kocioł staje w podtrzymaniu (nie ma komu oddać ciepła).
+        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_DOM_POD_CELEM" && e.Status == DoseLog.StatusBlocked);
+        Assert.Contains("stanął w podtrzymaniu", blocked.Message);
         // 2026-11-04: kocioł dobija do nastawy, a dociąganie zostaje - dojścia nie dowodzą, że dom nie weźmie ciepła.
         Assert.Equal(Math.Round(1549 * 0.8), st.StorageBonusSec);
         Assert.Contains("dociąganie: dom pod celem o 0,80 K", st.LastReason);
@@ -268,12 +355,12 @@ public class DoseCatchUpTests
         await h.StepAsync(Now, null);
 
         Assert.Equal(0, h.Repo.State!.TrimSec);
-        Assert.Contains(h.Repo.Log, e => e.ReasonCode == "TRYM_PODTRZYMANIA" && e.Status == DoseLog.StatusBlocked);
+        Assert.Contains(h.Repo.Log, e => e.ReasonCode == "TRYM_DOM_POD_CELEM" && e.Status == DoseLog.StatusBlocked);
 
         // Dom na celu: dojścia do nastawy dalej tną węgiel.
         var at = Harness(new DoseState { LastKCorrectionDate = Now.Date });
         Samples(at, Sawtooth, Now.AddHours(-6), Now);
-        Rooms(at, Now.AddHours(-3), Now, below: 0.1, open: true);
+        Rooms(at, Now.AddHours(-3), Now, below: 0.05, open: true);
         PublishNow(at, 64);
 
         await at.StepAsync(Now, null);
@@ -434,7 +521,8 @@ public class DoseCatchUpTests
         Assert.True(r.Hours.Skip(24).All(h => deficit(h.Utc) > DoseCalculator.HoldDoseDeadbandK));
         Assert.All(cuts, c => Assert.True(deficit(c) <= DoseCalculator.HoldDoseDeadbandK + 0.02, $"{c:u}: brak {deficit(c):F2} °C"));
         Assert.True(r.ChangesPerDay <= 1, $"{r.ChangesPerDay:F1} zmian/dobę");
-        Assert.Contains(r.Log, e => e.ReasonCode == "DOM_POD_CELEM" && e.Status == DoseLog.StatusBlocked && e.Message.Contains("kg/dobę"));
+        // Od 9.11 trym od domu dokłada węgla przy braku, więc model zwykle nie chce ciąć i wpis „dawka nie spada”
+        // (DOM_POD_CELEM, ZABLOKOWANE) nie musi się pojawić; liczy się, że cięć przy braku nie ma (wyżej).
         Assert.True(r.Hours.Max(h => h.Boiler) <= 70, $"kocioł maks. {r.Hours.Max(h => h.Boiler):F1}");
     }
 

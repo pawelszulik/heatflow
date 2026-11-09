@@ -37,9 +37,12 @@ public record HouseTargetResult(double? Target, double? BaseTarget, IReadOnlyLis
 /// niż cel nie odejmują braku innym. <paramref name="StarvedK"/> - ta sama suma, ale tylko z czasu, gdy zawór
 /// pokoju był zamknięty (Fazy 2-3, limit MaxValvesOpen): ciepło chce do pokoju, a nie ma którędy.
 /// <paramref name="Below"/> - pokoje pod celem (do opisu w dzienniku), od największego wkładu.
+/// <paramref name="MinMarginK"/> - najmniejszy zapas pokoju z wagą nad celem: min(średnia faktyczna − średni cel), ujemny
+/// = jakiś pokój pod celem; <paramref name="MinMarginRoom"/> - który (2026-11-09, trym „cały dom nad celem”).
 /// </summary>
 public record HouseDeficit(double DeficitK, double StarvedK, int Rooms,
-    IReadOnlyList<(string Name, double Target, double Actual, double ClosedShare)> Below);
+    IReadOnlyList<(string Name, double Target, double Actual, double ClosedShare)> Below,
+    double MinMarginK = 0, string? MinMarginRoom = null);
 
 /// <summary>Bilans jednej doby do korekty k.</summary>
 /// <param name="FeedSec">Sekundy pracy podajnika z licznika (null = dziura w danych).</param>
@@ -282,8 +285,10 @@ public static class DoseCalculator
             .OrderByDescending(r => r.Weight * r.Deficit)
             .Select(r => (r.Name, r.Target, r.Actual, r.Closed))
             .ToList();
-        return new HouseDeficit(rooms.Sum(r => r.Weight * r.Deficit) / weightSum,
+        var result = new HouseDeficit(rooms.Sum(r => r.Weight * r.Deficit) / weightSum,
             rooms.Sum(r => r.Weight * r.Starved) / weightSum, rooms.Count, below);
+        var tightest = rooms.MinBy(r => r.Actual - r.Target);
+        return result with { MinMarginK = tightest.Actual - tightest.Target, MinMarginRoom = tightest.Name };
     }
 
     /// <summary>

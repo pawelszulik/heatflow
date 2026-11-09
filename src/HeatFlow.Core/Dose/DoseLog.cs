@@ -32,6 +32,9 @@ public class DoseLogContext
     public double StorageBonusSec { get; set; }
     /// <summary>Brak domu do celu (średnia z 3 h, pokoje ważone stratami) i czy dodatek to dociąganie (nie wzrost celu).</summary>
     public double? HouseDeficitK { get; set; }
+    /// <summary>Najmniejszy zapas pokoju nad celem z 3 h [K] i który to pokój - do trymu „cały dom nad celem”.</summary>
+    public double? HouseMinMarginK { get; set; }
+    public string? HouseMinMarginRoom { get; set; }
     public bool CatchUpActive { get; set; }
     public double SurchargePct { get; set; }
     /// <summary>Parametry przebiegu - progi w zdaniach (3 K, 185 °C …) zgodne z tym, co faktycznie działa.</summary>
@@ -163,7 +166,8 @@ public static class DoseLog
             "SUFIT" => $"kocioł nie nadąża - przy maks. pracy i min. postoju brakuje {Number(c.ShortfallPct, "0")} % ({tz}, {need})",
             "TRYM_KOCIOL_PONIZEJ_NASTAWY" => $"od {p.DoseTrimUnderpowerHours} h dmuchawa chodzi {Number(c.HeatingShare2hPct, "0")} % czasu, a {boiler} (poniżej nastawy − {Number(p.DoseTrimUnderpowerK, "0.#")} K)",
             "TRYM_PODTRZYMANIA" => $"{c.StandbyEntries6h} wejścia w podtrzymanie w ostatnich {p.DoseTrimStandbyHours} h, {boiler}",
-            "DOM_NA_CELU" => $"dom na celu (brak {Number(c.HouseDeficitK, "0.0#")} K, średnia z 3 h) - dosypka idzie za potrzebą domu, nie za nastawą kotła",
+            "TRYM_DOM_POD_CELEM" => $"{deficit} - o węglu decyduje dom, nie nastawa kotła",
+            "TRYM_DOM_NAD_CELEM" => $"każdy pokój nad celem, najmniej {c.HouseMinMarginRoom} o {Number(c.HouseMinMarginK, "0.0#")} K (średnia z 3 h)",
             "DOM_POD_CELEM" => $"{deficit} - podtrzymanie przy niedogrzanym domu to brak odbioru ciepła (zamknięte zawory), nie nadmiar węgla",
             "SPALINY_200" => $"spaliny {Number(c.FlueTemp, "0")} °C > {p.DoseFlueMaxTemp}",
             "SPALINY_185" => $"spaliny {Number(c.FlueTemp, "0")} °C ≥ {p.DoseFlueNoRaiseTemp}",

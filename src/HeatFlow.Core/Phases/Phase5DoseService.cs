@@ -159,7 +159,12 @@ public class Phase5DoseService : IPhaseService
 
             // Brak domu do celu (średnia z 3 h z migawek Fazy 1) - do dociągania i blokady trymu podtrzymania.
             var deficit = await HouseDeficitAsync(rooms, parameters, now, cancellationToken);
+            // Ten sam brak sprzed 2 h - czy dom zaczyna tracić (trend do wczesnego sygnału od kotła).
+            var deficitBefore = await HouseDeficitAsync(rooms, parameters,
+                now - TimeSpan.FromHours(parameters.DoseTrimUnderpowerHours), cancellationToken);
             ctx.HouseDeficitK = deficit == null ? null : Math.Round(deficit.DeficitK, 2);
+            ctx.HouseMinMarginK = deficit == null ? null : Math.Round(deficit.MinMarginK, 2);
+            ctx.HouseMinMarginRoom = deficit?.MinMarginRoom;
 
             // 2. Korekta k raz na dobę (za wczoraj), zanim policzymy dawkę.
             await CorrectKIfDueAsync(ds, parameters, rooms, now, run, cancellationToken);
@@ -180,7 +185,7 @@ public class Phase5DoseService : IPhaseService
             // 3. Dawka z pogody - co godzinę.
             if (ds.LastCalcUtc == null || ds.ModelPause == null || now - ds.LastCalcUtc.Value >= CalcInterval)
             {
-                Calculate(ds, state, rooms, parameters, samples, now, run, deficit);
+                Calculate(ds, state, rooms, parameters, samples, now, run, deficit, deficitBefore);
             }
             FillPlan(ctx, ds);
             // Dodatek przy celu, który już nie rośnie, to dociąganie do celu (nie dogrzanie po podniesieniu celu).
@@ -537,7 +542,7 @@ public class Phase5DoseService : IPhaseService
 
     /// <summary>Krok 1-4, 6 i szybki trym - wynik do DoseState.</summary>
     private void Calculate(DoseState ds, HeatingState state, IReadOnlyList<RoomConfiguration> rooms, HeatingParameters p,
-        IReadOnlyList<DoseSample> samples, DateTime now, RunLog run, HouseDeficit? deficit)
+        IReadOnlyList<DoseSample> samples, DateTime now, RunLog run, HouseDeficit? deficit, HouseDeficit? deficitBefore)
     {
         var measured = samples
             .Where(s => s.OutdoorTemp.HasValue)
@@ -592,7 +597,7 @@ public class Phase5DoseService : IPhaseService
         ds.RoomTargetsLastCalc = source == "pokoje" ? FormatTargets(house.Rooms) : null;
         ds.HouseTargetActualRooms = Truncate(string.Join(";", house.Rooms.Where(r => r.ByActual).Select(r => r.Name)), 500);
 
-        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run, deficit);
+        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run, deficit, deficitBefore);
         var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec, usedTarget, bonus);
 
         TrackSurcharge(ds, p, now, run);
@@ -609,24 +614,60 @@ public class Phase5DoseService : IPhaseService
         }
     }
 
+    /// <summary>
+    /// Trym „więcej węgla”: brak domu ponad tyle [K, średnia z 3 h ważona stratami] przy co najmniej
+    /// <see cref="TrimMinRoomsBelow"/> pokojach pod celem. Martwa strefa dociągania (proporcjonalnego) to 0,2 K.
+    /// </summary>
+    public const double TrimHouseBelowK = 0.1;
+
+    /// <summary>
+    /// Dom „na celu” [K braku]: przy takim braku kocioł pod nastawą nie jest powodem do dosypki (próg z #14: przy 0,2
+    /// październik zostawiał 2,4 pokoju pod celem, przy 0,05 - 0,6, przy 0,02 tyle co dawniej).
+    /// </summary>
+    public const double TrimHouseOnTargetK = 0.02;
+
+    /// <summary>Pokój „pod celem” do liczenia, czy dom potrzebuje więcej węgla [K, średnia z 3 h].</summary>
+    public const double TrimRoomBelowK = 0.1;
+
+    /// <summary>Tyle pokoi z wagą musi być pod celem, żeby trym dosypywał (jeden pokój - hol - nie wystarczy).</summary>
+    public const int TrimMinRoomsBelow = 2;
+
+    /// <summary>O tyle brak domu musi urosnąć w 2 h, żeby kocioł pod nastawą był wczesnym sygnałem dosypki [K].</summary>
+    public const double TrimDeficitRiseK = 0.005;
+
+    /// <summary>
+    /// Trym „mniej węgla”: KAŻDY pokój z wagą nad celem o co najmniej tyle [K]. Nie średnia nadwyżka: pokoje z niskim
+    /// celem (przejściowy 20, spiżarnia 19, kuchnia 22) są cieplejsze od celu z sąsiedztwa, a cel domu i tak bierze ich
+    /// faktyczną (7b7b1be) - ze średniej ścinałby węgiel przy pokojach pod celem (symulacja: dom 1,3-1,5 K pod celem).
+    /// </summary>
+    public const double TrimHouseAboveK = 0.3;
+
     /// <summary>Najkrótszy odstęp między krokami trymu [h], niezależnie od FeedMinIntervalHours.</summary>
     private const int TrimMinIntervalHours = 2;
 
     /// <summary>
-    /// Szybki trym od kotła (§ 9): kocioł nie dochodzi do nastawy przy ciągłej dmuchawie przez 2 h
-    /// → postój −20 s; ≥ 2 wejścia w podtrzymanie w 6 h → +20 s. Nie częściej niż co
-    /// FeedMinIntervalHours. Na suficie nie zbiera (anti-windup). Zerowany o północy.
+    /// Trym od domu (2026-11-09, decyzja Pawła: „ma działać zgodnie z tym, co dom potrzebuje, a nie z temp. na piecu”).
+    /// O kierunku decyduje dom, kocioł daje tylko wcześniejszy sygnał albo granicę. Człon całkujący, krok DoseTrimStepSec
+    /// nie częściej niż co 2 h, granica ±DoseTrimLimitSec, zerowany o północy (stałą część przejmuje k).
+    /// <list type="bullet">
+    /// <item>Więcej węgla (TRYM_DOM_POD_CELEM): co najmniej 2 pokoje pod celem i brak domu &gt; 0,1 K.</item>
+    /// <item>Więcej węgla wcześniej (TRYM_KOCIOL_PONIZEJ_NASTAWY): co najmniej 2 pokoje pod celem, brak domu rośnie, a kocioł
+    /// od 2 h pod nastawą na pełnej dmuchawie - kocioł siada godziny przed domem (bez tego symulacja października
+    /// zostawiała co noc ~1 pokój pod celem).</item>
+    /// <item>Nie dosypuje, gdy kocioł ≥ DoseTrimStandbyEntries razy w 6 h staje w podtrzymaniu (dom nie bierze ciepła).</item>
+    /// <item>Mniej węgla: każdy pokój nad celem o ≥ 0,3 K (TRYM_DOM_NAD_CELEM) albo żaden pokój poza jednym nie potrzebuje
+    /// ciepła i kocioł staje w podtrzymaniu (TRYM_PODTRZYMANIA).</item>
+    /// </list>
+    /// 6-9.11 dawny trym dosypywał przy kotle pod nastawą (4D na 100 %), choć pod celem był tylko hol z zaworem otwartym
+    /// cały czas - przy stałym powietrzu szło to w niedopał. Bez danych z pokoi - awaryjnie trym od kotła
+    /// (<see cref="EvaluateBoilerTrim"/>). Granicy „powietrze nie spali więcej” nie ma: z danych nie da się jej odróżnić od
+    /// „za mało węgla przy ochłodzeniu” (symulacja marca: taki detektor zatrzymał dosypkę przy kotle 50 °C i dom zjechał
+    /// 1,4 K pod cel); twardy sufit dawki to FeederPauseMin.
     /// </summary>
-    private static void EvaluateTrim(DoseState ds, DosePlan planWithoutTrim, IReadOnlyList<DoseSample> samples,
-        DateTime now, HeatingParameters p, RunLog run, HouseDeficit? deficit)
+    private static void EvaluateTrim(DoseState ds, DosePlan planWithoutTrim, IReadOnlyList<DoseSample> samples, DateTime now,
+        HeatingParameters p, RunLog run, HouseDeficit? deficit, HouseDeficit? deficitBefore)
     {
-        // Pokoje pod celem z zamkniętym zaworem (2026-11-03): podtrzymanie znaczy wtedy, że ciepło nie ma którędy
-        // odejść (Fazy 2-3, limit MaxValvesOpen), a nie że węgla za dużo. Trym „mniej węgla” zdejmujemy od razu, bez
-        // czekania na odstęp - to nie krok za kotłem, tylko cofnięcie błędnego wniosku (25.10-3.11: +60 s przy domu
-        // 0,7 K pod celem i 11 zamkniętych zaworach). Pokój pod celem z OTWARTYM zaworem nie blokuje trymu - jego
-        // grzejnik i tak bierze, ile może, a nadmiar ognia ląduje w podtrzymaniu.
-        // Od 2026-11-04 liczy się każdy brak ponad próg, nie tylko przy zamkniętych zaworach: pokoje z zaworem otwartym
-        // cały czas też są pod celem, a wymaganie Pawła brzmi „dom pod celem = węgiel nie spada”.
+        // Wymóg Pawła z 4.11: dom pod celem = węgiel nie spada. Trym „mniej węgla” zdejmujemy od razu.
         var houseBelow = deficit?.StarvedK > DoseCalculator.CatchUpDeadbandK || DoseCalculator.HoldDose(deficit);
         if (houseBelow && ds.TrimSec > 0)
         {
@@ -634,9 +675,109 @@ public class Phase5DoseService : IPhaseService
             ds.TrimSec = 0;
             run.Notes.Add($"trym {old:+0;-0} → 0 s (DOM_POD_CELEM)");
             run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Trim, old, 0, "DOM_POD_CELEM", DoseLog.StatusInternal,
-                extra: "trym podtrzymania zdjęty - postój z modelu przesunięty, sterownik dostanie to przy najbliższej zmianie"));
+                extra: "trym „mniej węgla” zdjęty - postój z modelu przesunięty, sterownik dostanie to przy najbliższej zmianie"));
         }
 
+        if (deficit == null)
+        {
+            // Bez danych z pokoi (cel ze stałej, Faza 1 nie zapisała migawek) nie wiemy, czego dom potrzebuje -
+            // awaryjnie trym od kotła, jak do 9.11.
+            EvaluateBoilerTrim(ds, planWithoutTrim, samples, now, p, run);
+            return;
+        }
+        if (ds.LastTrimUtc.HasValue
+            && now - ds.LastTrimUtc.Value < TimeSpan.FromHours(Math.Max(TrimMinIntervalHours, p.FeedMinIntervalHours)))
+        {
+            return;
+        }
+
+        var (_, _, pauseMin, pauseMax) = DoseCalculator.Bounds(p);
+        var trimStep = p.DoseTrimStepSec;
+        var trimLimit = p.DoseTrimLimitSec;
+        var effective = planWithoutTrim.ModelPause + ds.TrimSec;
+        const string followUp = "postój z modelu przesunięty - sterownik dostanie to przy najbliższej zmianie";
+
+        string? code = null;
+        int step = 0;
+        string? blockedText = null;
+        // Kocioł pod nastawą na pełnej dmuchawie to wczesny sygnał, że dom zaraz zacznie tracić (dom reaguje godzinami,
+        // kocioł w 1-2 h) - ale tylko gdy dom NIE jest na celu i jego brak ROŚNIE. Przy domu na celu (6-9.11) to odbiór
+        // ciepła, nie brak węgla; stały brak jednego pokoju (hol −0,5 K = 0,05 K domu przy 4D na 100 %) węgiel nie usuwa.
+        var deficitRising = deficitBefore != null && deficit.DeficitK >= deficitBefore.DeficitK + TrimDeficitRiseK;
+        // Dom pod celem = co najmniej dwa pokoje pod celem. Jeden pokój, którego grzejnik nie dogrzewa mimo otwartego
+        // zaworu (hol 9.11: 23,7/25, zawór 100 % czasu, cała reszta na celu lub wyżej - brak domu 0,11-0,12 K), nie
+        // podnosi dawki całemu domowi; tak samo próg 0,3 z 4.11 brał się z holu.
+        var roomsBelow = deficit.Below.Count(r => r.Target - r.Actual > TrimRoomBelowK);
+        var houseNeeds = roomsBelow >= TrimMinRoomsBelow;
+        var boilerEarly = houseNeeds && deficit.DeficitK > TrimHouseOnTargetK && deficitRising
+                          && DoseCalculator.BoilerUnderpowered(
+                              samples.Where(s => s.TimestampUtc > now - TimeSpan.FromHours(p.DoseTrimUnderpowerHours)).ToList(),
+                              TimeSpan.FromHours(p.DoseTrimUnderpowerHours), p.DoseTrimUnderpowerK);
+        if ((houseNeeds && deficit.DeficitK > TrimHouseBelowK) || boilerEarly)
+        {
+            code = houseNeeds && deficit.DeficitK > TrimHouseBelowK ? "TRYM_DOM_POD_CELEM" : "TRYM_KOCIOL_PONIZEJ_NASTAWY";
+            var standby = run.Ctx.StandbyEntries6h ?? 0;
+            if (standby >= p.DoseTrimStandbyEntries && !boilerEarly)
+                // Kocioł jako granica z drugiej strony: dobija do nastawy i staje, więc ciepła ma więcej, niż dom bierze.
+                // Brak zostaje z innego powodu (pokój, którego grzejnik nie dogrzeje - hol), a trym zbierałby bez końca.
+                blockedText = $"kocioł {standby}× w {p.DoseTrimStandbyHours} h dobił do nastawy i stanął w podtrzymaniu - " +
+                              "ciepła jest więcej, niż dom bierze, więcej węgla tego braku nie usunie";
+            else if (planWithoutTrim.Ceiling)
+                blockedText = "kocioł na suficie dawki - trym nie zbiera";
+            else if (effective - trimStep < pauseMin)
+                blockedText = $"postój z trymem zszedłby poniżej minimum {pauseMin} s - trym nie zbiera";
+            else if (ds.TrimSec - trimStep < -trimLimit)
+                blockedText = $"trym już na granicy −{trimLimit} s";
+            else
+                step = -trimStep;
+        }
+        else if (deficit.MinMarginK >= TrimHouseAboveK
+                 || (!houseNeeds && !houseBelow && (run.Ctx.StandbyEntries6h ?? 0) >= p.DoseTrimStandbyEntries))
+        {
+            // Mniej węgla: cały dom nad celem z zapasem, albo żaden pokój (poza pojedynczym, jak hol) nie potrzebuje
+            // ciepła i kocioł staje w podtrzymaniu - ciepła jest więcej, niż dom bierze. Bez podtrzymań symulacja października zostawiała
+            // 0,7 pokoju pod celem zamiast ≤ 0,5 (nadmiar wraca nocą jako zamknięte zawory i k uczone w dół).
+            code = deficit.MinMarginK >= TrimHouseAboveK ? "TRYM_DOM_NAD_CELEM" : "TRYM_PODTRZYMANIA";
+            if (effective + trimStep > pauseMax)
+                blockedText = "postój już na maksimum";
+            else if (ds.TrimSec + trimStep > trimLimit)
+                blockedText = $"trym już na granicy +{trimLimit} s";
+            else
+                step = trimStep;
+        }
+
+        if (code == null) return;
+
+        if (step != 0)
+        {
+            var old = ds.TrimSec;
+            ds.TrimSec += step;
+            ds.LastTrimUtc = now;
+            ds.LastTrimCode = code;
+            run.Notes.Add($"trym {old:+0;-0} → {ds.TrimSec:+0;-0} s ({code})");
+            run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Trim, old, ds.TrimSec, code, DoseLog.StatusInternal, extra: followUp));
+        }
+        else
+        {
+            run.Notes.Add($"trym: {blockedText}");
+            var key = $"TRYM|{code}|{ds.TrimSec}";
+            if (ds.LastLoggedBlockKey != key)
+            {
+                ds.LastLoggedBlockKey = key;
+                var wanted = ds.TrimSec + (code is "TRYM_DOM_NAD_CELEM" or "TRYM_PODTRZYMANIA" ? trimStep : -trimStep);
+                run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Trim, ds.TrimSec, wanted, code, DoseLog.StatusBlocked,
+                    $"Chciałbym: {DoseLog.Head(DoseLog.Trim, ds.TrimSec, wanted)}, ale {blockedText}. Dlaczego: {DoseLog.Why(code, run.Ctx)}."));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Awaryjny trym od kotła (do 9.11 jedyny): kocioł nie dochodzi do nastawy przy ciągłej dmuchawie przez 2 h
+    /// → postój −20 s; ≥ 2 wejścia w podtrzymanie w 6 h → +20 s. Tylko bez danych z pokoi.
+    /// </summary>
+    private static void EvaluateBoilerTrim(DoseState ds, DosePlan planWithoutTrim, IReadOnlyList<DoseSample> samples,
+        DateTime now, HeatingParameters p, RunLog run)
+    {
         // Trym idzie za kotłem (ogień reaguje 1-2 h), więc ma własny odstęp: dawka z modelu może iść co 1 h,
         // a trym i tak nie częściej niż co 2 h - inaczej zbierałby krok za krokiem, zanim ogień odpowie.
         if (ds.LastTrimUtc.HasValue
@@ -673,10 +814,7 @@ public class Phase5DoseService : IPhaseService
         else if (DoseCalculator.StandbyEntries(last6h) >= p.DoseTrimStandbyEntries)
         {
             code = "TRYM_PODTRZYMANIA";
-            if (houseBelow)
-                blockedText = $"dom pod celem (brak {DoseLog.Number(deficit!.DeficitK, "0.0#")} °C, w tym przy zamkniętych zaworach " +
-                              $"{DoseLog.Number(deficit.StarvedK, "0.0#")} °C) - węgiel nie spada, dopóki dom nie osiągnie celu";
-            else if (effective + trimStep <= pauseMax
+            if (effective + trimStep <= pauseMax
                 && ds.TrimSec + trimStep <= trimLimit)
                 step = trimStep;
             else

@@ -96,7 +96,7 @@ public class DoseState
     /// <summary>Tz wygładzona przy ostatniej zmianie nastaw - do zdania „Tz spadła z … do …” w dzienniku.</summary>
     public double? LastChangeOutdoorSmoothed { get; set; }
 
-    /// <summary>Kod ostatniego trymu (TRYM_KOCIOL_PONIZEJ_NASTAWY / TRYM_PODTRZYMANIA) - przyczyna zmiany w dzienniku.</summary>
+    /// <summary>Kod ostatniego trymu (TRYM_DOM_POD_CELEM / TRYM_DOM_NAD_CELEM; do 9.11 trymy od kotła) - przyczyna zmiany w dzienniku.</summary>
     public string? LastTrimCode { get; set; }
 
     /// <summary>

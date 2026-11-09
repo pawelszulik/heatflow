@@ -22,7 +22,7 @@ public class FeedChangeLog
     public string Direction { get; set; } = string.Empty;
 
     /// <summary>
-    /// Kod przyczyny: POGODA, SUFIT, TRYM_KOCIOL_PONIZEJ_NASTAWY, TRYM_PODTRZYMANIA, SPALINY_185,
+    /// Kod przyczyny: POGODA, SUFIT, TRYM_DOM_POD_CELEM, TRYM_DOM_NAD_CELEM (do 9.11: TRYM_KOCIOL_PONIZEJ_NASTAWY, TRYM_PODTRZYMANIA), SPALINY_185,
     /// SPALINY_200, PO_AUTOMATYZACJI_24, ODSTEP, KOREKTA_K, KOREKTA_K_POMINIETA, WLACZENIE_RECZNE,
     /// WYLACZENIE_RECZNE, SAMOWYLACZENIE_&lt;powód&gt;, PRZYWROCENIE_NASTAW, KOCIOL_ZIMNY (ostrzeżenie).
     /// </summary>

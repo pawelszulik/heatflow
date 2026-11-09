@@ -15,7 +15,8 @@ public record DosePlan(int Work, double ModelPause, bool Ceiling, double Shortfa
 /// Work/Pause to wartości, które automat chciałby ustawić po upływie odstępu.
 /// </summary>
 public record DoseDecision(bool Change, int Work, int Pause, string Reason,
-    bool WaitingForInterval = false, double MinutesSinceLastChange = 0);
+    bool WaitingForInterval = false, double MinutesSinceLastChange = 0,
+    (int Work, int Pause)? HeldBack = null);
 
 /// <summary>Cel pokoju po harmonogramie, waga HeatLossW i czy jego faktyczna może podnieść cel (DoseUseActual).</summary>
 public record RoomTargetInput(string Name, double Target, double Weight, bool UseActual = true);
@@ -236,6 +237,22 @@ public static class DoseCalculator
     /// <summary>Poniżej tego braku dom uchodzi za „na celu” - bez dociągania i bez blokad trymu/k.</summary>
     public const double CatchUpDeadbandK = 0.2;
 
+    /// <summary>
+    /// Wymaganie Pawła (2026-11-04): dopóki dom nie osiągnął celu, dawka węgla nie spada - ani od pogody, ani od trymu.
+    /// Ocieplenie na dworze to szansa na dobicie do celu, a nie powód do cięcia. Próg 0,3 K, nie 0,2: sam hol
+    /// (23,2 przy celu 26, zawór otwarty cały czas) daje 0,24 K braku całego domu i blokowałby cięcie na stałe.
+    /// </summary>
+    public const double HoldDoseDeadbandK = 0.3;
+
+    /// <summary>Wydajność podajnika: 4,25 g/s ±0,15 (analiza-kociol-nastawy.md § 3, 29 zasypów po 100 kg).</summary>
+    public const double CoalKgPerFeederSec = 0.00425;
+
+    /// <summary>Dawka w kg węgla na dobę przy ciągłym grzaniu.</summary>
+    public static double KgPerDay(int work, int pause) => (double)work / (work + pause) * 86400.0 * CoalKgPerFeederSec;
+
+    /// <summary>Czy dom jest na tyle pod celem, że dawka węgla nie może spaść. Brak danych o pokojach = nie blokuje.</summary>
+    public static bool HoldDose(HouseDeficit? deficit) => deficit?.DeficitK > HoldDoseDeadbandK;
+
     /// <summary>Okno średniej faktycznych temperatur do braku: 3 h, jak Tz (§ 7a) - wietrzenie nie szarpie dawką.</summary>
     public const double CatchUpWindowHours = 3;
 
@@ -270,15 +287,14 @@ public static class DoseCalculator
     }
 
     /// <summary>
-    /// Dociąganie do celu: dom pod celem o więcej niż <see cref="CatchUpDeadbandK"/> i kocioł NIE dobija do nastawy
-    /// (mniej niż DoseTrimStandbyEntries wejść w podtrzymanie w oknie trymu - brakuje ognia, nie odbioru) → dodatek
-    /// na nadrobienie braku w ciągu doby, HouseCapacity [s/K] · brak [K] s/dobę. Maleje razem z brakiem, na celu 0.
-    /// Gdy kocioł dobija do nastawy, więcej węgla nie pomoże (ciepło nie ma którędy odejść) - dodatku nie ma.
-    /// Z dodatkiem na wzrost celu liczy się większy z dwóch, najwyżej DoseStorageBonusMaxSec. Człon proporcjonalny;
-    /// stałą część różnicy przejmuje k (uczy się z doby z dodatkiem).
+    /// Dociąganie do celu: dom pod celem o więcej niż <see cref="CatchUpDeadbandK"/> → dodatek na nadrobienie braku w ciągu
+    /// doby, HouseCapacity [s/K] · brak [K] s/dobę. Maleje razem z brakiem, na celu 0. Dojścia kotła do nastawy tego nie
+    /// zerują (2026-11-04): pokoje z zaworem otwartym cały czas też były pod celem, więc podtrzymanie nie dowodzi, że
+    /// ciepło nie ma którędy odejść. Z dodatkiem na wzrost celu liczy się większy z dwóch, najwyżej DoseStorageBonusMaxSec.
+    /// Człon proporcjonalny; stałą część różnicy przejmuje k (uczy się z doby z dodatkiem).
     /// </summary>
-    public static double CatchUpSec(double? deficitK, int standbyEntries, HeatingParameters p)
-        => deficitK is > CatchUpDeadbandK && standbyEntries < p.DoseTrimStandbyEntries
+    public static double CatchUpSec(double? deficitK, HeatingParameters p)
+        => deficitK is > CatchUpDeadbandK
             ? Math.Min(p.DoseStorageBonusMaxSec, p.HouseCapacity * deficitK.Value)
             : 0;
 
@@ -345,7 +361,7 @@ public static class DoseCalculator
     /// </summary>
     public static DoseDecision Decide(
         int currentWork, int currentPause, DosePlan plan,
-        DateTime? lastChangeUtc, DateTime nowUtc, HeatingParameters p)
+        DateTime? lastChangeUtc, DateTime nowUtc, HeatingParameters p, bool holdDose = false)
     {
         var (workMin, workMax, pauseMin, pauseMax) = Bounds(p);
         var targetWork = Math.Clamp(plan.Work, workMin, workMax);
@@ -393,6 +409,15 @@ public static class DoseCalculator
         if (newPause == currentPause && targetWork == currentWork)
         {
             return new DoseDecision(false, currentWork, currentPause, "bez zmian po zaokrągleniu do 5 s");
+        }
+
+        // Dom pod celem: dawka nie spada, z żadnego powodu. Nastawy poza twardymi granicami dalej trzeba poprawić.
+        if (holdDose && !outOfBounds
+            && (double)targetWork / (targetWork + newPause) < (double)currentWork / (currentWork + currentPause) - 1e-9)
+        {
+            return new DoseDecision(false, currentWork, currentPause,
+                $"bez zmian: dom pod celem - dawka nie spada (model chciałby {targetWork}/{newPause} s)",
+                HeldBack: (targetWork, newPause));
         }
 
         if (lastChangeUtc.HasValue && nowUtc - lastChangeUtc.Value < TimeSpan.FromHours(p.FeedMinIntervalHours))

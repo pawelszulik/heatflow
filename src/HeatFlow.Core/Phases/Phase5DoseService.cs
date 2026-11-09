@@ -185,10 +185,11 @@ public class Phase5DoseService : IPhaseService
             FillPlan(ctx, ds);
             // Dodatek przy celu, który już nie rośnie, to dociąganie do celu (nie dogrzanie po podniesieniu celu).
             ctx.CatchUpActive = ds.StorageBonusSec > 0
-                                && DoseCalculator.CatchUpSec(deficit?.DeficitK, ctx.StandbyEntries6h ?? 0, parameters) > 0
+                                && DoseCalculator.CatchUpSec(deficit?.DeficitK, parameters) > 0
                                 && !(ds.HouseTargetUsed < ds.HouseTarget - 0.005);
 
             // 4. Co sterownik dostałby teraz (sugestia przy wyłączonym automacie).
+            var holdDose = DoseCalculator.HoldDose(deficit);
             DoseDecision? decision = null;
             int? blower = null;
             int? blowerWanted = null;
@@ -200,7 +201,7 @@ public class Phase5DoseService : IPhaseService
             {
                 var plan = new DosePlan(ds.PlannedWork.Value, ds.ModelPause.Value, ds.Ceiling, ds.ShortfallPct);
                 decision = DoseCalculator.Decide(controller.FeederWork, controller.FeederPause, plan,
-                    ds.AutomatActive ? ds.LastChangeUtc : null, now, parameters);
+                    ds.AutomatActive ? ds.LastChangeUtc : null, now, parameters, holdDose);
                 blowerWanted = DoseCalculator.BlowerFor(decision.Work, decision.Pause, parameters);
                 (var limited, blowerNote, blowerCode) = DoseCalculator.LimitBlower(blowerWanted.Value, controller.Blower,
                     inputs.Sample.FlueTemp, flueSafetyRecent, parameters);
@@ -312,6 +313,10 @@ public class Phase5DoseService : IPhaseService
                     {
                         LogWaitingForInterval(ds, controller, decision, parameters, now, run);
                     }
+                    else if (decision.HeldBack.HasValue && controller != null)
+                    {
+                        LogHeldBack(ds, controller, decision, deficit, run);
+                    }
                 }
                 else
                 {
@@ -320,11 +325,11 @@ public class Phase5DoseService : IPhaseService
             }
             else if (controller != null && ds.ModelPause.HasValue && ds.PlannedWork.HasValue)
             {
-                ShadowStep(ds, controller, inputs.Sample.FlueTemp, flueSafetyRecent, parameters, now, run);
+                ShadowStep(ds, controller, inputs.Sample.FlueTemp, flueSafetyRecent, parameters, now, run, holdDose);
             }
 
             // 7. Przycisk „Ustaw sugerowane” (zlecenie z HA): jednorazowy zapis sugerowanych nastaw.
-            await HandleApplyRequestAsync(ds, controller, inputs, samples, flueSafetyRecent, parameters, now, run, cancellationToken);
+            await HandleApplyRequestAsync(ds, controller, inputs, samples, flueSafetyRecent, holdDose, parameters, now, run, cancellationToken);
 
             // 8. Nowa sugestia przy wyłączonym automacie → Discord (tylko w godzinach dnia).
             await NotifyNewSuggestionAsync(ds, controller, now, run, cancellationToken);
@@ -412,7 +417,7 @@ public class Phase5DoseService : IPhaseService
     /// Każdy wynik (zapisane / zablokowane / niepotwierdzone) dostaje wpis w dzienniku i wiadomość na Discord.
     /// </summary>
     private async Task HandleApplyRequestAsync(DoseState ds, ControllerFeedSettings? controller, DoseInputs inputs,
-        IReadOnlyList<DoseSample> samples, bool flueSafetyRecent, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct)
+        IReadOnlyList<DoseSample> samples, bool flueSafetyRecent, bool holdDose, HeatingParameters p, DateTime now, RunLog run, CancellationToken ct)
     {
         await _repository.ExpireApplyRequestsAsync(now - ApplyRequestTtl, ct);
         var request = await _repository.GetPendingApplyRequestAsync(now - ApplyRequestTtl, ct);
@@ -455,7 +460,7 @@ public class Phase5DoseService : IPhaseService
         // Krok liczony od tego, co JEST w sterowniku (limit FeedMaxStepSec jak przy automacie), nie od cienia,
         // który po kilku sugestiach bez zapisu odjeżdża od sterownika (21.10: 160 → 260 s jednym kliknięciem).
         var plan = new DosePlan(ds.PlannedWork.Value, ds.ModelPause.Value, ds.Ceiling, ds.ShortfallPct);
-        var step = DoseCalculator.Decide(controller.FeederWork, controller.FeederPause, plan, null, now, p);
+        var step = DoseCalculator.Decide(controller.FeederWork, controller.FeederPause, plan, null, now, p, holdDose);
         var work = step.Change ? step.Work : controller.FeederWork;
         var pause = step.Change ? step.Pause : controller.FeederPause;
         var (blower, _, blowerCode) = DoseCalculator.LimitBlower(DoseCalculator.BlowerFor(work, pause, p), controller.Blower,
@@ -568,8 +573,7 @@ public class Phase5DoseService : IPhaseService
         var (usedTarget, riseBonus) = DoseCalculator.LimitTargetRise(rawTarget, previousUsed, hours, p);
         // Dociąganie do celu (2026-11-03): dom pod celem → dodatek na nadrobienie braku w ciągu doby. Z dodatkiem
         // na wzrost celu liczy się większy (ta sama energia na dogrzanie murów), nie suma.
-        var standby6h = run.Ctx.StandbyEntries6h ?? 0;
-        var catchUp = source == "pokoje" ? DoseCalculator.CatchUpSec(deficit?.DeficitK, standby6h, p) : 0;
+        var catchUp = source == "pokoje" ? DoseCalculator.CatchUpSec(deficit?.DeficitK, p) : 0;
         var bonus = Math.Min(p.DoseStorageBonusMaxSec, Math.Max(riseBonus, catchUp));
         if (catchUp > 0)
         {
@@ -578,11 +582,6 @@ public class Phase5DoseService : IPhaseService
             run.Notes.Add($"dociąganie: dom pod celem o {DoseLog.Number(deficit.DeficitK, "0.00")} K → +{catchUp:F0} s/dobę" +
                           (catchUp >= riseBonus ? "" : $" (wzrost celu daje więcej: +{riseBonus:F0} s)") +
                           (below.Length > 0 ? $" ({below})" : ""));
-        }
-        else if (deficit?.DeficitK > DoseCalculator.CatchUpDeadbandK && source == "pokoje")
-        {
-            run.Notes.Add($"dociąganie: dom pod celem o {DoseLog.Number(deficit.DeficitK, "0.00")} K, ale kocioł dobija do nastawy " +
-                          $"({standby6h}× podtrzymanie w {p.DoseTrimStandbyHours} h) - więcej węgla nie pomoże, ciepło nie ma którędy odejść");
         }
         LogHouseTargetChange(ds, rawTarget, source, house, run);
         ds.HouseTarget = Math.Round(rawTarget, 2);
@@ -626,7 +625,9 @@ public class Phase5DoseService : IPhaseService
         // czekania na odstęp - to nie krok za kotłem, tylko cofnięcie błędnego wniosku (25.10-3.11: +60 s przy domu
         // 0,7 K pod celem i 11 zamkniętych zaworach). Pokój pod celem z OTWARTYM zaworem nie blokuje trymu - jego
         // grzejnik i tak bierze, ile może, a nadmiar ognia ląduje w podtrzymaniu.
-        var houseBelow = deficit?.StarvedK > DoseCalculator.CatchUpDeadbandK;
+        // Od 2026-11-04 liczy się każdy brak ponad próg, nie tylko przy zamkniętych zaworach: pokoje z zaworem otwartym
+        // cały czas też są pod celem, a wymaganie Pawła brzmi „dom pod celem = węgiel nie spada”.
+        var houseBelow = deficit?.StarvedK > DoseCalculator.CatchUpDeadbandK || DoseCalculator.HoldDose(deficit);
         if (houseBelow && ds.TrimSec > 0)
         {
             var old = ds.TrimSec;
@@ -673,8 +674,8 @@ public class Phase5DoseService : IPhaseService
         {
             code = "TRYM_PODTRZYMANIA";
             if (houseBelow)
-                blockedText = $"pokoje pod celem przy zamkniętych zaworach (brak {DoseLog.Number(deficit!.StarvedK, "0.0#")} K z " +
-                              $"{DoseLog.Number(deficit.DeficitK, "0.0#")} K) - podtrzymanie to brak odbioru ciepła, nie nadmiar węgla";
+                blockedText = $"dom pod celem (brak {DoseLog.Number(deficit!.DeficitK, "0.0#")} °C, w tym przy zamkniętych zaworach " +
+                              $"{DoseLog.Number(deficit.StarvedK, "0.0#")} °C) - węgiel nie spada, dopóki dom nie osiągnie celu";
             else if (effective + trimStep <= pauseMax
                 && ds.TrimSec + trimStep <= trimLimit)
                 step = trimStep;
@@ -806,13 +807,27 @@ public class Phase5DoseService : IPhaseService
             $"{decision.MinutesSinceLastChange:0} min (min. {p.FeedMinIntervalHours} h). Dlaczego: {DoseLog.Why(cause, run.Ctx)}."));
     }
 
+    /// <summary>„Chciałbym mniej węgla, ale dom jest pod celem” - raz na daną decyzję.</summary>
+    private static void LogHeldBack(DoseState ds, ControllerFeedSettings controller, DoseDecision decision, HouseDeficit? deficit, RunLog run)
+    {
+        var (work, pause) = decision.HeldBack!.Value;
+        var key = $"POD_CELEM|{work}|{pause}";
+        if (ds.LastLoggedBlockKey == key) return;
+        ds.LastLoggedBlockKey = key;
+        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Pause, controller.FeederPause, pause, "DOM_POD_CELEM", DoseLog.StatusBlocked,
+            $"Chciałbym: {controller.FeederWork}/{controller.FeederPause} → {work}/{pause} s " +
+            $"({DoseLog.Number(DoseCalculator.KgPerDay(controller.FeederWork, controller.FeederPause), "0.0")} → " +
+            $"{DoseLog.Number(DoseCalculator.KgPerDay(work, pause), "0.0")} kg/dobę), ale dom jest " +
+            $"{DoseLog.Number(deficit?.DeficitK, "0.0#")} °C pod celem - dawka nie spada, dopóki nie osiągnie celu."));
+    }
+
     /// <summary>
     /// Tryb cienia (automat wyłączony): te same reguły co automat (odstęp, martwa strefa, krok,
     /// dmuchawa), ale od wirtualnych nastaw „gdyby automat był włączony”, startujących od tego, co
     /// jest w sterowniku. Wpis SUGESTIA tylko przy wirtualnej zmianie - jak w dzienniku automatu.
     /// </summary>
     private static void ShadowStep(DoseState ds, ControllerFeedSettings controller, double? flue, bool flueSafetyRecent,
-        HeatingParameters p, DateTime now, RunLog run)
+        HeatingParameters p, DateTime now, RunLog run, bool holdDose)
     {
         if (ds.ShadowWork == null || ds.ShadowPause == null || ds.ShadowBlower == null)
         {
@@ -824,7 +839,7 @@ public class Phase5DoseService : IPhaseService
 
         var shadow = new ControllerFeedSettings(ds.ShadowWork.Value, ds.ShadowPause.Value, ds.ShadowBlower.Value);
         var plan = new DosePlan(ds.PlannedWork!.Value, ds.ModelPause!.Value, ds.Ceiling, ds.ShortfallPct);
-        var decision = DoseCalculator.Decide(shadow.FeederWork, shadow.FeederPause, plan, ds.ShadowLastChangeUtc, now, p);
+        var decision = DoseCalculator.Decide(shadow.FeederWork, shadow.FeederPause, plan, ds.ShadowLastChangeUtc, now, p, holdDose);
         var (blower, _, blowerCode) = DoseCalculator.LimitBlower(
             DoseCalculator.BlowerFor(decision.Work, decision.Pause, p), shadow.Blower, flue, flueSafetyRecent, p);
 

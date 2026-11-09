@@ -120,6 +120,7 @@ public class RoomConfiguration
         return new Room
         {
             Name = Name,
+            HeatLossW = HeatLossW,
             TempTarget = TempTarget,
             TempTargetActive = TempTargetActive,
             TempTargetInactive = TempTargetInactive,

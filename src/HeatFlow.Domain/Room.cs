@@ -87,6 +87,11 @@ public class Room
     public double MaximalSetTemperature { get; set; } = 35d;
 
     /// <summary>
+    /// Strata ciepła pokoju [W]. 0 = pokój nie liczy się do domu (garaż): zabezpieczenie Fazy 3 bierze go na końcu.
+    /// </summary>
+    public double HeatLossW { get; set; }
+
+    /// <summary>
     /// Klasyfikacja danego pokoju
     /// </summary>
     public DeficitClassification DeficitClassification { get; private set; }

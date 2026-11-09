@@ -831,4 +831,127 @@ public class Phase3ValvesServiceTests
         _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.kuchnia", 19, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.kuchnia", 26, It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    // --- Zabezpieczenie: kolejne zawory ---
+
+    private static Room Hot(string name)
+    {
+        var room = new Room { Name = name, ValveEntityId = $"climate.{name}", MaximalSetTemperature = 35.0 };
+        room.Score = 100;
+        room.ClassifyDeficit(TestParameters.Default());
+        room.ChangeTemperatureToSet();
+        return room;
+    }
+
+    private static Room Closed(string name, double actual, double heatLossW = 500)
+        => new() { Name = name, ValveEntityId = $"climate.{name}", TempActual = actual, HeatLossW = heatLossW, MaximalSetTemperature = 35.0 };
+
+    /// <summary>Zawór, który nie odpowiada: zapis odrzucony, odczyt stary.</summary>
+    private void Dead(string name) => Valve(name, _ => false);
+
+    /// <summary>Zawór zapamiętuje nastawę, gdy <paramref name="accepts"/> przyjmie zapis.</summary>
+    private void Valve(string name, Func<double, bool> accepts)
+    {
+        var current = 5.0;
+        _haClientMock.Setup(x => x.GetStateAsync($"climate.{name}", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new EntityState
+            {
+                State = "heat",
+                Attributes = new Dictionary<string, object> { { "temperature", System.Text.Json.JsonSerializer.SerializeToElement(current) } }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync($"climate.{name}", It.IsAny<double>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, double t, CancellationToken _) =>
+            {
+                if (!accepts(t)) return false;
+                current = t;
+                return true;
+            });
+    }
+
+    private static readonly HeatingParameters FastRetry = new() { ValveTolerance = 0.1, ValveRetryCount = 2, ValveRetryDelay = 0.001 };
+
+    [Fact]
+    public async Task SafetyFallback_FirstRoomDead_NextRoomGetsFullHeat()
+    {
+        var hot = Hot("salon");
+        var dead = Closed("hol", 22);
+        var alive = Closed("edyta", 23);
+        Dead("salon");
+        Dead("hol");
+        Valve("edyta", _ => true);
+
+        var result = await _service.ExecuteAsync(new HeatingState
+        {
+            CurrentTime = DateTime.Now, RoomsToHot = new() { hot }, RoomsToDisable = new() { dead, alive }
+        }, FastRetry);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Contains("edyta", result.Warnings[0]);
+        Assert.Contains(result.ValveResults!, v => v.RoomName == "edyta" && v.Success && v.TempSet == 35);
+        Assert.Contains(result.ValveResults!, v => v.RoomName == "hol" && !v.Success);
+        // Pokój z pełnym grzaniem nie dostaje potem zamknięcia.
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.edyta", 5, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SafetyFallback_NoneResponds_StopsAfterLimit_ReportsAllNames()
+    {
+        var hot = Hot("salon");
+        var rooms = new[] { "a", "b", "c", "d" }.Select((n, i) => Closed(n, 20 + i)).ToList();
+        Dead("salon");
+        foreach (var r in rooms) Dead(r.Name);
+
+        var result = await _service.ExecuteAsync(new HeatingState
+        {
+            CurrentTime = DateTime.Now, RoomsToHot = new() { hot }, RoomsToDisable = rooms
+        }, FastRetry);
+
+        Assert.False(result.Success);
+        Assert.Contains("a, b, c", result.ErrorMessage);
+        Assert.Contains("Brak potwierdzenia", result.ErrorMessage);
+        _haClientMock.Verify(x => x.SetClimateTemperatureAsync("climate.d", It.IsAny<double>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SafetyFallback_GarageLast_EvenWhenColdest_ButUsedWhenOnlyOption()
+    {
+        var garaz = Closed("garaz", 12, heatLossW: 0);
+        var kuchnia = Closed("kuchnia", 25);
+        Dead("salon");
+        Valve("garaz", _ => true);
+        Valve("kuchnia", _ => true);
+
+        var result = await _service.ExecuteAsync(new HeatingState
+        {
+            CurrentTime = DateTime.Now, RoomsToHot = new() { Hot("salon") }, RoomsToDisable = new() { garaz, kuchnia }
+        }, FastRetry);
+
+        Assert.Contains("kuchnia", result.Warnings[0]);
+
+        var only = await _service.ExecuteAsync(new HeatingState
+        {
+            CurrentTime = DateTime.Now, RoomsToHot = new() { Hot("salon") }, RoomsToDisable = new() { Closed("garaz", 12, heatLossW: 0) }
+        }, FastRetry);
+
+        Assert.Contains("garaz", only.Warnings[0]);
+    }
+
+    [Fact]
+    public async Task SafetyFallback_BallastBeforeClosed_ColdestFirst_NoReadingLast()
+    {
+        var closed = Closed("zamkniety", 18);
+        var warmBallast = Closed("balast_cieply", 25);
+        var coldBallast = Closed("balast_zimny", 22);
+        var noReading = new Room { Name = "bez_odczytu", ValveEntityId = "climate.bez_odczytu", HeatLossW = 500 };
+        Dead("salon");
+        foreach (var n in new[] { "zamkniety", "balast_cieply", "balast_zimny", "bez_odczytu" }) Dead(n);
+
+        var result = await _service.ExecuteAsync(new HeatingState
+        {
+            CurrentTime = DateTime.Now, RoomsToHot = new() { Hot("salon") },
+            RoomsToStay = new() { warmBallast, noReading, coldBallast }, RoomsToDisable = new() { closed }
+        }, FastRetry);
+
+        Assert.Contains("balast_zimny, balast_cieply, bez_odczytu", result.ErrorMessage);
+    }
 }

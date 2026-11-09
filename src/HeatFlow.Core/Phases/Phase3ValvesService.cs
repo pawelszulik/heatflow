@@ -10,6 +10,9 @@ namespace HeatFlow.Core.Phases;
 /// </summary>
 public class Phase3ValvesService : IPhaseService
 {
+    /// <summary>Ile pokoi najwyżej próbuje zabezpieczenie, gdy nie odpowiedział żaden grzejący zawór.</summary>
+    public const int SafetyFallbackMaxRooms = 3;
+
     private readonly IHomeAssistantClient _haClient;
     private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase3ValvesService> _logger;
@@ -64,46 +67,53 @@ public class Phase3ValvesService : IPhaseService
                 }
             }
 
-            // ZABEZPIECZENIE: jeśli żaden zawór z RoomsToHot nie odpowiedział,
-            // wymusz pełne grzanie na najlepszym dostępnym pokoju ze Stay lub Disable.
+            // ZABEZPIECZENIE: jeśli żaden zawór z RoomsToHot nie odpowiedział, wymuś pełne grzanie na pierwszym pokoju,
+            // którego zawór odpowie: kolejno najwyżej SafetyFallbackMaxRooms kandydatów (limit, bo każda porażka to
+            // kilkanaście sekund prób, a przy padniętym HA nie odpowie żaden).
             if (hotSuccessCount == 0)
             {
-                safetyFallbackRoom =
-                    state.RoomsToStay.OrderBy(r => r.TempActual).FirstOrDefault()
-                    ?? state.RoomsToDisable.OrderBy(r => r.TempActual).FirstOrDefault();
-
-                if (safetyFallbackRoom != null)
+                var candidates = SafetyFallbackCandidates(state);
+                if (candidates.Count > 0)
                 {
                     _logger.LogWarning(
                         "BEZPIECZEŃSTWO Faza 3: Wszystkie zawory w RoomsToHot ({Count}) nie odpowiedziały. " +
-                        "Wymuszam pełne grzanie na pokoju '{Room}'.",
-                        state.RoomsToHot.Count, safetyFallbackRoom.Name);
+                        "Próbuję pełnego grzania na: {Rooms}.",
+                        state.RoomsToHot.Count, string.Join(", ", candidates.Select(r => r.Name)));
 
-                    safetyFallbackRoom.SetSafetyRoom();
-                    var fallbackTemp = (int)safetyFallbackRoom.MaximalSetTemperature;
-                    var (fallbackSuccess, fallbackRetries) = await SetValveTemperatureAsync(
-                        safetyFallbackRoom, parameters, fallbackTemp, cancellationToken);
-                    valveResults.Add(new ValveResult(
-                        safetyFallbackRoom.Name, safetyFallbackRoom.ValveEntityId ?? "",
-                        (decimal)fallbackTemp, safetyFallbackRoom.TempActual.HasValue ? (decimal)safetyFallbackRoom.TempActual.Value : null,
-                        fallbackSuccess, fallbackRetries));
-
-                    if (fallbackSuccess)
+                    foreach (var candidate in candidates)
                     {
-                        successCount++;
-                        valveMessages.Add($"ZABEZPIECZENIE: {safetyFallbackRoom.Name} ustawiony na {fallbackTemp}°C (pełne grzanie)");
-                        _logger.LogInformation(
-                            "Faza 3: Zabezpieczenie aktywne - '{Room}' utrzymany na pełnym grzaniu.",
-                            safetyFallbackRoom.Name);
+                        var fallbackTemp = (int)candidate.MaximalSetTemperature;
+                        var (fallbackSuccess, fallbackRetries) = await SetValveTemperatureAsync(
+                            candidate, parameters, fallbackTemp, cancellationToken);
+                        valveResults.Add(new ValveResult(
+                            candidate.Name, candidate.ValveEntityId ?? "",
+                            (decimal)fallbackTemp, candidate.TempActual.HasValue ? (decimal)candidate.TempActual.Value : null,
+                            fallbackSuccess, fallbackRetries));
+
+                        if (fallbackSuccess)
+                        {
+                            safetyFallbackRoom = candidate;
+                            candidate.SetSafetyRoom();
+                            successCount++;
+                            valveMessages.Add($"ZABEZPIECZENIE: {candidate.Name} ustawiony na {fallbackTemp}°C (pełne grzanie)");
+                            _logger.LogInformation(
+                                "Faza 3: Zabezpieczenie aktywne - '{Room}' utrzymany na pełnym grzaniu.", candidate.Name);
+                            break;
+                        }
+
+                        failCount++;
+                        valveMessages.Add($"ZABEZPIECZENIE: {candidate.Name} nie odpowiedział na {fallbackTemp}°C");
+                        _logger.LogWarning("Faza 3: Zabezpieczenie - '{Room}' nie odpowiedział.", candidate.Name);
                     }
-                    else
+
+                    if (safetyFallbackRoom == null)
                     {
-                        valveMessages.Add($"ZABEZPIECZENIE NIEUDANE: {safetyFallbackRoom.Name} nie odpowiedział na {fallbackTemp}°C");
+                        var names = string.Join(", ", candidates.Select(r => r.Name));
                         _logger.LogError(
-                            "Faza 3: Zabezpieczenie NIEUDANE - '{Room}' nie odpowiedział. Żaden zawór nie grzeje na pełną moc!",
-                            safetyFallbackRoom.Name);
+                            "Faza 3: Zabezpieczenie NIEUDANE - nie odpowiedział żaden z zaworów: {Rooms}. Brak potwierdzenia pełnego grzania.",
+                            names);
                         var errorResult = PhaseResult.ErrorResult(PhaseNumber,
-                            $"Faza 3: Zabezpieczenie NIEUDANE - '{safetyFallbackRoom.Name}' nie odpowiedział. Żaden zawór nie grzeje na pełną moc!");
+                            $"Faza 3: Zabezpieczenie NIEUDANE - nie odpowiedział żaden z zaworów: {names}. Brak potwierdzenia pełnego grzania.");
                         errorResult.ValveResults = valveResults;
                         errorResult.Details = $"{additionalInfo} | {string.Join(" | ", valveMessages)}";
                         return errorResult;
@@ -185,6 +195,21 @@ public class Phase3ValvesService : IPhaseService
             return PhaseResult.ErrorResult(PhaseNumber, ex.Message, duration);
         }
     }
+
+    /// <summary>
+    /// Kolejność prób zabezpieczenia: pokoje bez wagi na końcu (garaż nie ogrzewa domu, a jako najzimniejszy zawsze
+    /// wygrywałby wybór), potem balast przed zamykanymi, potem najzimniejsze. Pokój bez odczytu po tych z odczytem.
+    /// </summary>
+    private static List<Room> SafetyFallbackCandidates(HeatingState state)
+        => state.RoomsToStay.Select(r => (Room: r, Group: 0))
+            .Concat(state.RoomsToDisable.Select(r => (Room: r, Group: 1)))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Room.ValveEntityId))
+            .OrderBy(x => x.Room.HeatLossW > 0 ? 0 : 1)
+            .ThenBy(x => x.Group)
+            .ThenBy(x => x.Room.TempActual ?? double.MaxValue)
+            .Select(x => x.Room)
+            .Take(SafetyFallbackMaxRooms)
+            .ToList();
 
     // Zwraca (success, retryCount) gdzie retryCount = liczba wykonanych prób retry (0 = sukces od razu lub brak potrzeby)
     private async Task<(bool Success, int RetryCount)> SetValveTemperatureAsync(

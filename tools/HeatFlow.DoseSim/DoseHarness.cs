@@ -93,10 +93,14 @@ public sealed class DoseHarness
         }
     }
 
-    public Task<Core.Phases.PhaseResult> StepAsync(DateTime utc, ForecastData? forecast)
+    public Task<Core.Phases.PhaseResult> StepAsync(DateTime utc, ForecastData? forecast, double? mixer4D = null)
     {
         Clock.UtcNow = utc;
-        return Phase.ExecuteAsync(new HeatingState { CurrentTime = utc, Forecast = forecast, SystemConfiguration = Config.System }, Parameters);
+        return Phase.ExecuteAsync(new HeatingState
+        {
+            CurrentTime = utc, Forecast = forecast, SystemConfiguration = Config.System,
+            BoilerState = mixer4D.HasValue ? new BoilerState { Mixer4DPosition = mixer4D.Value } : null
+        }, Parameters);
     }
 
     /// <summary>„Idealna prognoza”: faktyczna Tz z kolejnych godzin.</summary>

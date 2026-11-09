@@ -605,7 +605,7 @@ public class Phase5DoseServiceTests
     }
 
     [Fact]
-    public async Task BoilerUnderpoweredFor2h_TrimsPauseDown20s()
+    public async Task BoilerUnderpoweredFor2h_NoRoomData_TrimsPauseDown20s()
     {
         foreach (var s in _repo.Samples) { s.BoilerTemp = 60; s.BlowerActual = 35; }
         SetEnvironment(outdoor: 5.0, boiler: 60);

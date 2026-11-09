@@ -176,6 +176,64 @@ public class DoseCatchUpTests
     // Kocioł co ~1,5 h dobija do 67 i spada - 4 wejścia w podtrzymanie w 6 h.
     private static double Sawtooth(int minutesAgo) => minutesAgo % 90 < 15 ? 67.5 : 64.0;
 
+    // --- 2026-11-09: dosypka idzie za potrzebą domu, nie za nastawą kotła ---
+
+    [Fact]
+    public async Task UnderpoweredBoiler_HouseOnTarget_NegativeTrimCleared_NoMoreCoal()
+    {
+        // 9.11: kocioł 7-13 K pod nastawą przy 4D na 100 %, dom na celu, trym −40 s z poprzednich godzin.
+        var h = Harness(new DoseState { TrimSec = -40, LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: 0.0, open: true);
+        PublishNow(h, 55);
+
+        await h.StepAsync(Now, null, mixer4D: 40);
+
+        var st = h.Repo.State!;
+        Assert.Equal(0, st.TrimSec);
+        var cleared = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "DOM_NA_CELU");
+        Assert.Equal((-40.0, 0.0), (cleared.OldValue!.Value, cleared.NewValue!.Value));
+        Assert.Contains("nie za nastawą kotła", cleared.Message);
+        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY" && e.Status == DoseLog.StatusBlocked);
+        Assert.Contains("dom na celu", blocked.Message);
+    }
+
+    [Fact]
+    public async Task UnderpoweredBoiler_HouseBelow_Mixer4DOpen_TrimClearedAndNoMore()
+    {
+        var h = Harness(new DoseState { TrimSec = -40, LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        Rooms(h, Now.AddHours(-3), Now, below: 0.8, open: true);
+        PublishNow(h, 55);
+
+        await h.StepAsync(Now, null, mixer4D: HeatFlow.Core.Phases.Phase5DoseService.TrimUnderpowerMax4DPct);
+
+        Assert.Equal(0, h.Repo.State!.TrimSec);
+        var cleared = Assert.Single(h.Repo.Log, e => e.Parameter == DoseLog.Trim && e.ReasonCode == "ZAWOR_4D_OTWARTY");
+        Assert.Equal((-40.0, 0.0), (cleared.OldValue!.Value, cleared.NewValue!.Value));
+        var blocked = Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY" && e.Status == DoseLog.StatusBlocked);
+        Assert.Contains("zawór 4D otwarty na 70 %", blocked.Message);
+        // Dom pod celem dalej dostaje węgiel - z dociągania (potrzeba domu), nie z trymu od kotła.
+        Assert.Equal(Math.Round(1549 * 0.8), h.Repo.State.StorageBonusSec);
+    }
+
+    [Fact]
+    public async Task UnderpoweredBoiler_HouseBelow_Mixer4DThrottled_TrimsDown()
+    {
+        // +8 °C: postój z modelu ma zapas nad minimum 100 s, więc trym ma gdzie zejść (przy 0 °C postój już na minimum).
+        var h = Harness(new DoseState { LastKCorrectionDate = Now.Date });
+        Samples(h, _ => 55, Now.AddHours(-6), Now);
+        foreach (var s in h.Repo.Samples) s.OutdoorTemp = 8;
+        Rooms(h, Now.AddHours(-3), Now, below: 0.3, open: true);
+        h.Publish(new DoseInputsSnapshot(8, 24, 55, 67, 140, 35, 5000, false, true), Now);
+
+        await h.StepAsync(Now, null, mixer4D: 30);
+
+        Assert.Equal(-20, h.Repo.State!.TrimSec);
+        Assert.Single(h.Repo.Log, e => e.ReasonCode == "TRYM_KOCIOL_PONIZEJ_NASTAWY" && e.Parameter == DoseLog.Trim
+                                       && e.Status == DoseLog.StatusInternal);
+    }
+
     [Fact]
     public async Task StarvedRooms_PositiveTrimCleared_StandbyTrimBlocked_CatchUpDespiteSetpoint()
     {

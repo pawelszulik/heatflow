@@ -592,7 +592,8 @@ public class Phase5DoseService : IPhaseService
         ds.RoomTargetsLastCalc = source == "pokoje" ? FormatTargets(house.Rooms) : null;
         ds.HouseTargetActualRooms = Truncate(string.Join(";", house.Rooms.Where(r => r.ByActual).Select(r => r.Name)), 500);
 
-        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run, deficit);
+        EvaluateTrim(ds, DoseCalculator.Plan(p, tz.Value, currentWork, 0, usedTarget, bonus), samples, now, p, run, deficit,
+            state.BoilerState?.Mixer4DPosition);
         var plan = DoseCalculator.Plan(p, tz.Value, currentWork, ds.TrimSec, usedTarget, bonus);
 
         TrackSurcharge(ds, p, now, run);
@@ -609,6 +610,19 @@ public class Phase5DoseService : IPhaseService
         }
     }
 
+    /// <summary>
+    /// Od tej pozycji zaworu 4D [%] trym „kocioł pod nastawą” nie dosypuje (Paweł, 2026-11-09): otwarty 4D znaczy, że
+    /// kocioł oddaje ciepło do domu, a nie że brakuje węgla.
+    /// </summary>
+    public const double TrimUnderpowerMax4DPct = 70;
+
+    /// <summary>
+    /// Brak domu [K, średnia z 3 h ważona stratami], do którego dom jest „na celu” dla trymu od kotła - praktycznie każdy pokój
+    /// na celu. Ostrzej niż martwa strefa dociągania (0,2 K): przy 0,2 symulacja października zostawiała średnio 2,4 pokoju
+    /// pod celem, przy 0,1 - 1,3, przy 0,05 - 0,6, przy 0,02 tyle co przed zmianą. 9.11 sam hol (−0,54 K) dawał 0,05 K.
+    /// </summary>
+    public const double TrimHouseOnTargetK = 0.02;
+
     /// <summary>Najkrótszy odstęp między krokami trymu [h], niezależnie od FeedMinIntervalHours.</summary>
     private const int TrimMinIntervalHours = 2;
 
@@ -618,8 +632,27 @@ public class Phase5DoseService : IPhaseService
     /// FeedMinIntervalHours. Na suficie nie zbiera (anti-windup). Zerowany o północy.
     /// </summary>
     private static void EvaluateTrim(DoseState ds, DosePlan planWithoutTrim, IReadOnlyList<DoseSample> samples,
-        DateTime now, HeatingParameters p, RunLog run, HouseDeficit? deficit)
+        DateTime now, HeatingParameters p, RunLog run, HouseDeficit? deficit, double? mixer4D)
     {
+        // Dosypka idzie za potrzebą domu, nie za nastawą kotła (Paweł, 2026-11-09). Dom na celu → trym „więcej węgla”
+        // zdejmujemy od razu, bez czekania na odstęp. 6-9.11 kocioł stał 7-13 K pod nastawą przy 4D na 100 %, bo grzejniki
+        // brały ciepło, a nie dlatego, że brakowało węgla; trym zbijał postój 135 → 115 s przy 13 z 15 pokoi na celu,
+        // a przy stałym powietrzu (dmuchawa 34 %) nadmiar szedł w niedopał.
+        // To samo przy otwartym zaworze 4D: kocioł pod nastawą znaczy wtedy, że oddaje ciepło do domu.
+        var houseOnTarget = deficit != null && deficit.DeficitK <= TrimHouseOnTargetK;
+        var mixerOpen = mixer4D >= TrimUnderpowerMax4DPct;
+        if ((houseOnTarget || mixerOpen) && ds.TrimSec < 0)
+        {
+            var old = ds.TrimSec;
+            ds.TrimSec = 0;
+            var clearCode = houseOnTarget ? "DOM_NA_CELU" : "ZAWOR_4D_OTWARTY";
+            var why = houseOnTarget ? "" : $"zawór 4D otwarty na {DoseLog.Number(mixer4D, "0")} % (od {TrimUnderpowerMax4DPct:0} %) - " +
+                                          "kocioł pod nastawą to odbiór ciepła przez grzejniki, nie brak węgla; ";
+            run.Notes.Add($"trym {old:+0;-0} → 0 s ({clearCode})");
+            run.Entries.Add(DoseLog.Change(run.Ctx, DoseLog.Trim, old, 0, clearCode, DoseLog.StatusInternal,
+                extra: why + "trym od kotła pod nastawą zdjęty - postój z modelu przesunięty, sterownik dostanie to przy najbliższej zmianie"));
+        }
+
         // Pokoje pod celem z zamkniętym zaworem (2026-11-03): podtrzymanie znaczy wtedy, że ciepło nie ma którędy
         // odejść (Fazy 2-3, limit MaxValvesOpen), a nie że węgla za dużo. Trym „mniej węgla” zdejmujemy od razu, bez
         // czekania na odstęp - to nie krok za kotłem, tylko cofnięcie błędnego wniosku (25.10-3.11: +60 s przy domu
@@ -660,7 +693,15 @@ public class Phase5DoseService : IPhaseService
         if (DoseCalculator.BoilerUnderpowered(last2h, underpowerWindow, p.DoseTrimUnderpowerK))
         {
             code = "TRYM_KOCIOL_PONIZEJ_NASTAWY";
-            if (!planWithoutTrim.Ceiling && effective - trimStep >= pauseMin
+            // Bez danych z pokoi (Faza 1 nie zapisała migawek, cel ze stałej) nie wiemy, czego dom potrzebuje - trym działa
+            // jak dawniej, od kotła; blokada przy otwartym 4D obowiązuje zawsze.
+            if (houseOnTarget)
+                blockedText = $"dom na celu (brak {DoseLog.Number(deficit!.DeficitK, "0.0#")} °C) - kocioł pod nastawą przy ciepłym domu " +
+                              "to nie powód, żeby sypać więcej";
+            else if (mixerOpen)
+                blockedText = $"zawór 4D otwarty na {DoseLog.Number(mixer4D, "0")} % (od {TrimUnderpowerMax4DPct:0} % trym nie dosypuje) - " +
+                              "kocioł jest pod nastawą, bo grzejniki odbierają ciepło; przy stałym powietrzu dosypka idzie w niedopał";
+            else if (!planWithoutTrim.Ceiling && effective - trimStep >= pauseMin
                 && ds.TrimSec - trimStep >= -trimLimit)
                 step = -trimStep;
             else

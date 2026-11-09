@@ -163,6 +163,7 @@ public static class DoseLog
             "SUFIT" => $"kocioł nie nadąża - przy maks. pracy i min. postoju brakuje {Number(c.ShortfallPct, "0")} % ({tz}, {need})",
             "TRYM_KOCIOL_PONIZEJ_NASTAWY" => $"od {p.DoseTrimUnderpowerHours} h dmuchawa chodzi {Number(c.HeatingShare2hPct, "0")} % czasu, a {boiler} (poniżej nastawy − {Number(p.DoseTrimUnderpowerK, "0.#")} K)",
             "TRYM_PODTRZYMANIA" => $"{c.StandbyEntries6h} wejścia w podtrzymanie w ostatnich {p.DoseTrimStandbyHours} h, {boiler}",
+            "DOM_NA_CELU" => $"dom na celu (brak {Number(c.HouseDeficitK, "0.0#")} K, średnia z 3 h) - dosypka idzie za potrzebą domu, nie za nastawą kotła",
             "DOM_POD_CELEM" => $"{deficit} - podtrzymanie przy niedogrzanym domu to brak odbioru ciepła (zamknięte zawory), nie nadmiar węgla",
             "SPALINY_200" => $"spaliny {Number(c.FlueTemp, "0")} °C > {p.DoseFlueMaxTemp}",
             "SPALINY_185" => $"spaliny {Number(c.FlueTemp, "0")} °C ≥ {p.DoseFlueNoRaiseTemp}",

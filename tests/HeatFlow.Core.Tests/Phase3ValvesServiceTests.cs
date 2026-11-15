@@ -954,4 +954,78 @@ public class Phase3ValvesServiceTests
 
         Assert.Contains("balast_zimny, balast_cieply, bez_odczytu", result.ErrorMessage);
     }
+
+    // --- Głowica w trybie "off" (np. przestawiona przez dzieci): nastawy przechodzą, zawór stoi ---
+
+    private static System.Text.Json.JsonElement Num(double v)
+        => System.Text.Json.JsonDocument.Parse(v.ToString(System.Globalization.CultureInfo.InvariantCulture)).RootElement.Clone();
+
+    private (HeatingState State, HeatingParameters Parameters) HotRoomSetup(string entity)
+    {
+        var room = new Room { Name = "grzes", ValveEntityId = entity, MaximalSetTemperature = 35.0 };
+        room.Score = 100;
+        room.ClassifyDeficit(TestParameters.Default());
+        room.ChangeTemperatureToSet();
+        var state = new HeatingState
+        {
+            CurrentTime = DateTime.Now,
+            Rooms = new List<Room> { room },
+            RoomsToHot = new List<Room> { room }
+        };
+        var parameters = new HeatingParameters { ValveTolerance = 0.1, ValveRetryCount = 1, ValveRetryDelay = 0.01, MinValvesOpen = 1 };
+        return (state, parameters);
+    }
+
+    private void MockValve(string entity, string mode, string action, TimeSpan inModeFor)
+    {
+        _haClientMock.Setup(x => x.GetStateAsync(entity, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new EntityState
+            {
+                State = mode,
+                LastChanged = DateTime.UtcNow - inModeFor,
+                Attributes = new Dictionary<string, object>
+                {
+                    { "temperature", Num(35) },
+                    { "current_temperature", Num(21) },
+                    { "hvac_action", action }
+                }
+            });
+        _haClientMock.Setup(x => x.SetClimateTemperatureAsync(entity, It.IsAny<double>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _haClientMock.Setup(x => x.SetClimateHvacModeAsync(entity, "heat", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ValveStuckInOffOverGracePeriod_RestoresHeatMode()
+    {
+        var (state, parameters) = HotRoomSetup("climate.trv_grzes");
+        MockValve("climate.trv_grzes", "off", "idle", TimeSpan.FromMinutes(45));
+
+        var result = await _service.ExecuteAsync(state, parameters);
+
+        _haClientMock.Verify(x => x.SetClimateHvacModeAsync("climate.trv_grzes", "heat", It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains(result.Warnings, w => w.Contains("grzes") && w.Contains("heat"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ValveInOffForLessThanGracePeriod_DoesNotTouchMode()
+    {
+        var (state, parameters) = HotRoomSetup("climate.trv_grzes");
+        MockValve("climate.trv_grzes", "off", "idle", TimeSpan.FromMinutes(10));
+
+        await _service.ExecuteAsync(state, parameters);
+
+        _haClientMock.Verify(x => x.SetClimateHvacModeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ValveInOffButHeating_DoesNotTouchMode()
+    {
+        // Sypialnia: etykieta "off", ale hvac_action = heating, więc działa i nie ruszamy trybu.
+        var (state, parameters) = HotRoomSetup("climate.trv_sypialnia");
+        MockValve("climate.trv_sypialnia", "off", "heating", TimeSpan.FromHours(5));
+
+        await _service.ExecuteAsync(state, parameters);
+
+        _haClientMock.Verify(x => x.SetClimateHvacModeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

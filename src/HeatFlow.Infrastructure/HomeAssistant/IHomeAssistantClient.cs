@@ -53,6 +53,11 @@ public interface IHomeAssistantClient
     Task<bool> SetClimateTemperatureAsync(string entityId, double temperature, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ustawia tryb pracy encji typu climate (np. "heat", "auto", "off").
+    /// </summary>
+    Task<bool> SetClimateHvacModeAsync(string entityId, string hvacMode, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Wywołuje serwis Home Assistant.
     /// </summary>
     Task<bool> CallServiceAsync(string domain, string service, object? serviceData = null, CancellationToken cancellationToken = default);

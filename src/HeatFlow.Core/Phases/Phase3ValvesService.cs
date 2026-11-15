@@ -17,6 +17,9 @@ public class Phase3ValvesService : IPhaseService
     private readonly IApplicationErrorLogger _errorLogger;
     private readonly ILogger<Phase3ValvesService> _logger;
 
+    // Ostrzeżenia o przywróconych trybach głowic z bieżącego przebiegu (faza jest wykonywana sekwencyjnie).
+    private readonly List<string> _modeWarnings = new();
+
     public int PhaseNumber => 3;
 
     public Phase3ValvesService(
@@ -35,6 +38,7 @@ public class Phase3ValvesService : IPhaseService
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.UtcNow;
+        _modeWarnings.Clear();
 
         try
         {
@@ -181,6 +185,9 @@ public class Phase3ValvesService : IPhaseService
             var phaseResult = PhaseResult.SuccessResult(PhaseNumber, duration, details);
             phaseResult.ValveResults = valveResults;
 
+            foreach (var w in _modeWarnings)
+                phaseResult.Warnings.Add(w);
+
             if (safetyFallbackRoom != null)
                 phaseResult.Warnings.Add(
                     $"BEZPIECZEŃSTWO: '{safetyFallbackRoom.Name}' utrzymany na pełnym grzaniu (RoomsToHot zawiodły).");
@@ -232,7 +239,11 @@ public class Phase3ValvesService : IPhaseService
         // Spróbuj odczytać aktualną temperaturę w zależności od typu encji
         if (valveEntityId.StartsWith("climate."))
         {
-            currentTemp = await GetCurrentValveTemperatureAsync(valveEntityId, cancellationToken);
+            // Głowica przestawiona ręcznie (np. dzieci) na "off" przyjmuje nastawy, ale nie grzeje.
+            // Jeden odczyt stanu służy i kontroli trybu, i sprawdzeniu aktualnej nastawy.
+            var initialState = await _haClient.GetStateAsync(valveEntityId, cancellationToken);
+            await RestoreHvacModeIfStuckAsync(room, valveEntityId, temperatureToSet, initialState, cancellationToken);
+            currentTemp = ExtractSetpoint(initialState);
         }
         else if (valveEntityId.StartsWith("number."))
         {
@@ -292,11 +303,60 @@ public class Phase3ValvesService : IPhaseService
         return (false, parameters.ValveRetryCount);
     }
 
+    /// <summary>Jak długo głowica musi tkwić w trybie "off" bez grzania, zanim przywrócimy "heat".</summary>
+    internal static readonly TimeSpan StuckOffGracePeriod = TimeSpan.FromMinutes(30);
+
+    /// <summary>Minimalna różnica (nastawa − temperatura głowicy), od której zawór powinien być otwarty.</summary>
+    private const double ShouldHeatMarginK = 1.0;
+
+    /// <summary>
+    /// Wykrywa głowicę w trybie "off", która dostaje nastawę otwierającą zawór, a stoi (hvac_action = idle)
+    /// od ponad 30 minut, i przestawia ją na "heat".
+    /// Kryterium to zachowanie, nie sama etykieta: część głowic (np. Sypialnia) w "off" grzeje poprawnie,
+    /// a Grześ w "off" miał zamknięty zawór mimo nastawy 35 °C (13–15.11.2026, ~41 h).
+    /// </summary>
+    private async Task RestoreHvacModeIfStuckAsync(
+        Room room, string climateEntityId, int temperatureToSet, EntityState? state, CancellationToken cancellationToken)
+    {
+        if (state == null || state.State != "off") return;
+
+        var action = state.Attributes.TryGetValue("hvac_action", out var a) ? a?.ToString() : null;
+        if (action != "idle") return; // grzeje, więc tryb nie przeszkadza
+
+        if (!TryGetNumber(state, "current_temperature", out var valveTemp)) return;
+        if (temperatureToSet - valveTemp < ShouldHeatMarginK) return; // nastawa i tak nie otwiera zaworu
+
+        if (state.LastChanged != default
+            && DateTime.UtcNow - state.LastChanged.ToUniversalTime() < StuckOffGracePeriod)
+            return; // dopiero co przełączona, dajemy czas
+
+        var restored = await _haClient.SetClimateHvacModeAsync(climateEntityId, "heat", cancellationToken);
+        var msg = restored
+            ? $"Głowica {room.Name} ({climateEntityId}) stała w trybie 'off' bez grzania przy nastawie {temperatureToSet}°C - przywrócono tryb 'heat'."
+            : $"Głowica {room.Name} ({climateEntityId}) stoi w trybie 'off' bez grzania przy nastawie {temperatureToSet}°C - NIE udało się przywrócić trybu 'heat'.";
+        _logger.LogWarning("Faza 3: {Message}", msg);
+        _modeWarnings.Add(msg);
+    }
+
+    private static bool TryGetNumber(EntityState state, string attribute, out double value)
+    {
+        value = 0;
+        return state.Attributes.TryGetValue(attribute, out var o)
+            && o is System.Text.Json.JsonElement je
+            && je.ValueKind == System.Text.Json.JsonValueKind.Number
+            && je.TryGetDouble(out value);
+    }
+
     private async Task<double?> GetCurrentValveTemperatureAsync(
         string climateEntityId,
         CancellationToken cancellationToken)
     {
         var state = await _haClient.GetStateAsync(climateEntityId, cancellationToken);
+        return ExtractSetpoint(state);
+    }
+
+    private static double? ExtractSetpoint(EntityState? state)
+    {
         if (state != null && state.Attributes.TryGetValue("temperature", out var tempObj))
         {
             if (tempObj is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.Number)

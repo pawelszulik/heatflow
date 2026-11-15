@@ -112,6 +112,9 @@ public sealed class SimHomeAssistant : IHomeAssistantClient
     public Task<bool> SetClimateTemperatureAsync(string entityId, double temperature, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Faza 5 nie pisze climate");
 
+    public Task<bool> SetClimateHvacModeAsync(string entityId, string hvacMode, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Faza 5 nie pisze climate");
+
     public Task<bool> CallServiceAsync(string domain, string service, object? serviceData = null, CancellationToken cancellationToken = default)
     {
         Calls.Add((domain, service));

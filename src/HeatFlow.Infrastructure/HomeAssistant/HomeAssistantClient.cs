@@ -131,6 +131,11 @@ public class HomeAssistantClient : IHomeAssistantClient
         return await CallServiceAsync("climate", "set_temperature", new { entity_id = entityId, temperature }, cancellationToken);
     }
 
+    public async Task<bool> SetClimateHvacModeAsync(string entityId, string hvacMode, CancellationToken cancellationToken = default)
+    {
+        return await CallServiceAsync("climate", "set_hvac_mode", new { entity_id = entityId, hvac_mode = hvacMode }, cancellationToken);
+    }
+
     public async Task<bool> CallServiceAsync(string domain, string service, object? serviceData = null, CancellationToken cancellationToken = default)
     {
         try

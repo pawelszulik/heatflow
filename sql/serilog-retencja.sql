@@ -28,4 +28,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_SerilogLog_TimeStamp' 
 GO
 
 -- KROK 3 (osobna decyzja, wymaga okna - fragmentuje indeksy): odzysk miejsca z pliku .mdf.
--- DBCC SHRINKFILE (N'HeatFlow', 8192);   -- docelowo 8 GB; potem ALTER INDEX ALL ON dbo.SerilogLog REBUILD;
+-- Stan z 2026-11-21 po kroku 1: plik 44,7 GB, dane 20,2 GB (SerilogLog 19,9 GB). Cel 24 GB = dane + zapas.
+-- Uwaga: NIE zmniejszaj do 8 GB (wczesniejsza wersja skryptu) - dane zajmuja 20 GB, shrink by sie nie udal.
+DBCC SHRINKFILE (N'HeatFlow', 24576);
+GO
+-- Shrink rozfragmentowuje indeksy. REORGANIZE nie potrzebuje wolnego miejsca w pliku (REBUILD na 20 GB tabeli
+-- zażądałby ~20 GB i plik urósłby z powrotem).
+ALTER INDEX ALL ON dbo.SerilogLog REORGANIZE;
+GO
+-- Kontrola:
+SELECT name, size/128.0 AS plik_mb, FILEPROPERTY(name,'SpaceUsed')/128.0 AS uzyte_mb FROM sys.database_files;

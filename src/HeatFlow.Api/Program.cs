@@ -15,6 +15,11 @@ builder.Host.UseSerilog((context, services, configuration) =>
     configuration
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
+        // Bez tych nadpisań do SerilogLog (SQL) wpada ~185 tys. wpisów/dobę szumu technicznego
+        // (żądania HTTP, polecenia EF, routing). Aplikacyjne logi Information zostają.
+        .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+        .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
         .WriteTo.Console()
         .WriteTo.File("logs/heatflow-api-.log", rollingInterval: RollingInterval.Day);
 

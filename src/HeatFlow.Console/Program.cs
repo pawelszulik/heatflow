@@ -31,6 +31,8 @@ class Program
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            // HttpClientFactory loguje 4 wpisy Information na każde żądanie (Start/Sending/Received/End)
+            .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
             .WriteTo.Console()
             .WriteTo.File("logs/heatflow-.log", rollingInterval: RollingInterval.Day)
             .WriteTo.MSSqlServer(
@@ -112,6 +114,8 @@ class Program
                     await LogErrorToDbAsync(serviceProvider, result.ErrorMessage ?? "Błąd wykonania", null, "Program");
                     Environment.ExitCode = 1;
                 }
+
+                await PurgeOldLogsAsync(serviceProvider);
             }
             else
             {
@@ -365,6 +369,46 @@ class Program
             : $"Sterownik na koniec (mapper): praca {end.FeederWork} s, postój {end.FeederPause} s, dmuchawa {end.Blower} %");
         System.Console.WriteLine(allOk ? "WYNIK: zapis i przywrócenie potwierdzone w mapperze." : "WYNIK: test NIEUDANY.");
         return allOk ? 0 : 5;
+    }
+
+    /// <summary>
+    /// Retencja SerilogLog: kasuje wpisy starsze niż 30 dni, partiami po 20 000 (max 10 partii na uruchomienie).
+    /// Działa tylko, gdy istnieje indeks IX_SerilogLog_TimeStamp (tworzy go sql/serilog-retencja.sql) -
+    /// bez niego każda partia skanowałaby całą tabelę. Błąd nie może zatrzymać aplikacji.
+    /// </summary>
+    private static async Task PurgeOldLogsAsync(IServiceProvider serviceProvider)
+    {
+        try
+        {
+            using var scope = serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<HeatFlowDbContext>();
+
+            var hasIndex = await db.Database
+                .SqlQueryRaw<int>("SELECT COUNT(*) AS [Value] FROM sys.indexes WHERE name = 'IX_SerilogLog_TimeStamp' AND object_id = OBJECT_ID('dbo.SerilogLog')")
+                .FirstAsync();
+            if (hasIndex == 0)
+            {
+                Log.Warning("Retencja SerilogLog pominięta: brak indeksu IX_SerilogLog_TimeStamp (uruchom sql/serilog-retencja.sql)");
+                return;
+            }
+
+            var total = 0;
+            for (var i = 0; i < 10; i++)
+            {
+                var cutoff = DateTime.UtcNow.AddDays(-30);
+                var deleted = await db.Database.ExecuteSqlRawAsync(
+                    "DELETE TOP (20000) FROM dbo.SerilogLog WHERE [TimeStamp] < {0}", cutoff);
+                total += deleted;
+                if (deleted < 20000) break;
+            }
+
+            if (total > 0)
+                Log.Information("Retencja SerilogLog: usunięto {Count} wpisów starszych niż 30 dni", total);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Retencja SerilogLog nie powiodła się");
+        }
     }
 
     private static async Task LogErrorToDbAsync(IServiceProvider serviceProvider, string message, int? phase, string source)

@@ -1320,9 +1320,11 @@ public class Phase5DoseService : IPhaseService
         }
         if (ds.BoilerColdWarned) return;
         ds.BoilerColdWarned = true;
-        var text = $"kocioł {DoseLog.Number(run.Ctx.BoilerTemp, "0.0")} °C, nastawa {DoseLog.Number(run.Ctx.BoilerSetpoint, "0")} °C - od {p.DoseBoilerColdWarnMinutes} min poniżej nastawy − {p.DoseBoilerColdK:0.#} K " +
-                   $"(spaliny {DoseLog.Number(run.Ctx.FlueTemp, "0")} °C, dmuchawa {DoseLog.Number(run.Ctx.HeatingShare2hPct, "0")} % czasu). " +
-                   "Automat zostaje włączony (DoseBoilerColdMinutes = 0).";
+        var threshold = run.Ctx.BoilerSetpoint - p.DoseBoilerColdK;
+        var state = $"Kocioł {DoseLog.Number(run.Ctx.BoilerTemp, "0.0")} °C przy nastawie {DoseLog.Number(run.Ctx.BoilerSetpoint, "0")} °C, " +
+                    $"od {p.DoseBoilerColdWarnMinutes} min poniżej {DoseLog.Number(threshold, "0.#")} °C. " +
+                    $"Spaliny {DoseLog.Number(run.Ctx.FlueTemp, "0")} °C, dmuchawa {DoseLog.Number(run.Ctx.HeatingShare2hPct, "0")} % czasu w 2 h.";
+
         // Discord tylko przy zmianie na piecu (decyzja Pawła 2026-11-25): kocioł kręci się koło progu i bez tego
         // ostrzeżenie szło 3-5 razy na dobę przy tych samych nastawach. Dziennik dostaje wpis zawsze.
         var previous = await _repository.GetLastEntryAsync("KOCIOL_ZIMNY", ct);
@@ -1330,11 +1332,92 @@ public class Phase5DoseService : IPhaseService
         var unchanged = previous != null && c != null
             && previous.ControllerWork == c.Work && previous.ControllerPause == c.Pause
             && previous.ControllerBlower == c.Blower && previous.BoilerSetpoint == run.Ctx.BoilerSetpoint;
-        var entryText = unchanged ? $"Ostrzeżenie: {text} Bez Discorda: nastawy kotła bez zmian od poprzedniego ostrzeżenia." : $"Ostrzeżenie: {text}";
+
+        var lines = new List<string> { state };
+        if (previous != null && !unchanged)
+            lines.AddRange(await BoilerColdChangesAsync(previous, c, run.Ctx.BoilerSetpoint, ct));
+        if (c != null)
+            lines.Add($"Teraz: {c.Work} / {c.Pause} / {c.Blower}.");
+        var text = string.Join("\n", lines);
+
+        var entryText = unchanged
+            ? $"Ostrzeżenie: {state} Bez Discorda: nastawy kotła bez zmian od poprzedniego ostrzeżenia."
+            : $"Ostrzeżenie: {string.Join(" ", lines)}";
         run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "KOCIOL_ZIMNY", DoseLog.StatusWarning, entryText));
-        run.Notes.Add($"ostrzeżenie: {text}");
+        run.Notes.Add($"ostrzeżenie: {state}");
         if (!unchanged)
             await _notifier.NotifyAsync("HeatFlow: kocioł zimny", text, ct);
+    }
+
+    /// <summary>
+    /// „Co się zmieniło” od poprzedniego ostrzeżenia KOCIOL_ZIMNY: różnica nastaw z czego na co, a pod nią
+    /// zapisy HeatFlow po drodze (godzina, co, dlaczego). Różnica bez zapisów HeatFlow = zmiana spoza HeatFlow.
+    /// </summary>
+    private async Task<List<string>> BoilerColdChangesAsync(FeedChangeLog previous, ControllerFeedSettingsSnapshot? c,
+        double? setpoint, CancellationToken ct)
+    {
+        var lines = new List<string>();
+        var diff = new List<string>();
+        if (c != null)
+        {
+            if (previous.ControllerWork != c.Work) diff.Add(Change(DoseLog.Work, previous.ControllerWork, c.Work));
+            if (previous.ControllerPause != c.Pause) diff.Add(Change(DoseLog.Pause, previous.ControllerPause, c.Pause));
+            if (previous.ControllerBlower != c.Blower) diff.Add(Change(DoseLog.Blower, previous.ControllerBlower, c.Blower));
+        }
+        if (previous.BoilerSetpoint != setpoint)
+            diff.Add($"nastawa kotła {DoseLog.Number(previous.BoilerSetpoint, "0")} → {DoseLog.Number(setpoint, "0")} °C");
+        if (diff.Count == 0) return lines;
+
+        lines.Add($"Od {LocalTime(previous.TimestampUtc)}: {string.Join(", ", diff)}.");
+
+        var written = (await _repository.GetChangeLogAsync(200, ct))
+            .Where(e => e.Id > previous.Id && e.Status == DoseLog.StatusWritten
+                        && e.Parameter is DoseLog.Work or DoseLog.Pause or DoseLog.Blower)
+            .OrderBy(e => e.Id)
+            .GroupBy(e => e.TimestampUtc)
+            .ToList();
+        if (written.Count == 0)
+        {
+            lines.Add("HeatFlow tych nastaw nie zapisywał - zmiana spoza HeatFlow (panel kotła albo eCoal).");
+            return lines;
+        }
+
+        const int max = 6;
+        foreach (var g in written.TakeLast(max))
+        {
+            var what = string.Join(", ", g.Select(e => Change(e.Parameter, e.OldValue, e.NewValue)));
+            lines.Add($"• {LocalTime(g.Key)} {what} - {ShortWhy(g.First())}");
+        }
+        if (written.Count > max)
+            lines.Add($"(i {written.Count - max} wcześniejszych - pełna lista w dashboardzie „HeatFlow - zmiany kotła”)");
+        return lines;
+    }
+
+    /// <summary>Krótkie „dlaczego” do listy zmian w wiadomości.</summary>
+    private static string ShortWhy(FeedChangeLog e) => e.ReasonCode switch
+    {
+        "POGODA" => $"pogoda (Tz {DoseLog.Number(e.OutdoorSmoothed, "0.0")} °C)",
+        "SUFIT" => "kocioł nie nadąża (sufit)",
+        "TRYM_PODTRZYMANIA" => $"{e.StandbyEntries6h} wejścia w podtrzymanie w 6 h",
+        "TRYM_KOCIOL_PONIZEJ_NASTAWY" => $"kocioł poniżej nastawy, dmuchawa {DoseLog.Number(e.HeatingShare2hPct, "0")} % czasu",
+        "TRYM_DOM_POD_CELEM" => "dom pod celem",
+        "TRYM_DOM_NAD_CELEM" => "dom nad celem",
+        "SPALINY_200" or "SPALINY_185" => $"spaliny {DoseLog.Number(e.FlueTemp, "0")} °C",
+        "PRZYWROCENIE_NASTAW" => "przywrócenie nastaw",
+        DoseLog.ButtonCode => "przycisk „Ustaw sugerowane” w HA",
+        _ => e.ReasonCode
+    };
+
+    /// <summary>„postój 115 → 160 s”.</summary>
+    private static string Change(string parameter, double? oldValue, double? newValue)
+        => $"{DoseLog.ParameterName(parameter).ToLower(DoseLog.Pl)} {DoseLog.Number(oldValue)} → {DoseLog.Number(newValue)}{DoseLog.Unit(parameter)}";
+
+    private string LocalTime(DateTime utc)
+    {
+        var tz = _time.LocalTimeZone;
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);
+        var today = TimeZoneInfo.ConvertTimeFromUtc(_time.GetUtcNow().UtcDateTime, tz).Date;
+        return local.Date == today ? local.ToString("HH:mm", DoseLog.Pl) : local.ToString("dd.MM HH:mm", DoseLog.Pl);
     }
 
     private static SafetyIssue? ParametersReason(HeatingParameters p)

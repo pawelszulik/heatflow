@@ -187,7 +187,11 @@ public sealed class InMemoryDoseRepository : IDoseRepository
 
     public Task AddChangeLogAsync(IEnumerable<FeedChangeLog> entries, CancellationToken ct = default)
     {
-        Log.AddRange(entries);
+        foreach (var e in entries)
+        {
+            if (e.Id == 0) e.Id = Log.Count == 0 ? 1 : Log.Max(x => x.Id) + 1;
+            Log.Add(e);
+        }
         return Task.CompletedTask;
     }
 

@@ -513,6 +513,40 @@ public class Phase5DoseServiceTests
         Assert.Contains(_repo.Log, e => e.ReasonCode == "SAMOWYLACZENIE_KOCIOL_ZIMNY");
     }
 
+    [Fact]
+    public async Task BoilerCold_NextEpisode_SameControllerSettings_NoSecondDiscord()
+    {
+        // Decyzja Pawła 2026-11-25: kolejny epizod przy tych samych nastawach - tylko dziennik, bez Discorda.
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        MakeBoilerColdForLastHour();
+        await Run();
+
+        _repo.State!.BoilerColdWarned = false; // kocioł wyszedł na chwilę ponad próg - nowy epizod
+        await Run();
+
+        Assert.Equal(2, _repo.Log.Count(e => e.ReasonCode == "KOCIOL_ZIMNY"));
+        Assert.Contains(_repo.Log, e => e.ReasonCode == "KOCIOL_ZIMNY" && e.Message!.Contains("Bez Discorda"));
+        Assert.Single(_messages, m => m.Title == "HeatFlow: kocioł zimny");
+    }
+
+    [Fact]
+    public async Task BoilerCold_NextEpisode_ControllerSettingsChanged_SendsDiscordAgain()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        MakeBoilerColdForLastHour();
+        await Run();
+
+        _repo.State!.BoilerColdWarned = false;
+        _controller.Settings = new ControllerFeedSettings(9, 100, 34);
+        await Run();
+
+        Assert.Equal(2, _messages.Count(m => m.Title == "HeatFlow: kocioł zimny"));
+    }
+
     private void MakeBoilerColdForLastHour()
     {
         foreach (var s in _repo.Samples.Where(s => s.TimestampUtc > Now.AddHours(-1))) s.BoilerTemp = 55;
@@ -1327,6 +1361,9 @@ public class Phase5DoseServiceTests
 
         public Task<FeedChangeLog?> GetLastSuggestionNotificationAsync(CancellationToken ct = default)
             => Task.FromResult(Log.LastOrDefault(e => e.Parameter == "sugestia_discord"));
+
+        public Task<FeedChangeLog?> GetLastEntryAsync(string reasonCode, CancellationToken ct = default)
+            => Task.FromResult(Log.LastOrDefault(e => e.ReasonCode == reasonCode));
 
         public Task<FeedChangeLog> AddApplyRequestAsync(FeedChangeLog request, CancellationToken ct = default)
         {

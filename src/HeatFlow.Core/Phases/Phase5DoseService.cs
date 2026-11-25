@@ -1323,9 +1323,18 @@ public class Phase5DoseService : IPhaseService
         var text = $"kocioł {DoseLog.Number(run.Ctx.BoilerTemp, "0.0")} °C, nastawa {DoseLog.Number(run.Ctx.BoilerSetpoint, "0")} °C - od {p.DoseBoilerColdWarnMinutes} min poniżej nastawy − {p.DoseBoilerColdK:0.#} K " +
                    $"(spaliny {DoseLog.Number(run.Ctx.FlueTemp, "0")} °C, dmuchawa {DoseLog.Number(run.Ctx.HeatingShare2hPct, "0")} % czasu). " +
                    "Automat zostaje włączony (DoseBoilerColdMinutes = 0).";
-        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "KOCIOL_ZIMNY", DoseLog.StatusWarning, $"Ostrzeżenie: {text}"));
+        // Discord tylko przy zmianie na piecu (decyzja Pawła 2026-11-25): kocioł kręci się koło progu i bez tego
+        // ostrzeżenie szło 3-5 razy na dobę przy tych samych nastawach. Dziennik dostaje wpis zawsze.
+        var previous = await _repository.GetLastEntryAsync("KOCIOL_ZIMNY", ct);
+        var c = run.Ctx.Controller;
+        var unchanged = previous != null && c != null
+            && previous.ControllerWork == c.Work && previous.ControllerPause == c.Pause
+            && previous.ControllerBlower == c.Blower && previous.BoilerSetpoint == run.Ctx.BoilerSetpoint;
+        var entryText = unchanged ? $"Ostrzeżenie: {text} Bez Discorda: nastawy kotła bez zmian od poprzedniego ostrzeżenia." : $"Ostrzeżenie: {text}";
+        run.Entries.Add(DoseLog.Entry(run.Ctx, DoseLog.Automat, 1, 1, "KOCIOL_ZIMNY", DoseLog.StatusWarning, entryText));
         run.Notes.Add($"ostrzeżenie: {text}");
-        await _notifier.NotifyAsync("HeatFlow: kocioł zimny", text, ct);
+        if (!unchanged)
+            await _notifier.NotifyAsync("HeatFlow: kocioł zimny", text, ct);
     }
 
     private static SafetyIssue? ParametersReason(HeatingParameters p)

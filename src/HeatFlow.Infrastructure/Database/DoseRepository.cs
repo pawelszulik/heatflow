@@ -174,4 +174,12 @@ public class DoseRepository : IDoseRepository
             .OrderByDescending(e => e.Id)
             .FirstOrDefaultAsync(cancellationToken);
     }
+
+    public async Task<FeedChangeLog?> GetLastEntryAsync(string reasonCode, CancellationToken cancellationToken = default)
+    {
+        return await _context.FeedChangeLogs.AsNoTracking()
+            .Where(e => e.ReasonCode == reasonCode)
+            .OrderByDescending(e => e.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }

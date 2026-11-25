@@ -495,7 +495,8 @@ public class Phase5DoseServiceTests
         Assert.DoesNotContain(_repo.Log, e => e.ReasonCode == "PRZYWROCENIE_NASTAW" || e.ReasonCode.StartsWith("SAMOWYLACZENIE_"));
         var warning = Assert.Single(_repo.Log, e => e.Status == DoseLog.StatusWarning);
         Assert.Equal("KOCIOL_ZIMNY", warning.ReasonCode);
-        Assert.Contains("Automat zostaje włączony", warning.Message);
+        Assert.DoesNotContain("Automat zostaje", warning.Message);
+        Assert.Contains("Teraz: 9 / 110 / 33.", warning.Message);
         Assert.Single(_messages, m => m.Title == "HeatFlow: kocioł zimny");
     }
 
@@ -541,10 +542,44 @@ public class Phase5DoseServiceTests
         await Run();
 
         _repo.State!.BoilerColdWarned = false;
+        _repo.Log.RemoveAll(e => e.Status == DoseLog.StatusWritten);
+        await _repo.AddChangeLogAsync(new[]
+        {
+            new FeedChangeLog { TimestampUtc = Now, Parameter = DoseLog.Pause, OldValue = 110, NewValue = 100,
+                ReasonCode = "POGODA", Status = DoseLog.StatusWritten, OutdoorSmoothed = -5 },
+            new FeedChangeLog { TimestampUtc = Now, Parameter = DoseLog.Blower, OldValue = 33, NewValue = 34,
+                ReasonCode = "POGODA", Status = DoseLog.StatusWritten, OutdoorSmoothed = -5 }
+        });
         _controller.Settings = new ControllerFeedSettings(9, 100, 34);
         await Run();
 
-        Assert.Equal(2, _messages.Count(m => m.Title == "HeatFlow: kocioł zimny"));
+        var cold = _messages.Where(m => m.Title == "HeatFlow: kocioł zimny").ToList();
+        Assert.Equal(2, cold.Count);
+        var msg = cold[1].Message;
+        Assert.Contains("przy nastawie 67 °C, od 60 min poniżej 57 °C.", msg);
+        Assert.Contains(": postój 110 → 100 s, dmuchawa 33 → 34 %.", msg);
+        Assert.Contains("postój 110 → 100 s, dmuchawa 33 → 34 % - pogoda (Tz ", msg);
+        Assert.EndsWith("Teraz: 9 / 100 / 34.", msg);
+        Assert.DoesNotContain("spoza HeatFlow", msg);
+    }
+
+    [Fact]
+    public async Task BoilerCold_SettingsChangedOutsideHeatFlow_SaysSo()
+    {
+        _repo.Switch.Enabled = true;
+        _repo.State = ActiveState(saved: (7, 160, 35));
+        _controller.Settings = new ControllerFeedSettings(9, 110, 33);
+        MakeBoilerColdForLastHour();
+        await Run();
+
+        _repo.State!.BoilerColdWarned = false;
+        _repo.Log.RemoveAll(e => e.Status == DoseLog.StatusWritten);
+        _controller.Settings = new ControllerFeedSettings(9, 130, 33);
+        await Run();
+
+        var msg = _messages.Last(m => m.Title == "HeatFlow: kocioł zimny").Message;
+        Assert.Contains(": postój 110 → 130 s.", msg);
+        Assert.Contains("zmiana spoza HeatFlow (panel kotła albo eCoal)", msg);
     }
 
     private void MakeBoilerColdForLastHour()
@@ -1352,7 +1387,11 @@ public class Phase5DoseServiceTests
 
         public Task AddChangeLogAsync(IEnumerable<FeedChangeLog> entries, CancellationToken ct = default)
         {
-            Log.AddRange(entries);
+            foreach (var e in entries)
+            {
+                if (e.Id == 0) e.Id = Log.Count == 0 ? 1 : Log.Max(x => x.Id) + 1;
+                Log.Add(e);
+            }
             return Task.CompletedTask;
         }
 

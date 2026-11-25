@@ -41,6 +41,9 @@ public interface IDoseRepository
     /// <summary>Ostatni wpis „wysłano na Discord nową sugestię” (Parameter = sugestia_discord); Controller* = zgłoszone wartości.</summary>
     Task<FeedChangeLog?> GetLastSuggestionNotificationAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Ostatni wpis dziennika z podanym kodem powodu (np. KOCIOL_ZIMNY), od najnowszego. Null = brak.</summary>
+    Task<FeedChangeLog?> GetLastEntryAsync(string reasonCode, CancellationToken cancellationToken = default);
+
     // --- Przycisk „Ustaw sugerowane”: zlecenie to wpis dziennika ze statusem ZLECENIE (bez nowej tabeli
     // i bez migracji). API je dopisuje, Console (jedyny z dostępem do mappera) obsługuje w najbliższym przebiegu.
 
